@@ -1,0 +1,29 @@
+[model]
+name = "small"
+device = "mps"
+compute_type = "float16"
+auto_download = true
+
+[hotkey]
+mode = "ptt"
+key = "cmd+shift+space"
+
+[audio]
+sample_rate = 48000
+
+[audio.noise_suppression]
+enabled = true
+level = 2
+
+[vad]
+enabled = false
+aggressiveness = 1
+min_speech_ms = 200
+max_silence_ms = 600
+
+[output]
+clipboard = true
+
+[output.file]
+enabled = false
+path = "~/transcripts.txt"

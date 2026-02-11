@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whisper-local"
+version = "0.1.0"
+description = "Local real-time voice transcription TUI using Whisper"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "faster-whisper>=1.0.0",
+  "numpy>=1.24.0",
+  "pyobjc-framework-Quartz>=9.0",
+  "pyperclip>=1.8.2",
+  "sounddevice>=0.4.6",
+  "textual>=0.60.0",
+  "tomli-w>=1.0.0",
+]
+
+[project.optional-dependencies]
+vad = ["webrtcvad>=2.0.10"]
+
+[project.scripts]
+whisper-local = "whisper_local.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+whisper_local = ["default_config.toml"]

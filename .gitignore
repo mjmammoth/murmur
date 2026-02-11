@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+build/
+dist/
+.venv/
+.env/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.DS_Store
+logs/
+*.log
+
+# Model caches
+.cache/huggingface/
+.cache/ctranslate2/

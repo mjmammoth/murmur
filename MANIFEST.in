@@ -1,0 +1,3 @@
+include README.md
+include src/whisper_local/default_config.toml
+include configs/default.toml
