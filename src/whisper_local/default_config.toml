@@ -1,7 +1,7 @@
 [model]
 name = "small"
-device = "mps"
-compute_type = "float16"
+device = "cpu"
+compute_type = "int8"
 auto_download = true
 
 [hotkey]
@@ -27,3 +27,7 @@ clipboard = true
 [output.file]
 enabled = false
 path = "~/transcripts.txt"
+
+[bridge]
+host = "localhost"
+port = 7878

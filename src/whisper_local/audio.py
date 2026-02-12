@@ -58,6 +58,9 @@ def _flatten_frames(frames: Iterable[np.ndarray], channels: int) -> np.ndarray:
     if not frames:
         return np.empty(0, dtype=np.float32)
     audio = np.concatenate(list(frames), axis=0)
-    if channels > 1:
-        audio = audio[:, 0]
+    if audio.ndim > 1:
+        if channels > 1:
+            audio = audio[:, 0]
+        else:
+            audio = audio.reshape(-1)
     return audio.astype(np.float32, copy=False)

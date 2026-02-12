@@ -4,6 +4,7 @@ import logging
 import threading
 from dataclasses import dataclass
 
+from AppKit import NSEvent
 from Quartz import (
     CFRunLoopAddSource,
     CFRunLoopGetCurrent,
@@ -27,6 +28,11 @@ from Quartz import (
     kCGSessionEventTap,
     kCFRunLoopCommonModes,
 )
+
+# macOS NX_SYSDEFINED event type for media/special keys.
+# When "Use F1, F2, etc. keys as standard function keys" is OFF (the default),
+# pressing F7 sends a media key event (NX_SYSDEFINED) instead of kCGEventKeyDown.
+NX_SYSDEFINED = 14
 
 
 logger = logging.getLogger(__name__)
@@ -83,6 +89,36 @@ KEYCODES = {
     "return": 36,
     "tab": 48,
     "escape": 53,
+    "f1": 122,
+    "f2": 120,
+    "f3": 99,
+    "f4": 118,
+    "f5": 96,
+    "f6": 97,
+    "f7": 98,
+    "f8": 100,
+    "f9": 101,
+    "f10": 109,
+    "f11": 103,
+    "f12": 111,
+}
+
+# Map macOS media key types (NX_KEYTYPE_*) to F-key keycodes.
+# These correspond to the default media functions printed on Apple keyboards.
+MEDIA_KEY_TO_FKEY_KEYCODE = {
+    3: 122,   # Brightness Down → F1
+    2: 120,   # Brightness Up → F2
+    # F3 (Mission Control) and F4 (Launchpad) use different event mechanisms
+    22: 96,   # Illumination Down → F5
+    21: 97,   # Illumination Up → F6
+    18: 98,   # Previous Track → F7
+    20: 98,   # Rewind (long-press) → F7
+    16: 100,  # Play/Pause → F8
+    17: 101,  # Next Track → F9
+    19: 101,  # Fast Forward (long-press) → F9
+    7: 109,   # Mute → F10
+    1: 103,   # Volume Down → F11
+    0: 111,   # Volume Up → F12
 }
 
 
@@ -134,7 +170,11 @@ class HotkeyListener:
         self._thread = None
 
     def _run(self) -> None:
-        event_mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp)
+        event_mask = (
+            CGEventMaskBit(kCGEventKeyDown)
+            | CGEventMaskBit(kCGEventKeyUp)
+            | CGEventMaskBit(NX_SYSDEFINED)
+        )
         self._tap = CGEventTapCreate(
             kCGSessionEventTap,
             kCGHeadInsertEventTap,
@@ -154,6 +194,9 @@ class HotkeyListener:
         CFRunLoopRun()
 
     def _callback(self, proxy, event_type, event, refcon):
+        if event_type == NX_SYSDEFINED:
+            return self._handle_media_key(event)
+
         if event_type not in (kCGEventKeyDown, kCGEventKeyUp):
             return event
         keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
@@ -169,4 +212,35 @@ class HotkeyListener:
         elif event_type == kCGEventKeyUp and self._pressed:
             self._pressed = False
             self.on_release()
-        return event
+        # Return None to swallow the event and prevent it reaching the terminal/other apps
+        return None
+
+    def _handle_media_key(self, event):
+        """Handle NX_SYSDEFINED media key events (F-keys without fn held)."""
+        try:
+            ns_event = NSEvent.eventWithCGEvent_(event)
+            if ns_event is None or ns_event.subtype() != 8:
+                return event
+
+            data1 = ns_event.data1()
+            media_key = (data1 >> 16) & 0xFF
+            key_state = (data1 >> 8) & 0xFF
+            is_down = (key_state & 0x1) == 0  # even = down, odd = up
+
+            keycode = MEDIA_KEY_TO_FKEY_KEYCODE.get(media_key)
+            if keycode is None or keycode != self.hotkey.keycode:
+                return event
+
+            # Media keys carry no modifiers, so only match hotkeys without modifiers
+            if self.hotkey.modifiers != 0:
+                return event
+
+            if is_down and not self._pressed:
+                self._pressed = True
+                self.on_press()
+            elif not is_down and self._pressed:
+                self._pressed = False
+                self.on_release()
+            return None  # Swallow the event
+        except Exception:
+            return event

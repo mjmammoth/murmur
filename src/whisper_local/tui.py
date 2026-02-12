@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from time import monotonic
 from typing import Optional
 
 from textual.app import App, ComposeResult
@@ -15,7 +16,10 @@ from whisper_local.config import AppConfig, default_config_path, load_config, sa
 from whisper_local.hotkey import HotkeyListener
 from whisper_local.model_manager import (
     download_model,
+    ensure_model_available,
+    is_model_installed,
     list_installed_models,
+    model_cache_size_bytes,
     set_default_model,
 )
 from whisper_local.noise import RNNoiseSuppressor
@@ -25,6 +29,7 @@ from whisper_local.vad import VadProcessor
 
 
 logger = logging.getLogger(__name__)
+SPINNER_FRAMES = ("|", "/", "-", "\\")
 
 
 @dataclass
@@ -84,14 +89,14 @@ class ModelManagerScreen(Screen):
         if not model:
             return
         self._set_status(f"Downloading {model}...")
-        self.run_worker(self._download_model, model, thread=True)
+        self.run_worker(lambda: self._download_model(model), thread=True)
 
     def action_remove(self) -> None:
         model = self._selected_model()
         if not model:
             return
         self._set_status(f"Removing {model}...")
-        self.run_worker(self._remove_model, model, thread=True)
+        self.run_worker(lambda: self._remove_model(model), thread=True)
 
     def action_set_default(self) -> None:
         model = self._selected_model()
@@ -193,6 +198,15 @@ class WhisperApp(App):
         self._recording = False
         self._auto_copy = False
         self._entries: list[TranscriptEntry] = []
+        self._status_message = "Initializing..."
+        self._busy_operation = False
+        self._busy_started_at = monotonic()
+        self._busy_hint: str | None = None
+        self._spinner_index = 0
+        self._download_model_name: str | None = None
+        self._download_size_checked_at = 0.0
+        self._download_size_display = ""
+        self._hotkey_started = False
 
     def compose(self) -> ComposeResult:
         yield Static(id="status")
@@ -200,12 +214,13 @@ class WhisperApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self._update_status("Loading model...")
+        self.set_interval(0.2, self._tick_status)
+        self._set_busy_status("Initializing startup...")
         self.run_worker(self._load_model, thread=True)
-        self.hotkey.start()
 
     def on_unmount(self) -> None:
-        self.hotkey.stop()
+        if self._hotkey_started:
+            self.hotkey.stop()
         self.noise.close()
 
     def action_models(self) -> None:
@@ -213,41 +228,41 @@ class WhisperApp(App):
 
     def action_settings(self) -> None:
         config_path = default_config_path()
-        self._update_status(f"Edit settings in {config_path}")
+        self._set_status(f"Edit settings in {config_path}")
 
     def action_toggle_auto_copy(self) -> None:
         self._auto_copy = not self._auto_copy
         state = "on" if self._auto_copy else "off"
-        self._update_status(f"Auto copy {state}")
+        self._set_status(f"Auto copy {state}")
 
     def action_toggle_noise(self) -> None:
         self.config.audio.noise_suppression.enabled = not self.config.audio.noise_suppression.enabled
         self.noise = RNNoiseSuppressor(enabled=self.config.audio.noise_suppression.enabled)
         save_config(self.config)
         state = "on" if self.config.audio.noise_suppression.enabled else "off"
-        self._update_status(f"Noise suppression {state}")
+        self._set_status(f"Noise suppression {state}")
 
     def action_toggle_vad(self) -> None:
         self.config.vad.enabled = not self.config.vad.enabled
         self.vad = VadProcessor(enabled=self.config.vad.enabled, aggressiveness=self.config.vad.aggressiveness)
         save_config(self.config)
         state = "on" if self.config.vad.enabled else "off"
-        self._update_status(f"VAD {state}")
+        self._set_status(f"VAD {state}")
 
     def action_copy_latest(self) -> None:
         if not self._entries:
-            self._update_status("No transcripts yet")
+            self._set_status("No transcripts yet")
             return
         latest = self._entries[-1]
         copy_to_clipboard(latest.text)
-        self._update_status("Copied latest transcript")
+        self._set_status("Copied latest transcript")
 
     def action_copy_selected(self) -> None:
         list_view = self.query_one("#history", ListView)
         item = list_view.get_highlighted() if hasattr(list_view, "get_highlighted") else list_view.highlighted_child
         if isinstance(item, TranscriptItem):
             copy_to_clipboard(item.entry.text)
-            self._update_status("Copied selected transcript")
+            self._set_status("Copied selected transcript")
 
     def _handle_hotkey_press(self) -> None:
         self.call_from_thread(self._on_hotkey_press)
@@ -273,19 +288,19 @@ class WhisperApp(App):
             return
         self.recorder.start()
         self._recording = True
-        self._update_status("Recording...")
+        self._set_status("Recording...")
 
     def _stop_recording(self) -> None:
         if not self._recording:
             return
         audio = self.recorder.stop()
         self._recording = False
-        self._update_status("Transcribing...")
-        self.run_worker(self._process_audio, audio, thread=True)
+        self._set_busy_status("Transcribing...")
+        self.run_worker(lambda: self._process_audio(audio), thread=True)
 
     def _process_audio(self, audio) -> None:
         if audio.size == 0:
-            self.call_from_thread(self._update_status, "No audio captured")
+            self.call_from_thread(self._set_status, "No audio captured")
             return
         noise_result = self.noise.process(audio, self.config.audio.sample_rate)
         audio = noise_result.audio
@@ -299,13 +314,13 @@ class WhisperApp(App):
                 language=self.config.model.language,
             )
         except Exception as exc:  # pragma: no cover - runtime dependent
-            self.call_from_thread(self._update_status, f"Transcription failed: {exc}")
+            self.call_from_thread(self._set_error_status, f"Transcription failed: {exc}")
             return
         self.call_from_thread(self._handle_transcript, result.text)
 
     def _handle_transcript(self, text: str) -> None:
         if not text:
-            self._update_status("No speech detected")
+            self._set_status("No speech detected")
             return
         timestamp = datetime.now().strftime("%H:%M:%S")
         entry = TranscriptEntry(timestamp=timestamp, text=text)
@@ -318,22 +333,110 @@ class WhisperApp(App):
             copy_to_clipboard(text)
         if self.config.output.file.enabled:
             append_to_file(self.config.output.file.path, text)
-        self._update_status("Ready")
+        self._set_ready_status("Ready")
 
     def _load_model(self) -> None:
-        if not self.config.model.auto_download and not self.config.model.path:
-            installed = {model.name: model.installed for model in list_installed_models()}
-            if not installed.get(self.config.model.name, False):
-                self.call_from_thread(
-                    self._update_status,
-                    f"Model {self.config.model.name} not installed. Use models pull.",
-                )
-                return
         try:
+            if self.config.model.path:
+                self.call_from_thread(self._set_busy_status, "Loading local model...")
+            else:
+                installed = is_model_installed(self.config.model.name)
+                if not installed and not self.config.model.auto_download:
+                    self.call_from_thread(
+                        self._set_error_status,
+                        f"Model {self.config.model.name} is not installed. Run `whisper-local models pull {self.config.model.name}`.",
+                    )
+                    return
+                if self.config.model.auto_download:
+                    self.call_from_thread(
+                        self._set_busy_status,
+                        (
+                            f"Model {self.config.model.name} not found locally. Downloading (first run)..."
+                            if not installed
+                            else f"Verifying local model {self.config.model.name}..."
+                        ),
+                        "This can take a few minutes on first run.",
+                    )
+                    self._download_model_name = self.config.model.name
+                    self._download_size_checked_at = 0.0
+                    self._download_size_display = ""
+                    try:
+                        model_path = ensure_model_available(self.config.model.name)
+                    except Exception as exc:
+                        self.call_from_thread(
+                            self._set_error_status,
+                            "Model download failed. Check your network, then retry or run "
+                            f"`whisper-local models pull {self.config.model.name}`. ({exc})",
+                        )
+                        return
+                    finally:
+                        self._download_model_name = None
+                        self._download_size_display = ""
+                    self.transcriber.model_path = str(model_path)
+                    self.call_from_thread(self._set_busy_status, "Model files ready. Loading model...")
+                else:
+                    self.call_from_thread(self._set_busy_status, "Loading model...")
+
             self.transcriber.load()
-            self.call_from_thread(self._update_status, "Ready")
+            self.call_from_thread(self._set_ready_status, "Ready")
         except Exception as exc:  # pragma: no cover - runtime dependent
-            self.call_from_thread(self._update_status, f"Model load failed: {exc}")
+            self.call_from_thread(
+                self._set_error_status,
+                f"Model load failed: {exc}. You can prefetch with `whisper-local models pull {self.config.model.name}`.",
+            )
+
+    def _set_ready_status(self, message: str = "Ready") -> None:
+        self._busy_operation = False
+        self._busy_hint = None
+        self._status_message = message
+        if not self._hotkey_started:
+            self.hotkey.start()
+            self._hotkey_started = True
+        self._render_status()
+
+    def _set_status(self, message: str) -> None:
+        self._busy_operation = False
+        self._busy_hint = None
+        self._status_message = message
+        self._render_status()
+
+    def _set_busy_status(self, message: str, hint: str | None = None) -> None:
+        self._busy_operation = True
+        self._busy_started_at = monotonic()
+        self._status_message = message
+        self._busy_hint = hint
+        self._render_status()
+
+    def _set_error_status(self, message: str) -> None:
+        self._busy_operation = False
+        self._busy_hint = None
+        self._status_message = f"Error: {message}"
+        self._render_status()
+
+    def _tick_status(self) -> None:
+        self._spinner_index = (self._spinner_index + 1) % len(SPINNER_FRAMES)
+        if self._busy_operation:
+            self._render_status()
+
+    def _render_status(self) -> None:
+        message = self._status_message
+        if self._busy_operation:
+            elapsed = int(monotonic() - self._busy_started_at)
+            spinner = SPINNER_FRAMES[self._spinner_index]
+            message = f"{spinner} {message} ({elapsed}s)"
+            if self._busy_hint:
+                message = f"{message} {self._busy_hint}"
+            if self._download_model_name:
+                now = monotonic()
+                if now - self._download_size_checked_at >= 1.0:
+                    size = model_cache_size_bytes(self._download_model_name)
+                    self._download_size_display = (
+                        f"Downloaded ~{_format_bytes(size)}" if size > 0 else ""
+                    )
+                    self._download_size_checked_at = now
+                if self._download_size_display:
+                    message = f"{message} {self._download_size_display}"
+        self._update_status(message)
 
     def _update_status(self, message: str) -> None:
         status = self.query_one("#status", Static)
@@ -346,6 +449,19 @@ class WhisperApp(App):
             f"{message} | model: {self.config.model.name} | hotkey: {hotkey} "
             f"| noise: {noise_state} | vad: {vad_state}"
         )
+
+
+def _format_bytes(size: int) -> str:
+    units = ["B", "KB", "MB", "GB"]
+    value = float(size)
+    unit = units[0]
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            break
+        value /= 1024
+    if unit == "B":
+        return f"{int(value)} {unit}"
+    return f"{value:.1f} {unit}"
 
 
 def run_app(config: AppConfig | None = None) -> None:

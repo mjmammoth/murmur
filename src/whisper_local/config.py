@@ -12,8 +12,8 @@ import tomli_w
 @dataclass
 class ModelConfig:
     name: str = "small"
-    device: str = "mps"
-    compute_type: str = "float16"
+    device: str = "cpu"
+    compute_type: str = "int8"
     auto_download: bool = True
     path: str | None = None
     language: str | None = None
@@ -22,8 +22,8 @@ class ModelConfig:
     def from_dict(cls, data: dict[str, Any]) -> "ModelConfig":
         return cls(
             name=data.get("name", "small"),
-            device=data.get("device", "mps"),
-            compute_type=data.get("compute_type", "float16"),
+            device=data.get("device", "cpu"),
+            compute_type=data.get("compute_type", "int8"),
             auto_download=data.get("auto_download", True),
             path=data.get("path"),
             language=data.get("language"),

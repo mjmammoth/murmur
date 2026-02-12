@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import shutil
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 
 from whisper_local.config import load_config
@@ -11,17 +17,28 @@ from whisper_local.model_manager import (
     remove_model,
     set_default_model,
 )
-from whisper_local.tui import run_app
 
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="whisper-local")
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser("run", help="Start the TUI")
+    run_parser = subparsers.add_parser("run", help="Start the TUI (bridge + TypeScript frontend)")
+    run_parser.add_argument("--host", default="localhost", help="Bridge host")
+    run_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    run_parser.add_argument("--legacy", action="store_true", help="Use legacy Textual TUI")
+
+    bridge_parser = subparsers.add_parser("bridge", help="Start only the WebSocket bridge server")
+    bridge_parser.add_argument("--host", default="localhost", help="Bridge host")
+    bridge_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+
+    tui_parser = subparsers.add_parser("tui", help="Start only the TypeScript TUI (requires bridge)")
+    tui_parser.add_argument("--host", default="localhost", help="Bridge host")
+    tui_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
 
     models_parser = subparsers.add_parser("models", help="Manage models")
     models_sub = models_parser.add_subparsers(dest="models_command")
@@ -42,12 +59,137 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _get_tui_path() -> Path:
+    """Get path to the tui directory."""
+    # First check relative to the package
+    pkg_dir = Path(__file__).parent.parent.parent.parent
+    tui_path = pkg_dir / "tui"
+    if tui_path.exists():
+        return tui_path
+    # Fallback to cwd
+    cwd_tui = Path.cwd() / "tui"
+    if cwd_tui.exists():
+        return cwd_tui
+    raise FileNotFoundError("Cannot find tui directory. Make sure you're in the project root.")
+
+
+def _check_bun() -> bool:
+    """Check if bun is installed."""
+    return shutil.which("bun") is not None
+
+
+def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
+    """Run the bridge server."""
+    from whisper_local.bridge import run_bridge
+    config = load_config()
+    run_bridge(config, host, port, capture_logs=capture_logs)
+
+
+def _run_tui(host: str, port: int) -> subprocess.Popen:
+    """Start the TypeScript TUI."""
+    tui_path = _get_tui_path()
+    # Run from tui directory so bunfig.toml is picked up for the OpenTUI plugin
+    cmd = ["bun", "src/index.tsx", "--host", host, "--port", str(port)]
+    return subprocess.Popen(cmd, cwd=str(tui_path))
+
+
+def _run_combined(host: str, port: int) -> None:
+    """Run both bridge and TUI together."""
+    if not _check_bun():
+        print("Error: bun is not installed. Install it with: curl -fsSL https://bun.sh/install | bash")
+        sys.exit(1)
+
+    # Validate config early, before we suppress stderr
+    try:
+        config = load_config()
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        sys.exit(1)
+
+    # Capture the real stderr before redirecting, so we can restore it on fatal errors
+    real_stderr = sys.stderr
+
+    # Suppress all stderr/stdout from the bridge thread - the TUI owns the terminal.
+    # Logs are routed through WebSocket and displayed in the TUI's log panel.
+    logging.getLogger().handlers.clear()
+    logging.getLogger().addHandler(logging.NullHandler())
+
+    # Redirect Python's stderr to devnull so stray prints don't corrupt the TUI
+    devnull = open(os.devnull, "w")
+    sys.stderr = devnull
+
+    # Track bridge errors
+    bridge_error: list[Exception] = []
+
+    def _bridge_target() -> None:
+        try:
+            from whisper_local.bridge import run_bridge
+            run_bridge(config, host, port, capture_logs=True)
+        except Exception as e:
+            bridge_error.append(e)
+
+    # Start bridge in a thread with log capture enabled
+    bridge_thread = threading.Thread(target=_bridge_target, daemon=True)
+    bridge_thread.start()
+
+    # Wait for bridge to start, checking for early failures
+    time.sleep(0.5)
+
+    if bridge_error:
+        sys.stderr = real_stderr
+        print(f"Bridge failed to start: {bridge_error[0]}", file=real_stderr)
+        sys.exit(1)
+
+    # Start TUI
+    try:
+        tui_process = _run_tui(host, port)
+        tui_process.wait()
+    except KeyboardInterrupt:
+        pass
+    except FileNotFoundError as e:
+        sys.stderr = real_stderr
+        print(f"Error: {e}", file=real_stderr)
+        print("Make sure you're running from the project root directory.", file=real_stderr)
+        sys.exit(1)
+    finally:
+        sys.stderr = real_stderr
+        devnull.close()
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.command in (None, "run"):
-        run_app()
+    if args.command is None or args.command == "run":
+        host = getattr(args, "host", "localhost")
+        port = getattr(args, "port", 7878)
+        legacy = getattr(args, "legacy", False)
+
+        if legacy:
+            # Use legacy Textual TUI
+            from whisper_local.tui import run_app
+            run_app()
+        else:
+            # Use new TypeScript TUI
+            _run_combined(host, port)
+        return
+
+    if args.command == "bridge":
+        _run_bridge(args.host, args.port)
+        return
+
+    if args.command == "tui":
+        if not _check_bun():
+            print("Error: bun is not installed. Install it with: curl -fsSL https://bun.sh/install | bash")
+            sys.exit(1)
+        try:
+            tui_process = _run_tui(args.host, args.port)
+            tui_process.wait()
+        except KeyboardInterrupt:
+            pass
+        except FileNotFoundError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
         return
 
     if args.command == "models":
@@ -82,3 +224,7 @@ def main() -> None:
         return
 
     parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

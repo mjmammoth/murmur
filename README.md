@@ -19,7 +19,12 @@ python -m pip install whisper-local
 ```bash
 brew install --cask rnnoise
 ```
-If RNNoise is not found, the app will continue without noise suppression.
+For Python runtime integration, also install:
+```bash
+python -m pip install "whisper-local[rnnoise]"
+```
+The Homebrew cask provides Audio Unit/VST plugins; those are not always directly loadable via ctypes.
+If RNNoise still is not available, the app continues without noise suppression.
 
 ## Run
 ```bash
@@ -32,13 +37,16 @@ Global hotkeys require Input Monitoring permission for your terminal or app host
 ## Hotkey
 Default hotkey is `cmd+shift+space`. Configure it in the config file:
 `~/.config/whisper-local/config.toml`
-Supported keys: letters, digits, space, return, tab, escape.
+Supported keys: letters, digits, space, return, tab, escape, and function keys `f1`-`f12`.
 
 ## Model downloading
 Models download automatically on first run. You can prefetch models:
 ```bash
 whisper-local models pull small
 ```
+
+## Runtime device
+`faster-whisper` currently runs on CPU/CUDA. If config is set to `mps`, whisper.local falls back to CPU automatically.
 
 ## Configuration
 Defaults live in `configs/default.toml`. The app reads overrides from:
