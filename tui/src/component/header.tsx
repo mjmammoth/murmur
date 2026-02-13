@@ -35,7 +35,7 @@ export function Header(): JSX.Element {
   return (
     <box
       paddingX={2}
-      paddingTop={1}
+      paddingTop={0}
       paddingBottom={0}
     >
       <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">

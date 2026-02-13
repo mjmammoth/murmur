@@ -183,8 +183,8 @@ export function Home(): JSX.Element {
         flexDirection="row"
         flexGrow={1}
         height="100%"
-        paddingTop={2}
-        paddingBottom={2}
+        paddingTop={1}
+        paddingBottom={1}
         paddingLeft={2}
         paddingRight={2}
       >
