@@ -1,7 +1,22 @@
-import { For, Show, type JSX } from "solid-js";
+import { For, Show, createMemo, type JSX } from "solid-js";
+import { useKeyHandler } from "@opentui/solid";
+import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
 import type { LogEntry } from "../types";
+
+export const LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
+export type LogLevelName = (typeof LOG_LEVELS)[number];
+
+interface LogPanelProps {
+  minLevel: LogLevelName;
+  active: boolean;
+}
+
+function levelRank(level: string): number {
+  const idx = LOG_LEVELS.indexOf(level.toUpperCase() as LogLevelName);
+  return idx >= 0 ? idx : 1;
+}
 
 function levelColor(level: string, colors: ReturnType<ReturnType<typeof useTheme>["colors"]>): string {
   switch (level.toUpperCase()) {
@@ -30,9 +45,61 @@ function levelTag(level: string): string {
   }
 }
 
-export function LogPanel(): JSX.Element {
+function normalizeLogLines(message: string): string[] {
+  const withoutAnsi = message.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+  const normalizedNewlines = withoutAnsi.replace(/\r\n?/g, "\n");
+  const withoutControls = normalizedNewlines.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+  const lines = withoutControls
+    .split("\n")
+    .map((line) => line.replace(/\t/g, "  ").trimEnd());
+
+  if (lines.length === 0) return [""];
+  if (lines.every((line) => line.length === 0)) return [""];
+  return lines;
+}
+
+export function LogPanel(props: LogPanelProps): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();
+  let logScroll: ScrollBoxRenderable | undefined;
+
+  useKeyHandler((key: KeyEvent) => {
+    if (!props.active || !logScroll || logScroll.isDestroyed) return;
+
+    switch (key.name) {
+      case "up":
+      case "k":
+        key.preventDefault();
+        logScroll.scrollBy(-1, "step");
+        break;
+      case "down":
+      case "j":
+        key.preventDefault();
+        logScroll.scrollBy(1, "step");
+        break;
+      case "pageup":
+        key.preventDefault();
+        logScroll.scrollBy(-1, "viewport");
+        break;
+      case "pagedown":
+        key.preventDefault();
+        logScroll.scrollBy(1, "viewport");
+        break;
+      case "home":
+        key.preventDefault();
+        logScroll.scrollTo(0);
+        break;
+      case "end":
+        key.preventDefault();
+        logScroll.scrollTo(logScroll.scrollHeight);
+        break;
+    }
+  });
+
+  const filteredLogs = createMemo(() => {
+    const minRank = levelRank(props.minLevel);
+    return backend.logs().filter((entry) => levelRank(entry.level) >= minRank);
+  });
 
   return (
     <box
@@ -45,28 +112,62 @@ export function LogPanel(): JSX.Element {
         <text>
           <span style={{ fg: colors().secondary }}>■</span>
           <span style={{ fg: colors().primary }}> Logs</span>
-          <span style={{ fg: colors().textMuted }}> / {backend.logs().length} entries</span>
+          <span style={{ fg: colors().textMuted }}>
+            {" "}/ {filteredLogs().length}/{backend.logs().length} entries
+          </span>
+          <span style={{ fg: colors().textMuted }}> / level </span>
+          <span style={{ fg: levelColor(props.minLevel, colors()) }}>{props.minLevel}</span>
+          <span style={{ fg: colors().textMuted }}> / </span>
+          <span style={{ fg: props.active ? colors().secondary : colors().textDim }}>
+            {props.active ? "active" : "inactive"}
+          </span>
         </text>
       </box>
 
-      <scrollbox flexGrow={1} stickyScroll stickyStart="bottom" paddingX={1}>
+      <scrollbox
+        flexGrow={1}
+        paddingX={1}
+        ref={(r) => {
+          logScroll = r;
+        }}
+      >
         <box flexDirection="column">
-          <Show when={backend.logs().length === 0}>
+          <Show when={filteredLogs().length === 0}>
             <box paddingY={1} paddingX={1}>
-              <text fg={colors().textMuted}>No log entries yet</text>
+              <text fg={colors().textMuted}>No log entries at this level</text>
             </box>
           </Show>
-          <For each={backend.logs()}>
-            {(entry: LogEntry) => (
-              <box flexDirection="row" width="100%" paddingX={1}>
-                <text>
-                  <span style={{ fg: colors().textDim }}>{entry.timestamp} </span>
-                  <span style={{ fg: levelColor(entry.level, colors()) }}>{levelTag(entry.level)} </span>
-                  <span style={{ fg: colors().textDim }}>{entry.source}: </span>
-                  <span style={{ fg: colors().text }}>{entry.message}</span>
-                </text>
-              </box>
-            )}
+          <For each={filteredLogs()}>
+            {(entry: LogEntry, index) => {
+              const lines = normalizeLogLines(entry.message);
+              const rowBackground = () =>
+                index() % 2 === 0 ? colors().backgroundPanel : colors().backgroundElement;
+
+              return (
+                <box
+                  flexDirection="column"
+                  width="100%"
+                  paddingX={1}
+                  paddingY={1}
+                  backgroundColor={rowBackground()}
+                >
+                  <text>
+                    <span style={{ fg: colors().textDim }}>{entry.timestamp} </span>
+                    <span style={{ fg: levelColor(entry.level, colors()) }}>{levelTag(entry.level)} </span>
+                    <span style={{ fg: colors().textDim }}>{entry.source}</span>
+                  </text>
+                  <For each={lines}>
+                    {(line) => (
+                      <box paddingLeft={2}>
+                        <text>
+                          <span style={{ fg: colors().text }}>{line || " "}</span>
+                        </text>
+                      </box>
+                    )}
+                  </For>
+                </box>
+              );
+            }}
           </For>
         </box>
       </scrollbox>
@@ -74,7 +175,13 @@ export function LogPanel(): JSX.Element {
       <box paddingX={2} paddingY={1}>
         <text>
           <span style={{ fg: colors().text }}>l</span>
-          <span style={{ fg: colors().textMuted }}> close</span>
+          <span style={{ fg: colors().textMuted }}> close </span>
+          <span style={{ fg: colors().text }}>tab</span>
+          <span style={{ fg: colors().textMuted }}> focus </span>
+          <span style={{ fg: colors().text }}>↑/↓ j/k</span>
+          <span style={{ fg: colors().textMuted }}> scroll </span>
+          <span style={{ fg: colors().text }}>←/→</span>
+          <span style={{ fg: colors().textMuted }}> level</span>
         </text>
       </box>
     </box>

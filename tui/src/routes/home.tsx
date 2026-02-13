@@ -12,7 +12,7 @@ import { TranscriptList } from "../component/transcript-list";
 import { ToastContainer } from "../component/toast";
 import { ModelManager } from "../component/model-manager";
 import { Settings } from "../component/settings";
-import { LogPanel } from "../component/log-panel";
+import { LOG_LEVELS, LogPanel } from "../component/log-panel";
 
 export function Home(): JSX.Element {
   const { colors } = useTheme();
@@ -21,15 +21,59 @@ export function Home(): JSX.Element {
   const dialog = useDialog();
   const toast = useToast();
   const [showLogs, setShowLogs] = createSignal(false);
+  const [activePane, setActivePane] = createSignal<"main" | "logs">("main");
+  const [logLevelIndex, setLogLevelIndex] = createSignal(1);
 
   useKeyHandler((key: KeyEvent) => {
+    if (key.ctrl && key.name === "c") {
+      process.exit(0);
+      return;
+    }
+
     // Log panel toggle works even with dialogs open
     if (key.name === "l" && !dialog.isOpen()) {
-      setShowLogs((prev) => !prev);
+      setShowLogs((prev) => {
+        const next = !prev;
+        setActivePane(next ? "logs" : "main");
+        return next;
+      });
+      return;
+    }
+
+    if (key.name === "escape" && showLogs() && !dialog.isOpen()) {
+      setShowLogs(false);
+      setActivePane("main");
+      return;
+    }
+
+    if (key.name === "tab" && showLogs() && !dialog.isOpen()) {
+      key.preventDefault();
+      setActivePane((pane) => (pane === "main" ? "logs" : "main"));
+      return;
+    }
+
+    if (
+      showLogs() &&
+      activePane() === "logs" &&
+      !dialog.isOpen() &&
+      (key.name === "left" || key.name === "right")
+    ) {
+      key.preventDefault();
+      if (key.name === "left") {
+        setLogLevelIndex((idx) => Math.max(0, idx - 1));
+      } else {
+        setLogLevelIndex((idx) => Math.min(LOG_LEVELS.length - 1, idx + 1));
+      }
       return;
     }
 
     if (dialog.isOpen()) return;
+
+    if (showLogs() && activePane() === "logs") {
+      if (key.name === "up" || key.name === "down" || key.name === "j" || key.name === "k") {
+        return;
+      }
+    }
 
     const keyName = key.name;
 
@@ -94,19 +138,57 @@ export function Home(): JSX.Element {
       width="100%"
       height="100%"
       backgroundColor={colors().background}
-      padding={2}
-      gap={2}
     >
-      <box flexDirection="column" flexGrow={1} height="100%" gap={2}>
-        <Header />
-        <TranscriptList />
-        <Footer />
-        <ToastContainer />
+      <box
+        flexDirection="row"
+        flexGrow={1}
+        height="100%"
+        paddingTop={2}
+        paddingBottom={2}
+        paddingLeft={2}
+        paddingRight={2}
+      >
+        <Show when={showLogs()}>
+          <box
+            width={1}
+            borderStyle="single"
+            border={["left"]}
+            borderColor={activePane() === "main" ? colors().secondary : colors().borderSubtle}
+          />
+        </Show>
+        <box
+          flexDirection="column"
+          flexGrow={1}
+          height="100%"
+          paddingLeft={showLogs() ? 1 : 0}
+          gap={2}
+        >
+          <Header />
+          <TranscriptList />
+          <Footer />
+          <ToastContainer />
+        </box>
       </box>
 
       <Show when={showLogs()}>
-        <box width="42%" height="100%">
-          <LogPanel />
+        <box
+          width="42%"
+          height="100%"
+          paddingLeft={2}
+        >
+          <box
+            flexGrow={1}
+            height="100%"
+            paddingLeft={1}
+            borderStyle="single"
+            border={["left"]}
+            borderColor={activePane() === "logs" ? colors().secondary : colors().borderSubtle}
+          >
+            <LogPanel
+              minLevel={LOG_LEVELS[logLevelIndex()]!}
+              active={activePane() === "logs"}
+            />
+          </box>
         </box>
       </Show>
 

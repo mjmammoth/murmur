@@ -41,6 +41,8 @@ class WebSocketLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            if not self.bridge.clients:
+                return
             msg = {
                 "type": "log",
                 "level": record.levelname,
@@ -53,6 +55,15 @@ class WebSocketLogHandler(logging.Handler):
                 asyncio.run_coroutine_threadsafe(self.bridge._broadcast(msg), loop)
         except Exception:
             pass  # Never let logging errors crash the app
+
+
+class BridgeLogFilter(logging.Filter):
+    """Keep high-signal logs to avoid flooding the TUI log stream."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name.startswith("whisper_local"):
+            return record.levelno >= logging.INFO
+        return record.levelno >= logging.WARNING
 
 
 class BridgeServer:
@@ -102,12 +113,17 @@ class BridgeServer:
         """Install WebSocket log handler on root logger and suppress stderr."""
         ws_handler = WebSocketLogHandler(self)
         ws_handler.setFormatter(logging.Formatter("%(message)s"))
+        ws_handler.addFilter(BridgeLogFilter())
 
         root = logging.getLogger()
         # Remove all existing handlers to avoid any output to terminal
         root.handlers.clear()
         root.addHandler(ws_handler)
-        root.setLevel(logging.DEBUG)
+        root.setLevel(logging.INFO)
+
+        # Suppress verbose third-party debug logs that can overwhelm the TUI.
+        logging.getLogger("websockets").setLevel(logging.WARNING)
+        logging.getLogger("asyncio").setLevel(logging.WARNING)
 
     def _init_components(self) -> None:
         """Initialize audio and transcription components."""
