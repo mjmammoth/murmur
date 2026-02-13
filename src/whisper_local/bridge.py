@@ -73,7 +73,7 @@ class BridgeServer:
         self.config = config
         self.clients: set[WebSocketServerProtocol] = set()
         self._recording = False
-        self._auto_copy = False
+        self._auto_copy = bool(config.auto_copy)
         self._busy_started_at = 0.0
         self._transcribing_jobs = 0
         self._hotkey_blocked = False
@@ -390,12 +390,30 @@ class BridgeServer:
             elif msg_type == "toggle_vad":
                 await self._toggle_vad(data.get("enabled", True))
             elif msg_type == "toggle_auto_copy":
-                self._auto_copy = data.get("enabled", not self._auto_copy)
+                self._auto_copy = bool(data.get("enabled", not self._auto_copy))
+                self.config.auto_copy = self._auto_copy
+                persist_error: str | None = None
+                try:
+                    save_config(self.config)
+                except Exception as exc:
+                    logger.exception("Failed to persist auto copy config")
+                    persist_error = str(exc)
                 await self._broadcast(
                     {"type": "toast", "message": f"Auto copy {'on' if self._auto_copy else 'off'}"}
                 )
+                if persist_error:
+                    await self._broadcast(
+                        {
+                            "type": "toast",
+                            "message": f"Auto copy updated for this session, but failed to save: {persist_error}",
+                            "level": "error",
+                        }
+                    )
+                await self._broadcast_config()
             elif msg_type == "set_hotkey_blocked":
                 self._hotkey_blocked = bool(data.get("enabled", False))
+            elif msg_type == "set_hotkey_mode":
+                await self._set_hotkey_mode(data.get("mode", ""))
             elif msg_type == "download_model":
                 await self._download_model(data.get("name", ""))
             elif msg_type == "remove_model":
@@ -572,6 +590,43 @@ class BridgeServer:
                 {
                     "type": "toast",
                     "message": f"Hotkey updated for this session, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_hotkey_mode(self, mode: str) -> None:
+        """Update hotkey mode (ptt/toggle) and persist config."""
+        normalized = str(mode).strip().lower()
+        if normalized not in ("ptt", "toggle"):
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Invalid hotkey mode (expected ptt or toggle)",
+                    "level": "error",
+                }
+            )
+            return
+
+        if self.config.hotkey.mode == normalized:
+            return
+
+        self.config.hotkey.mode = normalized
+
+        persist_error: str | None = None
+        try:
+            save_config(self.config)
+        except Exception as exc:
+            logger.exception("Failed to persist hotkey mode config")
+            persist_error = str(exc)
+
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Hotkey mode {normalized}"})
+
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Hotkey mode updated for this session, but failed to save: {persist_error}",
                     "level": "error",
                 }
             )

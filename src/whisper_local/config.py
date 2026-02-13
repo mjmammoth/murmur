@@ -121,6 +121,7 @@ class AppConfig:
     audio: AudioConfig = field(default_factory=AudioConfig)
     vad: VadConfig = field(default_factory=VadConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    auto_copy: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -165,6 +166,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         audio=AudioConfig.from_dict(merged.get("audio", {})),
         vad=VadConfig.from_dict(merged.get("vad", {})),
         output=OutputConfig.from_dict(merged.get("output", {})),
+        auto_copy=bool(merged.get("auto_copy", False)),
     )
 
     if config.model.path:

@@ -58,6 +58,7 @@ Defaults live in `configs/default.toml`. The app reads overrides from:
 - `a`: toggle auto-copy
 - `n`: toggle noise suppression
 - `v`: toggle VAD
+- `o`: toggle hotkey mode (ptt/toggle)
 - `h`: hotkey modal
 - `m`: model manager
 - `s`: interactive settings menu

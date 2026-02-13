@@ -1,13 +1,20 @@
-import { Show, type JSX } from "solid-js";
+import { type JSX } from "solid-js";
+import { useTerminalDimensions } from "@opentui/solid";
 import { useTheme } from "../context/theme";
 import { useConfig } from "../context/config";
-import { useBackend } from "../context/backend";
 import { useTranscriber } from "../context/transcriber";
-import { useScannerFrame } from "./spinner";
+import { Scanner } from "./spinner";
 
 interface KeyHintProps {
   keyChar: string;
   word: string;
+}
+
+interface PairHintProps {
+  label: string;
+  value: string;
+  keyChar?: string;
+  highlightColor?: string;
 }
 
 function KeyHint(props: KeyHintProps): JSX.Element {
@@ -26,53 +33,31 @@ function KeyHint(props: KeyHintProps): JSX.Element {
   );
 }
 
-interface ToggleHintProps {
-  keyChar: string;
-  label: string;
-  active: boolean;
-}
-
-interface PairHintProps {
-  label: string;
-  value: string;
-  keyChar?: string;
-}
-
-function ToggleHint(props: ToggleHintProps): JSX.Element {
-  const { colors } = useTheme();
-  const idx = Math.max(0, props.label.toLowerCase().indexOf(props.keyChar.toLowerCase()));
-  const before = props.label.slice(0, idx);
-  const key = props.label[idx] ?? props.keyChar;
-  const after = props.label.slice(idx + 1);
-
-  return (
-    <text>
-      <span style={{ fg: colors().textDim }}>{before}</span>
-      <span style={{ fg: colors().accent, bold: true }}>{key}</span>
-      <span style={{ fg: colors().textDim }}>{after}</span>
-      <span style={{ fg: colors().textMuted }}>:</span>
-      <span style={{ fg: props.active ? colors().success : colors().textDim }}>
-        {props.active ? " on" : " off"}
-      </span>
-    </text>
-  );
-}
-
 function PairHint(props: PairHintProps): JSX.Element {
   const { colors } = useTheme();
   const idx = props.keyChar
     ? Math.max(0, props.label.toLowerCase().indexOf(props.keyChar.toLowerCase()))
     : -1;
-  const before = idx >= 0 ? props.label.slice(0, idx) : props.label;
-  const key = idx >= 0 ? (props.label[idx] ?? props.keyChar ?? "") : "";
-  const after = idx >= 0 ? props.label.slice(idx + 1) : "";
+  const highlightColor = () => props.highlightColor ?? colors().accent;
+
+  if (idx < 0) {
+    return (
+      <text>
+        <span style={{ fg: colors().textDim }}>{props.label}</span>
+        <span style={{ fg: colors().textMuted }}>:</span>
+        <span style={{ fg: colors().text }}> {props.value}</span>
+      </text>
+    );
+  }
+
+  const before = props.label.slice(0, idx);
+  const key = props.label[idx] ?? props.keyChar ?? "";
+  const after = props.label.slice(idx + 1);
 
   return (
     <text>
       <span style={{ fg: colors().textDim }}>{before}</span>
-      <Show when={idx >= 0}>
-        <span style={{ fg: colors().accent, bold: true }}>{key}</span>
-      </Show>
+      <span style={{ fg: highlightColor(), bold: true }}>{key}</span>
       <span style={{ fg: colors().textDim }}>{after}</span>
       <span style={{ fg: colors().textMuted }}>:</span>
       <span style={{ fg: colors().text }}> {props.value}</span>
@@ -80,73 +65,83 @@ function PairHint(props: PairHintProps): JSX.Element {
   );
 }
 
+function truncateLabel(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  if (maxLength <= 3) return value.slice(0, Math.max(0, maxLength));
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
 export function Footer(): JSX.Element {
   const { colors } = useTheme();
   const config = useConfig();
-  const backend = useBackend();
   const transcriber = useTranscriber();
-  const scannerFrame = useScannerFrame();
+  const terminal = useTerminalDimensions();
 
   const modelName = () => config.config()?.model.name ?? "-";
+  const hotkeyMode = () => config.config()?.hotkey.mode ?? "-";
+  const hotkeyKey = () => config.config()?.hotkey.key ?? "-";
 
-  const hotkeyMode = () => {
-    const mode = config.config()?.hotkey.mode;
-    if (mode === "ptt") return "push-to-talk";
-    if (mode === "toggle") return "toggle";
-    return "-";
+  const compactModel = () => truncateLabel(modelName(), 14);
+  const compactHotkey = () => truncateLabel(hotkeyKey(), 14);
+
+  const statusColor = () => {
+    const status = transcriber.status();
+    switch (status) {
+      case "recording":
+        return colors().recording;
+      case "transcribing":
+      case "downloading":
+        return colors().transcribing;
+      case "error":
+        return colors().error;
+      case "ready":
+        return colors().ready;
+      default:
+        return colors().textMuted;
+    }
   };
 
-  const hotkeyKey = () => config.config()?.hotkey.key ?? "-";
+  const statusMaxChars = () => {
+    const leftSectionWidth = Math.floor(terminal().width * 0.33);
+    const scannerSectionWidth = 8;
+    const statusGap = 2;
+    return Math.max(8, leftSectionWidth - scannerSectionWidth - statusGap - 2);
+  };
+
+  const statusDisplay = () => {
+    const oneLine = transcriber.statusMessage().replace(/\s+/g, " ").trim();
+    return truncateLabel(oneLine || "-", statusMaxChars());
+  };
 
   return (
     <box
       paddingX={2}
       paddingTop={1}
-      paddingBottom={2}
+      paddingBottom={1}
       backgroundColor={colors().backgroundPanel}
     >
-      <box flexDirection="row" justifyContent="space-between" width="100%">
-        <box flexDirection="row" gap={3} alignItems="center">
+      <box flexDirection="row" alignItems="center" width="100%">
+        <box width="33%" flexDirection="row" alignItems="center" gap={2} flexShrink={1}>
+          <box width={8} justifyContent="flex-start" alignItems="flex-start" flexShrink={0}>
+            <Scanner active={transcriber.isBusy()} />
+          </box>
+          <text flexShrink={1}>
+            <span style={{ fg: statusColor() }}>{statusDisplay()}</span>
+          </text>
+        </box>
+
+        <box width="34%" justifyContent="center" flexDirection="row" gap={3} alignItems="center" flexShrink={0}>
+          <PairHint label="model" keyChar="m" value={compactModel()} highlightColor={colors().secondary} />
+          <PairHint label="hotkey" keyChar="h" value={compactHotkey()} highlightColor={colors().secondary} />
+          <PairHint label="mode" keyChar="o" value={hotkeyMode()} highlightColor={colors().secondary} />
+        </box>
+
+        <box width="33%" justifyContent="flex-end" flexDirection="row" gap={2} alignItems="center" flexShrink={0}>
           <KeyHint keyChar="q" word="Quit" />
           <KeyHint keyChar="c" word="Copy" />
           <KeyHint keyChar="h" word="Hotkey" />
-          <KeyHint keyChar="l" word="Logs" />
+          <KeyHint keyChar="o" word="Mode" />
           <KeyHint keyChar="s" word="Settings" />
-        </box>
-
-        <box flexDirection="column" alignItems="flex-end" gap={1}>
-          <box flexDirection="row" gap={2} alignItems="center">
-            <PairHint label="model" keyChar="m" value={modelName()} />
-            <PairHint label="hotkey" keyChar="h" value={hotkeyKey()} />
-            <PairHint label="mode" value={hotkeyMode()} />
-          </box>
-
-          <box flexDirection="row" gap={2} alignItems="center">
-            <box flexDirection="row" gap={2} alignItems="center">
-              <ToggleHint keyChar="n" label="noise" active={config.noiseEnabled()} />
-              <ToggleHint keyChar="v" label="vad" active={config.vadEnabled()} />
-              <ToggleHint keyChar="a" label="auto" active={config.autoCopy()} />
-
-              <Show when={!backend.connected()}>
-                <text>
-                  <span style={{ fg: colors().warning }}>offline</span>
-                  <span style={{ fg: colors().textMuted }}> bridge</span>
-                </text>
-              </Show>
-            </box>
-
-            <box width={20} justifyContent="flex-end" alignItems="flex-end">
-              <Show
-                when={transcriber.isBusy()}
-                fallback={<text><span style={{ fg: colors().textDim }}>                    </span></text>}
-              >
-                <text>
-                  <span style={{ fg: colors().secondary }}>{scannerFrame()}</span>
-                  <span style={{ fg: colors().textMuted }}> processing</span>
-                </text>
-              </Show>
-            </box>
-          </box>
         </box>
       </box>
     </box>

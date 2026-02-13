@@ -131,6 +131,9 @@ export function Home(): JSX.Element {
       case "v":
         config.toggleVad();
         break;
+      case "o":
+        config.toggleHotkeyMode();
+        break;
       case "m":
         dialog.openDialog("model-manager");
         break;
@@ -198,7 +201,7 @@ export function Home(): JSX.Element {
           flexGrow={1}
           height="100%"
           paddingLeft={showLogs() ? 1 : 0}
-          gap={2}
+          gap={1}
         >
           <Header />
           <TranscriptList />

@@ -1,40 +1,11 @@
-import { createSignal, createEffect, onCleanup, type Accessor, type JSX } from "solid-js";
+import { createSignal, createEffect, onCleanup, createMemo, Show, type Accessor } from "solid-js";
+import type { JSX } from "@opentui/solid";
 import { useTheme } from "../context/theme";
+import { createColors, createFrames } from "../util/scanner";
+import "opentui-spinner/solid";
 
-// Braille spinner frames (like opencode)
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL = 80;
-
-function createScannerFrames(width = 9, holdFrames = 2): string[] {
-  const inactive = "⬝";
-  const active = "■";
-  const frames: string[] = [];
-
-  const renderFrame = (activeIndex: number) => {
-    return Array.from({ length: width }, (_, i) => (i === activeIndex ? active : inactive)).join("");
-  };
-
-  for (let i = 0; i < width; i++) {
-    frames.push(renderFrame(i));
-  }
-
-  for (let i = 0; i < holdFrames; i++) {
-    frames.push(renderFrame(width - 1));
-  }
-
-  for (let i = width - 2; i >= 0; i--) {
-    frames.push(renderFrame(i));
-  }
-
-  for (let i = 0; i < holdFrames; i++) {
-    frames.push(renderFrame(0));
-  }
-
-  return frames;
-}
-
-const SCANNER_FRAMES = createScannerFrames();
-const SCANNER_INTERVAL = 45;
 
 /** Reusable hook that returns the current spinner frame character */
 export function useSpinnerFrame(
@@ -52,10 +23,6 @@ export function useSpinnerFrame(
   });
 
   return () => frames[frameIndex()];
-}
-
-export function useScannerFrame(): Accessor<string> {
-  return useSpinnerFrame(SCANNER_FRAMES, SCANNER_INTERVAL);
 }
 
 export interface SpinnerProps {
@@ -92,5 +59,44 @@ export function DotsSpinner(props: SpinnerProps): JSX.Element {
         {props.label && <span style={{ fg: colors().text }}> {props.label}</span>}
       </text>
     </box>
+  );
+}
+
+interface ScannerProps {
+  active: boolean;
+}
+
+export function Scanner(props: ScannerProps): JSX.Element {
+  const { colors } = useTheme();
+
+  const scannerDef = createMemo(() => {
+    const color = colors().secondary;
+    return {
+      frames: createFrames({
+        color,
+        width: 8,
+        inactiveFactor: 0.6,
+        minAlpha: 0.3,
+      }),
+      color: createColors({
+        color,
+        width: 8,
+        inactiveFactor: 0.6,
+        minAlpha: 0.3,
+      }),
+    };
+  });
+
+  return (
+    <Show
+      when={props.active}
+      fallback={
+        <text>
+          <span style={{ fg: colors().textDim }}>⬝⬝⬝⬝⬝⬝⬝⬝</span>
+        </text>
+      }
+    >
+      <spinner frames={scannerDef().frames} color={scannerDef().color} interval={40} />
+    </Show>
   );
 }

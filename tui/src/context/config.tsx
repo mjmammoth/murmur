@@ -8,9 +8,11 @@ export interface ConfigContextValue {
   noiseEnabled: Accessor<boolean>;
   vadEnabled: Accessor<boolean>;
   autoCopy: Accessor<boolean>;
+  hotkeyMode: Accessor<"ptt" | "toggle">;
   toggleNoise: () => void;
   toggleVad: () => void;
   toggleAutoCopy: () => void;
+  toggleHotkeyMode: () => void;
 }
 
 const [ConfigProvider, useConfig] = createContextHelper<ConfigContextValue>("Config");
@@ -22,6 +24,7 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
   const [noiseEnabled, setNoiseEnabled] = createSignal(true);
   const [vadEnabled, setVadEnabled] = createSignal(false);
   const [autoCopy, setAutoCopy] = createSignal(false);
+  const [hotkeyMode, setHotkeyMode] = createSignal<"ptt" | "toggle">("ptt");
 
   // Sync with backend config
   createEffect(() => {
@@ -29,6 +32,7 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     if (cfg) {
       setNoiseEnabled(cfg.audio.noise_suppression.enabled);
       setVadEnabled(cfg.vad.enabled);
+      setHotkeyMode(cfg.hotkey.mode);
     }
   });
 
@@ -54,14 +58,22 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     backend.send({ type: "toggle_auto_copy", enabled: newValue });
   }
 
+  function toggleHotkeyMode() {
+    const nextMode = hotkeyMode() === "ptt" ? "toggle" : "ptt";
+    setHotkeyMode(nextMode);
+    backend.send({ type: "set_hotkey_mode", mode: nextMode });
+  }
+
   const value: ConfigContextValue = {
     config: backend.config,
     noiseEnabled,
     vadEnabled,
     autoCopy,
+    hotkeyMode,
     toggleNoise,
     toggleVad,
     toggleAutoCopy,
+    toggleHotkeyMode,
   };
 
   return <ConfigProvider value={value}>{props.children}</ConfigProvider>;
