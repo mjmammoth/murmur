@@ -40,19 +40,15 @@ export function LogPanel(): JSX.Element {
       width="100%"
       height="100%"
       backgroundColor={colors().backgroundPanel}
-      borderStyle="rounded"
-      borderColor={colors().border}
     >
-      {/* Header */}
-      <box paddingX={2} paddingY={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle}>
+      <box paddingX={2} paddingY={1}>
         <text>
-          <span fg={colors().primary}>~</span>
-          <span fg={colors().text}> Logs</span>
-          <span fg={colors().textDim}> ({backend.logs().length})</span>
+          <span style={{ fg: colors().secondary }}>■</span>
+          <span style={{ fg: colors().primary }}> Logs</span>
+          <span style={{ fg: colors().textMuted }}> / {backend.logs().length} entries</span>
         </text>
       </box>
 
-      {/* Log entries */}
       <scrollbox flexGrow={1} stickyScroll stickyStart="bottom" paddingX={1}>
         <box flexDirection="column">
           <Show when={backend.logs().length === 0}>
@@ -62,12 +58,12 @@ export function LogPanel(): JSX.Element {
           </Show>
           <For each={backend.logs()}>
             {(entry: LogEntry) => (
-              <box flexDirection="row" width="100%">
+              <box flexDirection="row" width="100%" paddingX={1}>
                 <text>
-                  <span fg={colors().textDim}>{entry.timestamp} </span>
-                  <span fg={levelColor(entry.level, colors())}>{levelTag(entry.level)} </span>
-                  <span fg={colors().textDim}>{entry.source}: </span>
-                  <span fg={colors().text}>{entry.message}</span>
+                  <span style={{ fg: colors().textDim }}>{entry.timestamp} </span>
+                  <span style={{ fg: levelColor(entry.level, colors()) }}>{levelTag(entry.level)} </span>
+                  <span style={{ fg: colors().textDim }}>{entry.source}: </span>
+                  <span style={{ fg: colors().text }}>{entry.message}</span>
                 </text>
               </box>
             )}
@@ -75,11 +71,10 @@ export function LogPanel(): JSX.Element {
         </box>
       </scrollbox>
 
-      {/* Footer */}
-      <box paddingX={2} paddingY={1} borderStyle="single" border={["top"]} borderColor={colors().borderSubtle}>
+      <box paddingX={2} paddingY={1}>
         <text>
-          <span fg={colors().textDim}>[l]</span>
-          <span fg={colors().textMuted}> close </span>
+          <span style={{ fg: colors().text }}>l</span>
+          <span style={{ fg: colors().textMuted }}> close</span>
         </text>
       </box>
     </box>

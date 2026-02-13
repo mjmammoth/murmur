@@ -12,6 +12,24 @@ import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
 import { useDialog } from "../context/dialog";
 import { ModelItem } from "./model-item";
+import { useSpinnerFrame } from "./spinner";
+
+function CommandHint(props: { keys: string; label: string }): JSX.Element {
+  const { colors } = useTheme();
+
+  return (
+    <box flexDirection="row" alignItems="center" gap={1}>
+      <box backgroundColor={colors().secondary} paddingX={1}>
+        <text>
+          <span style={{ fg: colors().selectedText }}>{props.keys}</span>
+        </text>
+      </box>
+      <text>
+        <span style={{ fg: colors().textMuted }}>{props.label}</span>
+      </text>
+    </box>
+  );
+}
 
 export function ModelManager(): JSX.Element {
   const { colors } = useTheme();
@@ -19,7 +37,8 @@ export function ModelManager(): JSX.Element {
   const dialog = useDialog();
 
   const [selectedIndex, setSelectedIndex] = createSignal(0);
-  const [status, setStatus] = createSignal("");
+  const [statusMessage, setStatusMessage] = createSignal("");
+  const spinnerFrame = useSpinnerFrame();
 
   onMount(() => {
     backend.send({ type: "list_models" });
@@ -74,58 +93,82 @@ export function ModelManager(): JSX.Element {
 
   function handlePull() {
     const model = selectedModel();
-    if (!model) return;
-    setStatus(`Downloading ${model.name}...`);
-    backend.send({ type: "download_model", name: model.name });
+    if (!model || backend.activeModelOp()) return;
+    setStatusMessage("");
+    backend.downloadModel(model.name);
   }
 
   function handleRemove() {
     const model = selectedModel();
-    if (!model || !model.installed) return;
-    setStatus(`Removing ${model.name}...`);
-    backend.send({ type: "remove_model", name: model.name });
+    if (!model || !model.installed || backend.activeModelOp()) return;
+    setStatusMessage("");
+    backend.removeModel(model.name);
   }
 
   function handleSetDefault() {
     const model = selectedModel();
     if (!model || !model.installed) return;
     backend.send({ type: "set_default_model", name: model.name });
-    setStatus(`Default set to ${model.name}`);
+    setStatusMessage(`Default set to ${model.name}`);
   }
 
   function handleRefresh() {
     backend.send({ type: "list_models" });
-    setStatus("Refreshed");
+    setStatusMessage("Refreshed");
   }
+
+  const statusDisplay = () => {
+    const op = backend.activeModelOp();
+    if (op) {
+      const progress = backend.downloadProgress();
+      if (op.type === "pulling" && progress && progress.model === op.model) {
+        return `${spinnerFrame()} Downloading ${op.model}... ${progress.percent}%`;
+      }
+      const label = op.type === "pulling" ? "Downloading" : "Removing";
+      return `${spinnerFrame()} ${label} ${op.model}...`;
+    }
+    return statusMessage();
+  };
+
+  const statusColor = () => {
+    const op = backend.activeModelOp();
+    if (op) {
+      return op.type === "pulling" ? colors().transcribing : colors().warning;
+    }
+    return colors().textMuted;
+  };
 
   return (
     <box
       flexDirection="column"
-      width={60}
-      height={20}
+      width={72}
+      height={24}
       backgroundColor={colors().backgroundPanel}
-      borderStyle="rounded"
-      borderColor={colors().border}
+      borderStyle="single"
+      borderColor={colors().borderSubtle}
       padding={1}
     >
-      {/* Header */}
-      <box paddingX={1} paddingBottom={1}>
+      <box paddingX={2} paddingY={1} flexDirection="row" justifyContent="space-between">
         <text>
-          <span fg={colors().primary}>◆</span>
-          <span fg={colors().text}> Models</span>
+          <span style={{ fg: colors().secondary }}>■</span>
+          <span style={{ fg: colors().primary }}> Models</span>
+          <span style={{ fg: colors().textMuted }}> / install and defaults</span>
         </text>
+        <box backgroundColor={colors().secondary} paddingX={1}>
+          <text>
+            <span style={{ fg: colors().selectedText }}>esc</span>
+          </text>
+        </box>
       </box>
 
-      {/* Divider */}
       <box paddingX={1}>
         <text>
-          <span fg={colors().borderSubtle}>
-            {"─".repeat(56)}
+          <span style={{ fg: colors().borderSubtle }}>
+            {"-".repeat(68)}
           </span>
         </text>
       </box>
 
-      {/* Model list */}
       <scrollbox flexGrow={1} paddingY={1}>
         <box flexDirection="column">
           <For each={backend.models()}>
@@ -139,29 +182,24 @@ export function ModelManager(): JSX.Element {
         </box>
       </scrollbox>
 
-      {/* Status */}
-      <Show when={status()}>
-        <box paddingX={1} paddingTop={1}>
+      <Show when={statusDisplay()}>
+        <box paddingX={2} paddingTop={1}>
           <text>
-            <span fg={colors().textMuted}>{status()}</span>
+            <span style={{ fg: statusColor() }}>{statusDisplay()}</span>
           </text>
         </box>
       </Show>
 
-      {/* Footer */}
-      <box paddingX={1} paddingTop={1}>
-        <text>
-          <span fg={colors().textDim}>[p]</span>
-          <span fg={colors().textMuted}> pull </span>
-          <span fg={colors().textDim}>[r]</span>
-          <span fg={colors().textMuted}> remove </span>
-          <span fg={colors().textDim}>[d]</span>
-          <span fg={colors().textMuted}> default </span>
-          <span fg={colors().textDim}>[l]</span>
-          <span fg={colors().textMuted}> refresh </span>
-          <span fg={colors().textDim}>[esc]</span>
-          <span fg={colors().textMuted}> close</span>
-        </text>
+      <box paddingX={2} paddingTop={1}>
+        <box flexDirection="row" gap={2} alignItems="center">
+          <text>
+            <span style={{ fg: colors().secondary }}>■</span>
+          </text>
+          <CommandHint keys="p" label="pull" />
+          <CommandHint keys="r" label="remove" />
+          <CommandHint keys="d" label="default" />
+          <CommandHint keys="l" label="refresh" />
+        </box>
       </box>
     </box>
   );

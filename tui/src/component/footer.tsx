@@ -6,7 +6,6 @@ import { useBackend } from "../context/backend";
 interface KeyHintProps {
   keys: string;
   label: string;
-  active?: boolean;
 }
 
 function KeyHint(props: KeyHintProps): JSX.Element {
@@ -14,10 +13,27 @@ function KeyHint(props: KeyHintProps): JSX.Element {
 
   return (
     <text>
-      <span fg={props.active ? colors().accent : colors().textDim}>[</span>
-      <span fg={props.active ? colors().primary : colors().text}>{props.keys}</span>
-      <span fg={props.active ? colors().accent : colors().textDim}>]</span>
-      <span fg={colors().textMuted}> {props.label} </span>
+      <span style={{ fg: colors().text }}>{props.keys}</span>
+      <span style={{ fg: colors().textMuted }}> {props.label}</span>
+    </text>
+  );
+}
+
+interface ToggleHintProps {
+  label: string;
+  active: boolean;
+}
+
+function ToggleHint(props: ToggleHintProps): JSX.Element {
+  const { colors } = useTheme();
+
+  return (
+    <text>
+      <span style={{ fg: colors().textDim }}>{props.label}</span>
+      <span style={{ fg: colors().textMuted }}>:</span>
+      <span style={{ fg: props.active ? colors().success : colors().textDim }}>
+        {props.active ? " on" : " off"}
+      </span>
     </text>
   );
 }
@@ -30,31 +46,30 @@ export function Footer(): JSX.Element {
   return (
     <box
       paddingX={2}
-      paddingY={1}
+      paddingTop={1}
+      paddingBottom={2}
       backgroundColor={colors().backgroundPanel}
-      borderStyle="single"
-      border={["top"]}
-      borderColor={colors().border}
     >
       <box flexDirection="row" justifyContent="space-between" width="100%">
-        {/* Left side - Main actions */}
-        <box flexDirection="row">
+        <box flexDirection="row" gap={3} alignItems="center">
           <KeyHint keys="q" label="quit" />
           <KeyHint keys="c" label="copy" />
-          <KeyHint keys="↵" label="copy sel" />
+          <KeyHint keys="↵" label="select" />
           <KeyHint keys="m" label="models" />
           <KeyHint keys="l" label="logs" />
           <KeyHint keys="s" label="settings" />
         </box>
 
-        {/* Right side - Toggles */}
-        <box flexDirection="row">
-          <KeyHint keys="y" label="auto" active={config.autoCopy()} />
-          <KeyHint keys="n" label="noise" active={config.noiseEnabled()} />
-          <KeyHint keys="v" label="vad" active={config.vadEnabled()} />
+        <box flexDirection="row" gap={2} alignItems="center">
+          <ToggleHint label="noise" active={config.noiseEnabled()} />
+          <ToggleHint label="vad" active={config.vadEnabled()} />
+          <ToggleHint label="auto" active={config.autoCopy()} />
 
           <Show when={!backend.connected()}>
-            <text fg={colors().warning}> ○ disconnected</text>
+            <text>
+              <span style={{ fg: colors().warning }}>offline</span>
+              <span style={{ fg: colors().textMuted }}> bridge</span>
+            </text>
           </Show>
         </box>
       </box>

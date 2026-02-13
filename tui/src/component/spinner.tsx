@@ -1,9 +1,27 @@
-import { createSignal, createEffect, onCleanup, type JSX } from "solid-js";
+import { createSignal, createEffect, onCleanup, type Accessor, type JSX } from "solid-js";
 import { useTheme } from "../context/theme";
 
 // Braille spinner frames (like opencode)
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL = 80;
+
+/** Reusable hook that returns the current spinner frame character */
+export function useSpinnerFrame(
+  frames = BRAILLE_FRAMES,
+  interval = SPINNER_INTERVAL
+): Accessor<string> {
+  const [frameIndex, setFrameIndex] = createSignal(0);
+
+  createEffect(() => {
+    const timer = setInterval(() => {
+      setFrameIndex((idx) => (idx + 1) % frames.length);
+    }, interval);
+
+    onCleanup(() => clearInterval(timer));
+  });
+
+  return () => frames[frameIndex()];
+}
 
 export interface SpinnerProps {
   label?: string;
@@ -12,24 +30,14 @@ export interface SpinnerProps {
 
 export function Spinner(props: SpinnerProps): JSX.Element {
   const { colors } = useTheme();
-  const [frameIndex, setFrameIndex] = createSignal(0);
-
-  createEffect(() => {
-    const timer = setInterval(() => {
-      setFrameIndex((idx) => (idx + 1) % BRAILLE_FRAMES.length);
-    }, SPINNER_INTERVAL);
-
-    onCleanup(() => clearInterval(timer));
-  });
-
-  const frame = () => BRAILLE_FRAMES[frameIndex()];
-  const spinnerColor = () => props.color ?? colors().primary;
+  const frame = useSpinnerFrame();
+  const spinnerColor = () => props.color ?? colors().secondary;
 
   return (
     <box>
       <text>
-        <span fg={spinnerColor()}>{frame()}</span>
-        {props.label && <span fg={colors().text}> {props.label}</span>}
+        <span style={{ fg: spinnerColor() }}>{frame()}</span>
+        {props.label && <span style={{ fg: colors().text }}> {props.label}</span>}
       </text>
     </box>
   );
@@ -40,23 +48,13 @@ const DOTS_FRAMES = ["⋯", "⋱", "⋮", "⋰"];
 
 export function DotsSpinner(props: SpinnerProps): JSX.Element {
   const { colors } = useTheme();
-  const [frameIndex, setFrameIndex] = createSignal(0);
-
-  createEffect(() => {
-    const timer = setInterval(() => {
-      setFrameIndex((idx) => (idx + 1) % DOTS_FRAMES.length);
-    }, 200);
-
-    onCleanup(() => clearInterval(timer));
-  });
-
-  const frame = () => DOTS_FRAMES[frameIndex()];
+  const frame = useSpinnerFrame(DOTS_FRAMES, 200);
 
   return (
     <box>
       <text>
-        <span fg={props.color ?? colors().textMuted}>{frame()}</span>
-        {props.label && <span fg={colors().text}> {props.label}</span>}
+        <span style={{ fg: props.color ?? colors().textMuted }}>{frame()}</span>
+        {props.label && <span style={{ fg: colors().text }}> {props.label}</span>}
       </text>
     </box>
   );

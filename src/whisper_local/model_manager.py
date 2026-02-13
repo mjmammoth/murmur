@@ -5,8 +5,10 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 # Set before importing huggingface_hub so it applies reliably.
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
@@ -86,7 +88,108 @@ def list_installed_models() -> list[ModelInfo]:
     return models
 
 
-def download_model(model_name: str) -> Path:
+def _make_progress_tqdm(callback: Callable[[int], None]):
+    """Create a tqdm-compatible class that reports download progress via callback.
+
+    ``snapshot_download`` uses the class in two ways:
+      1. As an **iterable wrapper** for the file list: ``for f in tqdm_class(files):``
+      2. As a **byte-level progress bar** for each file download (total= bytes).
+    The class must support both modes.
+    """
+
+    class _ProgressTqdm:
+        _total_bytes: int = 0
+        _downloaded_bytes: int = 0
+        _lock = threading.Lock()
+
+        def __init__(self, iterable=None, *args, **kwargs):
+            # Iterable mode (file list wrapper)
+            self._iterable = iterable
+            # Byte-progress mode
+            self.total = kwargs.get("total", 0) or 0
+            self.n = 0
+            self.disable = kwargs.get("disable", False)
+            if self.total > 0:
+                _ProgressTqdm._total_bytes += self.total
+
+        def __iter__(self):
+            if self._iterable is not None:
+                yield from self._iterable
+            return
+
+        def __len__(self):
+            if self._iterable is not None:
+                return len(self._iterable)
+            return 0
+
+        def update(self, n=1):
+            self.n += n
+            if self.total > 0:
+                _ProgressTqdm._downloaded_bytes += n
+                if _ProgressTqdm._total_bytes > 0:
+                    pct = int(
+                        _ProgressTqdm._downloaded_bytes
+                        / _ProgressTqdm._total_bytes
+                        * 100
+                    )
+                    callback(min(pct, 100))
+
+        def close(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.close()
+
+        def set_description(self, *args, **kwargs):
+            pass
+
+        def set_postfix(self, *args, **kwargs):
+            pass
+
+        def set_postfix_str(self, *args, **kwargs):
+            pass
+
+        def refresh(self, *args, **kwargs):
+            pass
+
+        def clear(self, *args, **kwargs):
+            pass
+
+        def reset(self, total=None):
+            self.n = 0
+            if total is not None:
+                self.total = total
+
+        def display(self, *args, **kwargs):
+            pass
+
+        @classmethod
+        def get_lock(cls):
+            return cls._lock
+
+        @classmethod
+        def set_lock(cls, lock):
+            cls._lock = lock
+
+        def moveto(self, *args, **kwargs):
+            pass
+
+        def unpause(self, *args, **kwargs):
+            pass
+
+    # Reset class-level counters for each download
+    _ProgressTqdm._total_bytes = 0
+    _ProgressTqdm._downloaded_bytes = 0
+    return _ProgressTqdm
+
+
+def download_model(
+    model_name: str,
+    progress_callback: Callable[[int], None] | None = None,
+) -> Path:
     if model_name not in MODEL_NAMES:
         raise ValueError(f"Unknown model: {model_name}")
     repo_id = f"{MODEL_REPO_PREFIX}{model_name}"
@@ -94,8 +197,13 @@ def download_model(model_name: str) -> Path:
     os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
     os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
     logger.info("Downloading model %s", repo_id)
+
+    kwargs: dict = {"repo_id": repo_id}
+    if progress_callback is not None:
+        kwargs["tqdm_class"] = _make_progress_tqdm(progress_callback)
+
     try:
-        return Path(snapshot_download(repo_id=repo_id))
+        return Path(snapshot_download(**kwargs))
     except Exception as exc:
         if "fds_to_keep" not in str(exc):
             raise

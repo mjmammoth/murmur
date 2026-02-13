@@ -9,16 +9,16 @@ import { Home } from "./routes/home";
 
 function ErrorFallback(props: { error: Error }): JSX.Element {
   return (
-    <box flexDirection="column" padding={2} backgroundColor="#1a0000">
-      <text>
-        <span fg="#ff6b6b">✗ Error: {props.error.message}</span>
-      </text>
-      <box paddingTop={1}>
+      <box flexDirection="column" padding={2} backgroundColor="#1a0000">
         <text>
-          <span fg="#666666">{props.error.stack}</span>
+          <span style={{ fg: "#ff6b6b" }}>✗ Error: {props.error.message}</span>
         </text>
+        <box paddingTop={1}>
+          <text>
+            <span style={{ fg: "#666666" }}>{props.error.stack}</span>
+          </text>
+        </box>
       </box>
-    </box>
   );
 }
 

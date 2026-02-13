@@ -1,8 +1,7 @@
 import { createSignal, Show, type JSX } from "solid-js";
 import { useKeyHandler } from "@opentui/solid";
-import type { KeyEvent } from "@opentui/core";
+import { RGBA, type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
-import { useBackend } from "../context/backend";
 import { useConfig } from "../context/config";
 import { useTranscriber } from "../context/transcriber";
 import { useDialog } from "../context/dialog";
@@ -17,7 +16,6 @@ import { LogPanel } from "../component/log-panel";
 
 export function Home(): JSX.Element {
   const { colors } = useTheme();
-  const backend = useBackend();
   const config = useConfig();
   const transcriber = useTranscriber();
   const dialog = useDialog();
@@ -59,7 +57,7 @@ export function Home(): JSX.Element {
         dialog.openDialog("model-manager");
         break;
       case "s":
-        handleShowSettings();
+        dialog.openDialog("settings");
         break;
       case "up":
       case "k":
@@ -90,34 +88,28 @@ export function Home(): JSX.Element {
     transcriber.copyText(selected.text);
   }
 
-  function handleShowSettings() {
-    backend.requestConfigFile();
-    dialog.openDialog("settings");
-  }
-
   return (
     <box
       flexDirection="row"
       width="100%"
       height="100%"
       backgroundColor={colors().background}
+      padding={2}
+      gap={2}
     >
-      {/* Main content */}
-      <box flexDirection="column" flexGrow={1} height="100%">
+      <box flexDirection="column" flexGrow={1} height="100%" gap={2}>
         <Header />
         <TranscriptList />
         <Footer />
         <ToastContainer />
       </box>
 
-      {/* Log panel sidebar */}
       <Show when={showLogs()}>
-        <box width="40%" height="100%">
+        <box width="42%" height="100%">
           <LogPanel />
         </box>
       </Show>
 
-      {/* Dialog overlay */}
       <Show when={dialog.currentDialog()?.type === "model-manager"}>
         <box
           position="absolute"
@@ -125,7 +117,7 @@ export function Home(): JSX.Element {
           height="100%"
           justifyContent="center"
           alignItems="center"
-          backgroundColor="rgba(0,0,0,0.6)"
+          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
         >
           <ModelManager />
         </box>
@@ -138,7 +130,7 @@ export function Home(): JSX.Element {
           height="100%"
           justifyContent="center"
           alignItems="center"
-          backgroundColor="rgba(0,0,0,0.6)"
+          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
         >
           <Settings />
         </box>

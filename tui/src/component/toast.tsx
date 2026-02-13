@@ -23,25 +23,27 @@ export function ToastContainer(): JSX.Element {
         right={2}
         top={2}
         flexDirection="column"
-        width={40}
+        width={46}
       >
         <For each={toasts()}>
           {(toast) => (
             <box
+              flexDirection="row"
               marginBottom={1}
               backgroundColor={colors().backgroundPanel}
-              borderStyle="single"
-              border={["left", "right"]}
-              borderColor={getToastColor(toast.level)}
-              paddingX={2}
-              paddingY={0}
+              paddingRight={2}
+              paddingY={1}
             >
-              <text>
-                <span fg={getToastColor(toast.level)}>
-                  {toast.level === "error" ? "✗" : "✓"}
-                </span>
-                <span fg={colors().text}> {toast.message}</span>
-              </text>
+              <box width={1} backgroundColor={getToastColor(toast.level)} />
+              <box paddingLeft={1}>
+                <text>
+                  <span style={{ fg: getToastColor(toast.level) }}>
+                    {toast.level === "error" ? "error" : "info"}
+                  </span>
+                  <span style={{ fg: colors().textMuted }}> / </span>
+                  <span style={{ fg: colors().text }}>{toast.message}</span>
+                </text>
+              </box>
             </box>
           )}
         </For>

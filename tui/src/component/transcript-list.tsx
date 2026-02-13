@@ -7,8 +7,22 @@ export function TranscriptList(): JSX.Element {
   const { colors } = useTheme();
   const transcriber = useTranscriber();
 
+  const count = () => transcriber.transcripts().length;
+
   return (
-    <box flexGrow={1} flexDirection="column">
+    <box
+      flexGrow={1}
+      flexDirection="column"
+      backgroundColor={colors().backgroundPanel}
+    >
+      <box paddingX={2} paddingY={1}>
+        <text>
+          <span style={{ fg: colors().secondary }}>■</span>
+          <span style={{ fg: colors().primary }}> Transcripts</span>
+          <span style={{ fg: colors().textMuted }}> / {count()}</span>
+        </text>
+      </box>
+
       <scrollbox flexGrow={1} paddingX={1} stickyScroll stickyStart="bottom">
         <box flexDirection="column">
           <For each={transcriber.transcripts()}>
@@ -23,20 +37,22 @@ export function TranscriptList(): JSX.Element {
         </box>
       </scrollbox>
 
-      {/* Empty state */}
       <Show when={transcriber.transcripts().length === 0}>
         <box
           flexGrow={1}
           justifyContent="center"
           alignItems="center"
-          paddingY={4}
+          paddingY={2}
         >
-          <box flexDirection="column" alignItems="center">
+          <box flexDirection="column" alignItems="center" gap={1}>
             <text>
-              <span fg={colors().textDim}>No transcripts yet</span>
+              <span style={{ fg: colors().primary }}>*</span>
             </text>
             <text>
-              <span fg={colors().textMuted}>
+              <span style={{ fg: colors().text }}>No transcripts yet</span>
+            </text>
+            <text>
+              <span style={{ fg: colors().textMuted }}>
                 Press your hotkey to start recording
               </span>
             </text>

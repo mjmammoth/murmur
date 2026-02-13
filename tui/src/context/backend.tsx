@@ -8,6 +8,16 @@ import {
 import { createContextHelper } from "./helper";
 import type { AppConfig, ClientMessage, ServerMessage, ModelInfo, TranscriptEntry, AppStatus, LogEntry } from "../types";
 
+export interface DownloadProgress {
+  model: string;
+  percent: number;
+}
+
+export interface ActiveModelOp {
+  type: "pulling" | "removing";
+  model: string;
+}
+
 export interface BackendContextValue {
   connected: Accessor<boolean>;
   status: Accessor<AppStatus>;
@@ -19,6 +29,10 @@ export interface BackendContextValue {
   logs: Accessor<LogEntry[]>;
   configFileContent: Accessor<string>;
   configFilePath: Accessor<string>;
+  downloadProgress: Accessor<DownloadProgress | null>;
+  activeModelOp: Accessor<ActiveModelOp | null>;
+  downloadModel: (name: string) => void;
+  removeModel: (name: string) => void;
   send: (message: ClientMessage) => void;
   requestConfigFile: () => void;
   onTranscript: (handler: (entry: TranscriptEntry) => void) => void;
@@ -50,6 +64,8 @@ export function BackendContextProvider(props: {
   const [logs, setLogs] = createSignal<LogEntry[]>([]);
   const [configFileContent, setConfigFileContent] = createSignal("");
   const [configFilePath, setConfigFilePath] = createSignal("");
+  const [downloadProgress, setDownloadProgress] = createSignal<DownloadProgress | null>(null);
+  const [activeModelOp, setActiveModelOp] = createSignal<ActiveModelOp | null>(null);
   let logIdCounter = 0;
 
   let ws: WebSocket | null = null;
@@ -119,6 +135,7 @@ export function BackendContextProvider(props: {
 
       case "models":
         setModels(message.models);
+        setActiveModelOp(null);
         break;
 
       case "config":
@@ -148,6 +165,7 @@ export function BackendContextProvider(props: {
       case "error":
         setStatus("error");
         setStatusMessage(message.message);
+        setActiveModelOp(null);
         for (const handler of toastHandlers) {
           handler(message.message, "error");
         }
@@ -156,6 +174,14 @@ export function BackendContextProvider(props: {
       case "toast":
         for (const handler of toastHandlers) {
           handler(message.message, message.level ?? "info");
+        }
+        break;
+
+      case "download_progress":
+        setDownloadProgress({ model: message.model, percent: message.percent });
+        // Clear progress when download completes
+        if (message.percent >= 100) {
+          setTimeout(() => setDownloadProgress(null), 1000);
         }
         break;
 
@@ -180,6 +206,17 @@ export function BackendContextProvider(props: {
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(message));
     }
+  }
+
+  function downloadModel(name: string) {
+    setActiveModelOp({ type: "pulling", model: name });
+    setDownloadProgress(null);
+    send({ type: "download_model", name });
+  }
+
+  function removeModel(name: string) {
+    setActiveModelOp({ type: "removing", model: name });
+    send({ type: "remove_model", name });
   }
 
   function requestConfigFile() {
@@ -224,6 +261,10 @@ export function BackendContextProvider(props: {
     logs,
     configFileContent,
     configFilePath,
+    downloadProgress,
+    activeModelOp,
+    downloadModel,
+    removeModel,
     send,
     requestConfigFile,
     onTranscript,

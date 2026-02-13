@@ -59,7 +59,7 @@ Defaults live in `configs/default.toml`. The app reads overrides from:
 - `n`: toggle noise suppression
 - `v`: toggle VAD
 - `m`: model manager
-- `s`: show config path
+- `s`: interactive settings menu
 - `q`: quit
 
 ## Homebrew (custom tap)

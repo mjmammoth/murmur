@@ -14,41 +14,39 @@ export function TranscriptItem(props: TranscriptItemProps): JSX.Element {
   const bgColor = () =>
     props.selected ? colors().backgroundElement : undefined;
 
-  const borderColor = () =>
-    props.selected ? colors().primary : colors().borderSubtle;
+  const fgColor = () =>
+    props.selected ? colors().text : colors().text;
+
+  const dimColor = () =>
+    props.selected ? colors().textMuted : colors().textMuted;
 
   return (
     <box
-      paddingX={2}
-      paddingY={0}
-      marginY={0}
+      flexDirection="row"
+      paddingRight={1}
       backgroundColor={bgColor()}
-      borderStyle="single"
-      border={["left"]}
-      borderColor={borderColor()}
     >
+      <box
+        width={1}
+        backgroundColor={props.selected ? colors().secondary : colors().borderSubtle}
+      />
       <box flexDirection="row" width="100%">
-        {/* Timestamp */}
-        <box width={10}>
+        <box width={2}>
           <text>
-            <span fg={colors().textDim}>{props.entry.timestamp}</span>
-          </text>
-        </box>
-
-        {/* Separator */}
-        <box width={3}>
-          <text>
-            <span fg={colors().borderSubtle}>│</span>
-          </text>
-        </box>
-
-        {/* Content */}
-        <box flexGrow={1}>
-          <text>
-            <span fg={props.selected ? colors().text : colors().textMuted}>
-              {props.entry.text}
+            <span style={{ fg: props.selected ? colors().secondary : colors().textDim }}>
+              {props.selected ? "•" : " "}
             </span>
           </text>
+        </box>
+
+        <box width={10}>
+          <text>
+            <span style={{ fg: dimColor() }}>{props.entry.timestamp}</span>
+          </text>
+        </box>
+
+        <box flexGrow={1}>
+          <text fg={fgColor()}>{props.entry.text}</text>
         </box>
       </box>
     </box>

@@ -53,6 +53,7 @@ export interface AppConfig {
   vad: VadConfig;
   output: OutputConfig;
   bridge: BridgeConfig;
+  auto_copy?: boolean;
 }
 
 // Transcript types
@@ -88,12 +89,14 @@ export type ClientMessage =
   | { type: "stop_recording" }
   | { type: "toggle_noise"; enabled: boolean }
   | { type: "toggle_vad"; enabled: boolean }
+  | { type: "toggle_auto_copy"; enabled: boolean }
   | { type: "download_model"; name: string }
   | { type: "remove_model"; name: string }
   | { type: "set_default_model"; name: string }
   | { type: "list_models" }
   | { type: "get_config" }
-  | { type: "get_config_file" };
+  | { type: "get_config_file" }
+  | { type: "copy_text"; text: string };
 
 // Server -> Client messages
 export type ServerMessage =
@@ -106,7 +109,8 @@ export type ServerMessage =
   | { type: "error"; message: string }
   | { type: "config_file"; content: string; path: string }
   | { type: "toast"; message: string; level?: "info" | "error" }
-  | { type: "log"; level: string; message: string; timestamp: string; source: string };
+  | { type: "log"; level: string; message: string; timestamp: string; source: string }
+  | { type: "download_progress"; model: string; percent: number };
 
 // Log types
 

@@ -378,13 +378,34 @@ class BridgeServer:
         await self._broadcast_config()
 
     async def _download_model(self, name: str) -> None:
-        """Download a model."""
+        """Download a model with progress reporting."""
         if not name:
             return
         await self._broadcast({"type": "toast", "message": f"Downloading {name}..."})
+
+        loop = asyncio.get_event_loop()
+        last_percent = -1
+
+        def on_progress(percent: int) -> None:
+            nonlocal last_percent
+            # Throttle: only broadcast when percent actually changes
+            if percent == last_percent:
+                return
+            last_percent = percent
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast(
+                    {"type": "download_progress", "model": name, "percent": percent}
+                ),
+                loop,
+            )
+
         try:
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: download_model(name)
+            await loop.run_in_executor(
+                None, lambda: download_model(name, progress_callback=on_progress)
+            )
+            # Send 100% to ensure TUI sees completion
+            await self._broadcast(
+                {"type": "download_progress", "model": name, "percent": 100}
             )
             await self._broadcast({"type": "toast", "message": f"Downloaded {name}"})
             await self._broadcast_models()

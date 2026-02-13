@@ -78,7 +78,7 @@ export function TranscriberContextProvider(props: {
   }
 
   function copyText(text: string) {
-    backend.send({ type: "copy_text", text } as any);
+    backend.send({ type: "copy_text", text });
   }
 
   const value: TranscriberContextValue = {

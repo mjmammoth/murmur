@@ -51,7 +51,7 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
   function toggleAutoCopy() {
     const newValue = !autoCopy();
     setAutoCopy(newValue);
-    backend.send({ type: "toggle_auto_copy", enabled: newValue } as any);
+    backend.send({ type: "toggle_auto_copy", enabled: newValue });
   }
 
   const value: ConfigContextValue = {

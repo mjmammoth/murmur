@@ -1,5 +1,7 @@
 import { type JSX } from "solid-js";
 import { useTheme } from "../context/theme";
+import { useBackend } from "../context/backend";
+import { useSpinnerFrame } from "./spinner";
 import type { ModelInfo } from "../types";
 
 export interface ModelItemProps {
@@ -9,45 +11,74 @@ export interface ModelItemProps {
 
 export function ModelItem(props: ModelItemProps): JSX.Element {
   const { colors } = useTheme();
+  const backend = useBackend();
+  const spinnerFrame = useSpinnerFrame();
 
   const bgColor = () =>
     props.selected ? colors().backgroundElement : undefined;
 
-  const statusColor = () =>
-    props.model.installed ? colors().success : colors().textDim;
+  const fgColor = () =>
+    props.selected ? colors().text : colors().text;
 
-  const statusIcon = () => (props.model.installed ? "●" : "○");
+  const mutedColor = () =>
+    props.selected ? colors().text : colors().textMuted;
+
+  const op = () => {
+    const active = backend.activeModelOp();
+    return active && active.model === props.model.name ? active : null;
+  };
+
+  const statusColor = () => {
+    if (props.selected) return colors().secondary;
+    const current = op();
+    if (current) {
+      return current.type === "pulling" ? colors().transcribing : colors().warning;
+    }
+    return props.model.installed ? colors().success : colors().textDim;
+  };
+
+  const statusText = () => {
+    const current = op();
+    if (current) {
+      if (current.type === "pulling") {
+        const progress = backend.downloadProgress();
+        if (progress && progress.model === props.model.name) {
+          return `${spinnerFrame()} ${progress.percent}%`;
+        }
+        return `${spinnerFrame()} pulling`;
+      }
+      return `${spinnerFrame()} removing`;
+    }
+    return props.model.installed ? "● installed" : "○ available";
+  };
 
   return (
     <box
-      paddingX={2}
-      paddingY={0}
+      flexDirection="row"
+      paddingRight={1}
       backgroundColor={bgColor()}
     >
+      <box
+        width={1}
+        backgroundColor={props.selected ? colors().secondary : colors().borderSubtle}
+      />
       <box flexDirection="row" width="100%">
-        {/* Selection indicator */}
         <box width={2}>
           <text>
-            <span fg={props.selected ? colors().primary : colors().textDim}>
-              {props.selected ? "›" : " "}
+            <span style={{ fg: props.selected ? colors().secondary : colors().textDim }}>
+              {props.selected ? "•" : " "}
             </span>
           </text>
         </box>
 
-        {/* Model name */}
         <box flexGrow={1}>
-          <text>
-            <span fg={props.selected ? colors().text : colors().textMuted}>
-              {props.model.name}
-            </span>
-          </text>
+          <text fg={props.selected ? fgColor() : mutedColor()}>{props.model.name}</text>
         </box>
 
-        {/* Status */}
-        <box width={12}>
+        <box width={14}>
           <text>
-            <span fg={statusColor()}>
-              {statusIcon()} {props.model.installed ? "installed" : "available"}
+            <span style={{ fg: statusColor() }}>
+              {statusText()}
             </span>
           </text>
         </box>

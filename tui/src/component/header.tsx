@@ -2,14 +2,13 @@ import { Show, type JSX } from "solid-js";
 import { useTheme } from "../context/theme";
 import { useTranscriber } from "../context/transcriber";
 import { useConfig } from "../context/config";
-import { useBackend } from "../context/backend";
-import { Spinner } from "./spinner";
+import { useSpinnerFrame } from "./spinner";
 
 export function Header(): JSX.Element {
   const { colors } = useTheme();
   const transcriber = useTranscriber();
   const config = useConfig();
-  const backend = useBackend();
+  const spinnerFrame = useSpinnerFrame();
 
   const statusColor = () => {
     const status = transcriber.status();
@@ -19,10 +18,10 @@ export function Header(): JSX.Element {
       case "transcribing":
       case "downloading":
         return colors().transcribing;
-      case "ready":
-        return colors().ready;
       case "error":
         return colors().error;
+      case "ready":
+        return colors().ready;
       default:
         return colors().textMuted;
     }
@@ -38,8 +37,17 @@ export function Header(): JSX.Element {
       case "error":
         return "✗";
       default:
-        return "○";
+        return "";
     }
+  };
+
+  const statusDisplay = () => {
+    if (transcriber.isBusy()) {
+      const elapsed = transcriber.statusElapsed();
+      const suffix = elapsed !== undefined ? ` (${elapsed}s)` : "";
+      return `${spinnerFrame()} ${transcriber.statusMessage()}${suffix}`;
+    }
+    return `${statusIcon()} ${transcriber.statusMessage()}`;
   };
 
   const configInfo = () => {
@@ -55,45 +63,34 @@ export function Header(): JSX.Element {
   return (
     <box
       paddingX={2}
-      paddingY={1}
+      paddingTop={1}
+      paddingBottom={2}
       backgroundColor={colors().backgroundPanel}
-      borderStyle="rounded"
-      borderColor={colors().borderSubtle}
     >
       <box flexDirection="row" justifyContent="space-between" width="100%">
-        {/* Left side - Status */}
-        <box flexDirection="row" alignItems="center">
-          <Show
-            when={!transcriber.isBusy()}
-            fallback={
-              <Spinner
-                label={transcriber.statusMessage()}
-                color={statusColor()}
-              />
-            }
-          >
-            <text>
-              <span fg={statusColor()}>{statusIcon()}</span>
-              <span fg={colors().text}> {transcriber.statusMessage()}</span>
-            </text>
-          </Show>
-
-          <Show when={transcriber.statusElapsed() !== undefined && transcriber.isBusy()}>
-            <text fg={colors().textDim}> ({transcriber.statusElapsed()}s)</text>
-          </Show>
+        <box flexDirection="row" alignItems="center" gap={1}>
+          <text>
+            <span style={{ fg: colors().primary }}>whisper.local</span>
+          </text>
+          <text>
+            <span style={{ fg: colors().textDim }}>/</span>
+          </text>
+          <text>
+            <span style={{ fg: statusColor() }}>{statusDisplay()}</span>
+          </text>
         </box>
 
-        {/* Right side - Config info */}
         <Show when={configInfo()}>
           {(info) => (
-            <box flexDirection="row">
+            <box flexDirection="row" alignItems="center" gap={1}>
               <text>
-                <span fg={colors().textDim}>model:</span>
-                <span fg={colors().text}>{info().model}</span>
-                <span fg={colors().textDim}> │ </span>
-                <span fg={colors().textDim}>hotkey:</span>
-                <span fg={colors().accent}>{info().hotkey}</span>
-                <span fg={colors().textDim}> ({info().mode})</span>
+                <span style={{ fg: colors().text }}>{info().model}</span>
+              </text>
+              <text>
+                <span style={{ fg: colors().text }}>{info().hotkey}</span>
+              </text>
+              <text>
+                <span style={{ fg: colors().textMuted }}>{info().mode}</span>
               </text>
             </box>
           )}
