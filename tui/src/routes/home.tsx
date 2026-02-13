@@ -1,7 +1,8 @@
-import { createSignal, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, Show, type JSX } from "solid-js";
 import { useKeyHandler, useRenderer } from "@opentui/solid";
 import { RGBA, type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
+import { useBackend } from "../context/backend";
 import { useConfig } from "../context/config";
 import { useTranscriber } from "../context/transcriber";
 import { useDialog } from "../context/dialog";
@@ -18,6 +19,7 @@ import { HotkeyModal } from "../component/hotkey-modal";
 export function Home(): JSX.Element {
   const { colors } = useTheme();
   const renderer = useRenderer();
+  const backend = useBackend();
   const config = useConfig();
   const transcriber = useTranscriber();
   const dialog = useDialog();
@@ -25,6 +27,10 @@ export function Home(): JSX.Element {
   const [showLogs, setShowLogs] = createSignal(false);
   const [activePane, setActivePane] = createSignal<"main" | "logs">("main");
   const [logLevelIndex, setLogLevelIndex] = createSignal(1);
+
+  createEffect(() => {
+    backend.send({ type: "set_hotkey_blocked", enabled: dialog.isOpen() });
+  });
 
   function exitApp() {
     try {

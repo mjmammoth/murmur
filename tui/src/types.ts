@@ -90,6 +90,7 @@ export type ClientMessage =
   | { type: "toggle_noise"; enabled: boolean }
   | { type: "toggle_vad"; enabled: boolean }
   | { type: "toggle_auto_copy"; enabled: boolean }
+  | { type: "set_hotkey_blocked"; enabled: boolean }
   | { type: "download_model"; name: string }
   | { type: "remove_model"; name: string }
   | { type: "set_default_model"; name: string }

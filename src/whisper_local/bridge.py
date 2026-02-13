@@ -76,6 +76,7 @@ class BridgeServer:
         self._auto_copy = False
         self._busy_started_at = 0.0
         self._transcribing_jobs = 0
+        self._hotkey_blocked = False
         self._status = "initializing"
         self._status_message = "Initializing..."
         self._model_loaded = False
@@ -203,6 +204,10 @@ class BridgeServer:
 
     async def _on_hotkey_press(self) -> None:
         """Process hotkey press."""
+        if self._hotkey_blocked:
+            logger.debug("Ignoring hotkey press while dialog is open")
+            return
+
         await self._broadcast({"type": "hotkey_press"})
         if self.config.hotkey.mode == "toggle":
             if self._recording:
@@ -364,6 +369,8 @@ class BridgeServer:
             if not self.clients and self.hotkey and self._hotkey_started:
                 self.hotkey.stop()
                 self._hotkey_started = False
+            if not self.clients:
+                self._hotkey_blocked = False
             logger.info(f"Client disconnected. Total clients: {len(self.clients)}")
 
     async def _handle_message(
@@ -387,6 +394,8 @@ class BridgeServer:
                 await self._broadcast(
                     {"type": "toast", "message": f"Auto copy {'on' if self._auto_copy else 'off'}"}
                 )
+            elif msg_type == "set_hotkey_blocked":
+                self._hotkey_blocked = bool(data.get("enabled", False))
             elif msg_type == "download_model":
                 await self._download_model(data.get("name", ""))
             elif msg_type == "remove_model":
