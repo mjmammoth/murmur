@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import os
 import shutil
@@ -93,6 +94,24 @@ def _run_tui(host: str, port: int) -> subprocess.Popen:
     return subprocess.Popen(cmd, cwd=str(tui_path))
 
 
+def _restore_terminal_state() -> None:
+    """Best-effort terminal recovery in parent process."""
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return
+
+    try:
+        # Disable common mouse tracking modes, restore cursor, and reset attributes.
+        sys.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?25h\x1b[0m")
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+    try:
+        subprocess.run(["stty", "sane"], check=False)
+    except Exception:
+        pass
+
+
 def _run_combined(host: str, port: int) -> None:
     """Run both bridge and TUI together."""
     if not _check_bun():
@@ -118,15 +137,22 @@ def _run_combined(host: str, port: int) -> None:
     devnull = open(os.devnull, "w")
     sys.stderr = devnull
 
-    # Track bridge errors
+    # Track bridge state/errors
+    bridge_server = None
     bridge_error: list[Exception] = []
 
     def _bridge_target() -> None:
+        nonlocal bridge_server
         try:
-            from whisper_local.bridge import run_bridge
-            run_bridge(config, host, port, capture_logs=True)
+            from whisper_local.bridge import BridgeServer
+
+            bridge_server = BridgeServer(config)
+            asyncio.run(bridge_server.start(host, port, capture_logs=True))
         except Exception as e:
             bridge_error.append(e)
+        finally:
+            if bridge_server is not None:
+                bridge_server.shutdown()
 
     # Start bridge in a thread with log capture enabled
     bridge_thread = threading.Thread(target=_bridge_target, daemon=True)
@@ -152,7 +178,15 @@ def _run_combined(host: str, port: int) -> None:
         print("Make sure you're running from the project root directory.", file=real_stderr)
         sys.exit(1)
     finally:
+        if bridge_server is not None:
+            bridge_server.shutdown()
+            loop = bridge_server._loop
+            if loop and not loop.is_closed():
+                loop.call_soon_threadsafe(loop.stop)
+        bridge_thread.join(timeout=1.0)
+
         sys.stderr = real_stderr
+        _restore_terminal_state()
         devnull.close()
 
 
@@ -190,6 +224,8 @@ def main() -> None:
         except FileNotFoundError as e:
             print(f"Error: {e}")
             sys.exit(1)
+        finally:
+            _restore_terminal_state()
         return
 
     if args.command == "models":

@@ -14,7 +14,7 @@ from websockets.server import WebSocketServerProtocol
 
 from whisper_local.audio import AudioRecorder
 from whisper_local.config import AppConfig, default_config_path, load_config, save_config
-from whisper_local.hotkey import HotkeyListener
+from whisper_local.hotkey import HotkeyListener, parse_hotkey
 from whisper_local.model_manager import (
     ModelInfo,
     download_model,
@@ -75,6 +75,7 @@ class BridgeServer:
         self._recording = False
         self._auto_copy = False
         self._busy_started_at = 0.0
+        self._transcribing_jobs = 0
         self._status = "initializing"
         self._status_message = "Initializing..."
         self._model_loaded = False
@@ -231,16 +232,37 @@ class BridgeServer:
             return
         audio = self.recorder.stop()
         self._recording = False
+
+        if self._transcribing_jobs == 0:
+            self._busy_started_at = monotonic()
+        self._transcribing_jobs += 1
+
         await self._set_status("transcribing", "Transcribing...")
-        self._busy_started_at = monotonic()
 
         # Process in background
         asyncio.create_task(self._process_audio(audio))
 
+    async def _finalize_transcription_job(self, final_status: str, final_message: str) -> None:
+        """Finalize one transcription task without regressing live recording state."""
+        self._transcribing_jobs = max(0, self._transcribing_jobs - 1)
+
+        if self._recording:
+            await self._set_status("recording", "Recording...")
+            return
+
+        if self._transcribing_jobs > 0:
+            await self._set_status("transcribing", "Transcribing...")
+            return
+
+        await self._set_status(final_status, final_message)
+
     async def _process_audio(self, audio) -> None:
         """Process recorded audio through noise/vad/transcription pipeline."""
+        final_status = "ready"
+        final_message = "Ready"
+
         if audio.size == 0:
-            await self._set_status("ready", "No audio captured")
+            await self._finalize_transcription_job("ready", "No audio captured")
             return
 
         try:
@@ -265,7 +287,7 @@ class BridgeServer:
             )
 
             if not result.text:
-                await self._set_status("ready", "No speech detected")
+                await self._finalize_transcription_job("ready", "No speech detected")
                 return
 
             timestamp = datetime.now().strftime("%H:%M:%S")
@@ -278,12 +300,22 @@ class BridgeServer:
                 copy_to_clipboard(result.text)
             if self.config.output.file.enabled:
                 append_to_file(self.config.output.file.path, result.text)
-
-            await self._set_status("ready", "Ready")
+            final_status = "ready"
+            final_message = "Ready"
 
         except Exception as exc:
             logger.exception("Transcription failed")
-            await self._set_status("error", f"Transcription failed: {exc}")
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Transcription failed: {exc}",
+                    "level": "error",
+                }
+            )
+            final_status = "error"
+            final_message = f"Transcription failed: {exc}"
+        finally:
+            await self._finalize_transcription_job(final_status, final_message)
 
     async def _set_status(
         self, status: str, message: str, elapsed: float | None = None
@@ -312,6 +344,10 @@ class BridgeServer:
         self.clients.add(websocket)
         logger.info(f"Client connected. Total clients: {len(self.clients)}")
 
+        # Keep global hotkey capture active only while a client is connected.
+        if self._model_loaded:
+            self._start_hotkey()
+
         # Send current state
         await websocket.send(
             json.dumps({"type": "status", "status": self._status, "message": self._status_message})
@@ -325,6 +361,9 @@ class BridgeServer:
             pass
         finally:
             self.clients.discard(websocket)
+            if not self.clients and self.hotkey and self._hotkey_started:
+                self.hotkey.stop()
+                self._hotkey_started = False
             logger.info(f"Client disconnected. Total clients: {len(self.clients)}")
 
     async def _handle_message(
@@ -354,6 +393,8 @@ class BridgeServer:
                 await self._remove_model(data.get("name", ""))
             elif msg_type == "set_default_model":
                 await self._set_default_model(data.get("name", ""))
+            elif msg_type == "set_hotkey":
+                await self._set_hotkey(data.get("hotkey", ""))
             elif msg_type == "list_models":
                 await self._send_models(websocket)
             elif msg_type == "get_config":
@@ -457,6 +498,73 @@ class BridgeServer:
         except ValueError as exc:
             await self._broadcast(
                 {"type": "toast", "message": str(exc), "level": "error"}
+            )
+
+    async def _set_hotkey(self, hotkey: str) -> None:
+        """Update and restart the global hotkey listener."""
+        if not hotkey:
+            await self._broadcast(
+                {"type": "toast", "message": "Hotkey cannot be empty", "level": "error"}
+            )
+            return
+
+        try:
+            parse_hotkey(hotkey)
+        except ValueError as exc:
+            await self._broadcast(
+                {"type": "toast", "message": f"Invalid hotkey: {exc}", "level": "error"}
+            )
+            return
+
+        previous_hotkey = self.config.hotkey.key
+        previous_listener = self.hotkey
+        was_started = self._hotkey_started
+
+        try:
+            if previous_listener and was_started:
+                previous_listener.stop()
+                self._hotkey_started = False
+
+            self.config.hotkey.key = hotkey
+            self.hotkey = HotkeyListener(
+                self.config.hotkey.key,
+                on_press=self._handle_hotkey_press,
+                on_release=self._handle_hotkey_release,
+            )
+
+            if self._model_loaded:
+                self._start_hotkey()
+        except Exception as exc:
+            logger.exception("Failed to apply hotkey")
+            self.config.hotkey.key = previous_hotkey
+            self.hotkey = previous_listener
+            self._hotkey_started = False
+            if self._model_loaded and self.hotkey and was_started:
+                try:
+                    self._start_hotkey()
+                except Exception:
+                    logger.exception("Failed to restore previous hotkey listener")
+            await self._broadcast(
+                {"type": "toast", "message": f"Failed to apply hotkey: {exc}", "level": "error"}
+            )
+            return
+
+        persist_error: str | None = None
+        try:
+            save_config(self.config)
+        except Exception as exc:
+            logger.exception("Failed to persist hotkey config")
+            persist_error = str(exc)
+
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Hotkey set to {hotkey}"})
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Hotkey updated for this session, but failed to save: {persist_error}",
+                    "level": "error",
+                }
             )
 
     async def _send_models(self, websocket: WebSocketServerProtocol) -> None:

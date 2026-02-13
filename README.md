@@ -55,9 +55,10 @@ Defaults live in `configs/default.toml`. The app reads overrides from:
 ## TUI key bindings
 - `c`: copy latest transcript
 - `enter`: copy selected transcript
-- `y`: toggle auto-copy
+- `a`: toggle auto-copy
 - `n`: toggle noise suppression
 - `v`: toggle VAD
+- `h`: hotkey modal
 - `m`: model manager
 - `s`: interactive settings menu
 - `q`: quit

@@ -140,6 +140,7 @@ export function LogPanel(props: LogPanelProps): JSX.Element {
           <For each={filteredLogs()}>
             {(entry: LogEntry, index) => {
               const lines = normalizeLogLines(entry.message);
+              const blockText = `${entry.timestamp} ${levelTag(entry.level)} ${entry.source}:\n${lines.join("\n")}`;
               const rowBackground = () =>
                 index() % 2 === 0 ? colors().backgroundPanel : colors().backgroundElement;
 
@@ -150,6 +151,9 @@ export function LogPanel(props: LogPanelProps): JSX.Element {
                   paddingX={1}
                   paddingY={1}
                   backgroundColor={rowBackground()}
+                  onMouseUp={() => {
+                    backend.send({ type: "copy_text", text: blockText });
+                  }}
                 >
                   <text>
                     <span style={{ fg: colors().textDim }}>{entry.timestamp} </span>
@@ -178,6 +182,8 @@ export function LogPanel(props: LogPanelProps): JSX.Element {
           <span style={{ fg: colors().textMuted }}> close </span>
           <span style={{ fg: colors().text }}>tab</span>
           <span style={{ fg: colors().textMuted }}> focus </span>
+          <span style={{ fg: colors().text }}>click</span>
+          <span style={{ fg: colors().textMuted }}> copy </span>
           <span style={{ fg: colors().text }}>↑/↓ j/k</span>
           <span style={{ fg: colors().textMuted }}> scroll </span>
           <span style={{ fg: colors().text }}>←/→</span>

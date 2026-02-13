@@ -1,5 +1,5 @@
 import { createSignal, Show, type JSX } from "solid-js";
-import { useKeyHandler } from "@opentui/solid";
+import { useKeyHandler, useRenderer } from "@opentui/solid";
 import { RGBA, type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useConfig } from "../context/config";
@@ -13,9 +13,11 @@ import { ToastContainer } from "../component/toast";
 import { ModelManager } from "../component/model-manager";
 import { Settings } from "../component/settings";
 import { LOG_LEVELS, LogPanel } from "../component/log-panel";
+import { HotkeyModal } from "../component/hotkey-modal";
 
 export function Home(): JSX.Element {
   const { colors } = useTheme();
+  const renderer = useRenderer();
   const config = useConfig();
   const transcriber = useTranscriber();
   const dialog = useDialog();
@@ -24,9 +26,35 @@ export function Home(): JSX.Element {
   const [activePane, setActivePane] = createSignal<"main" | "logs">("main");
   const [logLevelIndex, setLogLevelIndex] = createSignal(1);
 
+  function exitApp() {
+    try {
+      renderer.destroy();
+    } catch {
+      // Ignore renderer teardown errors during exit
+    }
+
+    try {
+      if (process.stdin.isTTY && "setRawMode" in process.stdin) {
+        (process.stdin as NodeJS.ReadStream).setRawMode(false);
+      }
+    } catch {
+      // Ignore raw mode reset errors during exit
+    }
+
+    try {
+      // Disable common mouse tracking modes and restore cursor/style.
+      process.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?25h\x1b[0m");
+    } catch {
+      // Ignore terminal restore write errors during exit
+    }
+
+    process.exit(0);
+  }
+
   useKeyHandler((key: KeyEvent) => {
     if (key.ctrl && key.name === "c") {
-      process.exit(0);
+      key.preventDefault();
+      exitApp();
       return;
     }
 
@@ -79,7 +107,7 @@ export function Home(): JSX.Element {
 
     switch (keyName) {
       case "q":
-        process.exit(0);
+        exitApp();
         break;
       case "c":
         handleCopyLatest();
@@ -88,7 +116,7 @@ export function Home(): JSX.Element {
       case "enter":
         handleCopySelected();
         break;
-      case "y":
+      case "a":
         config.toggleAutoCopy();
         break;
       case "n":
@@ -102,6 +130,9 @@ export function Home(): JSX.Element {
         break;
       case "s":
         dialog.openDialog("settings");
+        break;
+      case "h":
+        dialog.openDialog("hotkey");
         break;
       case "up":
       case "k":
@@ -215,6 +246,19 @@ export function Home(): JSX.Element {
           backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
         >
           <Settings />
+        </box>
+      </Show>
+
+      <Show when={dialog.currentDialog()?.type === "hotkey"}>
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
+        >
+          <HotkeyModal />
         </box>
       </Show>
     </box>

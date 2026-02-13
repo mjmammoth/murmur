@@ -19,6 +19,7 @@ export interface TranscriberContextValue {
   isBusy: Accessor<boolean>;
   selectNext: () => void;
   selectPrev: () => void;
+  selectIndex: (index: number) => void;
   getSelected: () => TranscriptEntry | null;
   getLatest: () => TranscriptEntry | null;
   copyText: (text: string) => void;
@@ -46,9 +47,11 @@ export function TranscriberContextProvider(props: {
   // Listen for transcripts from backend
   onMount(() => {
     backend.onTranscript((entry) => {
-      setTranscripts((prev) => [...prev, entry]);
-      // Auto-select new entry
-      setSelectedIndex(transcripts().length);
+      setTranscripts((prev) => {
+        const next = [...prev, entry];
+        setSelectedIndex(next.length - 1);
+        return next;
+      });
     });
   });
 
@@ -62,6 +65,15 @@ export function TranscriberContextProvider(props: {
     const list = transcripts();
     if (list.length === 0) return;
     setSelectedIndex((idx) => Math.max(idx - 1, 0));
+  }
+
+  function selectIndex(index: number) {
+    const list = transcripts();
+    if (list.length === 0) {
+      setSelectedIndex(-1);
+      return;
+    }
+    setSelectedIndex(Math.max(0, Math.min(index, list.length - 1)));
   }
 
   function getSelected(): TranscriptEntry | null {
@@ -91,6 +103,7 @@ export function TranscriberContextProvider(props: {
     isBusy,
     selectNext,
     selectPrev,
+    selectIndex,
     getSelected,
     getLatest,
     copyText,

@@ -1,6 +1,38 @@
 import { render } from "@opentui/solid";
 import { App } from "./app";
 
+let terminalRestored = false;
+
+function restoreTerminalState() {
+  if (terminalRestored) return;
+  terminalRestored = true;
+
+  try {
+    if (process.stdin.isTTY && "setRawMode" in process.stdin) {
+      (process.stdin as NodeJS.ReadStream).setRawMode(false);
+    }
+  } catch {
+    // Ignore raw mode reset errors during shutdown
+  }
+
+  try {
+    // Disable common mouse tracking modes and restore cursor/style.
+    process.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?25h\x1b[0m");
+  } catch {
+    // Ignore terminal write errors during shutdown
+  }
+}
+
+process.on("exit", restoreTerminalState);
+process.on("SIGINT", () => {
+  restoreTerminalState();
+  process.exit(0);
+});
+process.on("SIGTERM", () => {
+  restoreTerminalState();
+  process.exit(0);
+});
+
 // Parse command line arguments for host/port
 const args = process.argv.slice(2);
 let host = "localhost";

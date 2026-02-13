@@ -171,7 +171,7 @@ class WhisperApp(App):
         ("q", "quit", "Quit"),
         ("c", "copy_latest", "Copy latest"),
         ("enter", "copy_selected", "Copy selected"),
-        ("y", "toggle_auto_copy", "Auto copy"),
+        ("a", "toggle_auto_copy", "Auto copy"),
         ("n", "toggle_noise", "Noise"),
         ("v", "toggle_vad", "VAD"),
         ("m", "models", "Models"),

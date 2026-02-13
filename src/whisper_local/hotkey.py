@@ -165,6 +165,7 @@ class HotkeyListener:
         self._thread.start()
 
     def stop(self) -> None:
+        self._pressed = False
         if self._run_loop is not None:
             CFRunLoopStop(self._run_loop)
         self._thread = None
@@ -199,21 +200,37 @@ class HotkeyListener:
 
         if event_type not in (kCGEventKeyDown, kCGEventKeyUp):
             return event
+
         keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
         flags = CGEventGetFlags(event)
-        if keycode != self.hotkey.keycode:
-            return event
-        if (flags & self.hotkey.modifiers) != self.hotkey.modifiers:
-            return event
 
-        if event_type == kCGEventKeyDown and not self._pressed:
-            self._pressed = True
-            self.on_press()
-        elif event_type == kCGEventKeyUp and self._pressed:
+        if event_type == kCGEventKeyDown:
+            if keycode != self.hotkey.keycode:
+                return event
+            if (flags & self.hotkey.modifiers) != self.hotkey.modifiers:
+                return event
+
+            if not self._pressed:
+                self._pressed = True
+                self.on_press()
+            # Swallow matching keydown events to prevent echo in terminal/apps.
+            return None
+
+        # Key up handling is intentionally more permissive than key down:
+        # users may release modifiers before releasing the main key.
+        if self._pressed and keycode == self.hotkey.keycode:
             self._pressed = False
             self.on_release()
-        # Return None to swallow the event and prevent it reaching the terminal/other apps
-        return None
+            return None
+
+        # If a required modifier is released while we're pressed, treat that as release
+        # for push-to-talk reliability on combos like shift+7.
+        if self._pressed and self.hotkey.modifiers != 0:
+            if (flags & self.hotkey.modifiers) != self.hotkey.modifiers:
+                self._pressed = False
+                self.on_release()
+
+        return event
 
     def _handle_media_key(self, event):
         """Handle NX_SYSDEFINED media key events (F-keys without fn held)."""

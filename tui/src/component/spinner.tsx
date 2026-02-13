@@ -5,6 +5,37 @@ import { useTheme } from "../context/theme";
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL = 80;
 
+function createScannerFrames(width = 9, holdFrames = 2): string[] {
+  const inactive = "⬝";
+  const active = "■";
+  const frames: string[] = [];
+
+  const renderFrame = (activeIndex: number) => {
+    return Array.from({ length: width }, (_, i) => (i === activeIndex ? active : inactive)).join("");
+  };
+
+  for (let i = 0; i < width; i++) {
+    frames.push(renderFrame(i));
+  }
+
+  for (let i = 0; i < holdFrames; i++) {
+    frames.push(renderFrame(width - 1));
+  }
+
+  for (let i = width - 2; i >= 0; i--) {
+    frames.push(renderFrame(i));
+  }
+
+  for (let i = 0; i < holdFrames; i++) {
+    frames.push(renderFrame(0));
+  }
+
+  return frames;
+}
+
+const SCANNER_FRAMES = createScannerFrames();
+const SCANNER_INTERVAL = 45;
+
 /** Reusable hook that returns the current spinner frame character */
 export function useSpinnerFrame(
   frames = BRAILLE_FRAMES,
@@ -21,6 +52,10 @@ export function useSpinnerFrame(
   });
 
   return () => frames[frameIndex()];
+}
+
+export function useScannerFrame(): Accessor<string> {
+  return useSpinnerFrame(SCANNER_FRAMES, SCANNER_INTERVAL);
 }
 
 export interface SpinnerProps {

@@ -27,9 +27,28 @@ interface TextSetting extends SettingBase {
   value: () => string;
 }
 
-type SettingItem = ToggleSetting | TextSetting;
+interface HotkeySetting extends SettingBase {
+  kind: "hotkey";
+  value: () => string;
+}
+
+type SettingItem = ToggleSetting | TextSetting | HotkeySetting;
 
 const SECTION_ORDER: SettingSection[] = ["Recording", "Model", "Audio", "VAD", "Output", "System"];
+const HOTKEY_KEY_SETTING_ID = "hotkey.key";
+const MODIFIER_KEYS = new Set(["shift", "ctrl", "control", "meta", "cmd", "command", "alt", "option"]);
+const SHIFTED_DIGIT_SYMBOL_TO_KEY: Record<string, string> = {
+  "!": "1",
+  "@": "2",
+  "#": "3",
+  "$": "4",
+  "%": "5",
+  "^": "6",
+  "&": "7",
+  "*": "8",
+  "(": "9",
+  ")": "0",
+};
 
 function boolLabel(value: boolean): string {
   return value ? "on" : "off";
@@ -39,6 +58,52 @@ function withFallback(value: string | number | null | undefined, fallback = "-")
   if (value === null || value === undefined) return fallback;
   const text = String(value).trim();
   return text.length > 0 ? text : fallback;
+}
+
+function normalizeHotkeyBaseKey(name: string): { baseKey: string | null; inferredShift: boolean } {
+  if (SHIFTED_DIGIT_SYMBOL_TO_KEY[name]) {
+    return { baseKey: SHIFTED_DIGIT_SYMBOL_TO_KEY[name]!, inferredShift: true };
+  }
+
+  const lowered = name.toLowerCase();
+  if (/^[a-z0-9]$/.test(lowered)) return { baseKey: lowered, inferredShift: false };
+  if (/^f([1-9]|1[0-2])$/.test(lowered)) return { baseKey: lowered, inferredShift: false };
+
+  switch (lowered) {
+    case "space":
+      return { baseKey: "space", inferredShift: false };
+    case "return":
+    case "enter":
+      return { baseKey: "return", inferredShift: false };
+    case "tab":
+      return { baseKey: "tab", inferredShift: false };
+    case "escape":
+    case "esc":
+      return { baseKey: "escape", inferredShift: false };
+    default:
+      return { baseKey: null, inferredShift: false };
+  }
+}
+
+function formatHotkeyFromEvent(key: KeyEvent): { hotkey: string | null; error?: string; modifierOnly?: boolean } {
+  const caseInferredShift = key.name.length === 1 && key.name !== key.name.toLowerCase();
+  const name = key.name.toLowerCase();
+  if (MODIFIER_KEYS.has(name)) return { hotkey: null, modifierOnly: true };
+
+  const { baseKey, inferredShift } = normalizeHotkeyBaseKey(key.name);
+  const hasShift = key.shift || caseInferredShift || inferredShift;
+  if (!baseKey) {
+    return { hotkey: null, error: `Unsupported key: ${key.name}` };
+  }
+
+  const parts: string[] = [];
+  if (key.meta) parts.push("cmd");
+  if (key.ctrl) parts.push("ctrl");
+  if (key.option) parts.push("option");
+  if (hasShift) parts.push("shift");
+  parts.push(baseKey);
+
+  return { hotkey: parts.join("+") };
 }
 
 function LegendHint(props: { keys: string; label: string }): JSX.Element {
@@ -66,6 +131,8 @@ export function Settings(): JSX.Element {
 
   const [query, setQuery] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
+  const [listeningSettingId, setListeningSettingId] = createSignal<string | null>(null);
+  const [captureError, setCaptureError] = createSignal("");
   let searchInput: InputRenderable | undefined;
 
   const configPath = createMemo(
@@ -163,7 +230,7 @@ export function Settings(): JSX.Element {
       {
         id: "hotkey.key",
         section: "Audio",
-        kind: "text",
+        kind: "hotkey",
         title: "Hotkey Key",
         description: "Global shortcut for recording",
         keywords: ["hotkey", "shortcut", "key"],
@@ -319,6 +386,12 @@ export function Settings(): JSX.Element {
     }
   });
 
+  createEffect(() => {
+    if (dialog.currentDialog()?.type !== "settings" && listeningSettingId()) {
+      cancelHotkeyCapture();
+    }
+  });
+
   onMount(() => {
     setTimeout(() => {
       if (!searchInput || searchInput.isDestroyed) return;
@@ -340,14 +413,59 @@ export function Settings(): JSX.Element {
     if (item.enabled() !== value) item.toggle();
   }
 
+  function beginHotkeyCapture() {
+    setListeningSettingId(null);
+    setCaptureError("");
+    dialog.openDialog("hotkey", { returnToSettings: true });
+  }
+
+  function cancelHotkeyCapture() {
+    setListeningSettingId(null);
+    setCaptureError("");
+  }
+
+  function submitHotkeyCapture(key: KeyEvent) {
+    const parsed = formatHotkeyFromEvent(key);
+    if (parsed.modifierOnly) {
+      setCaptureError("Press a non-modifier key");
+      return;
+    }
+    if (parsed.error || !parsed.hotkey) {
+      setCaptureError(parsed.error ?? "Unsupported key");
+      return;
+    }
+
+    backend.send({ type: "set_hotkey", hotkey: parsed.hotkey });
+    setListeningSettingId(null);
+    setCaptureError("");
+  }
+
   function activateSelected() {
     const item = selectedItem();
-    if (!item || item.kind !== "toggle") return;
-    item.toggle();
+    if (!item) return;
+    if (item.kind === "toggle") {
+      item.toggle();
+      return;
+    }
+    if (item.kind === "hotkey") {
+      beginHotkeyCapture();
+    }
   }
 
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "settings") return;
+
+    if (listeningSettingId()) {
+      key.preventDefault();
+
+      if (key.name === "escape") {
+        cancelHotkeyCapture();
+        return;
+      }
+
+      submitHotkeyCapture(key);
+      return;
+    }
 
     switch (key.name) {
       case "escape":
@@ -404,13 +522,25 @@ export function Settings(): JSX.Element {
   };
 
   const valueText = (item: SettingItem) => {
+    if (item.kind === "hotkey" && listeningSettingId() === item.id) {
+      return "listening...";
+    }
     if (item.kind === "toggle") {
       return item.enabled() ? "on" : "off";
     }
     return item.value();
   };
 
+  const descriptionText = (item: SettingItem) => {
+    if (item.kind !== "hotkey") return item.description;
+    if (captureError()) return captureError();
+    return "Press enter to open hotkey modal";
+  };
+
   const valueColor = (item: SettingItem, active: boolean) => {
+    if (item.kind === "hotkey") {
+      return active ? colors().text : colors().secondary;
+    }
     if (item.kind === "toggle") {
       if (item.enabled()) return colors().success;
       return active ? colors().textMuted : colors().textDim;
@@ -495,6 +625,7 @@ export function Settings(): JSX.Element {
                             const idx = flatItems().findIndex((entry) => entry.id === item.id);
                             if (idx >= 0) setSelectedIndex(idx);
                             if (item.kind === "toggle") item.toggle();
+                            if (item.kind === "hotkey") beginHotkeyCapture();
                           }}
                         >
                           <box
@@ -507,7 +638,16 @@ export function Settings(): JSX.Element {
                                 <span style={{ fg: isActive() ? colors().text : colors().text }}>{item.title}</span>
                               </text>
                               <text>
-                                <span style={{ fg: colors().textMuted }}>{item.description}</span>
+                                <span
+                                  style={{
+                                    fg:
+                                      item.kind === "hotkey" && listeningSettingId() === item.id && captureError()
+                                        ? colors().error
+                                        : colors().textMuted,
+                                  }}
+                                >
+                                  {descriptionText(item)}
+                                </span>
                               </text>
                             </box>
                             <box flexDirection="column" alignItems="flex-end">
@@ -518,6 +658,13 @@ export function Settings(): JSX.Element {
                                 <text>
                                   <span style={{ fg: colors().textDim }}>
                                     read-only
+                                  </span>
+                                </text>
+                              </Show>
+                              <Show when={item.kind === "hotkey"}>
+                                <text>
+                                  <span style={{ fg: colors().textDim }}>
+                                    open modal
                                   </span>
                                 </text>
                               </Show>
@@ -540,8 +687,8 @@ export function Settings(): JSX.Element {
             <span style={{ fg: colors().secondary }}>■</span>
           </text>
           <LegendHint keys="↑/↓" label="navigate" />
-          <LegendHint keys="enter" label="toggle" />
-          <LegendHint keys="space" label="toggle" />
+          <LegendHint keys="enter" label="activate" />
+          <LegendHint keys="space" label="activate" />
           <LegendHint keys="←/→" label="set off/on" />
         </box>
       </box>

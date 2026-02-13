@@ -93,6 +93,7 @@ export type ClientMessage =
   | { type: "download_model"; name: string }
   | { type: "remove_model"; name: string }
   | { type: "set_default_model"; name: string }
+  | { type: "set_hotkey"; hotkey: string }
   | { type: "list_models" }
   | { type: "get_config" }
   | { type: "get_config_file" }
@@ -132,7 +133,7 @@ export interface Toast {
 
 // Dialog types
 
-export type DialogType = "model-manager" | "settings";
+export type DialogType = "model-manager" | "settings" | "hotkey";
 
 export interface DialogState {
   type: DialogType;

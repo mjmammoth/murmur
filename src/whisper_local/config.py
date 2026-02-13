@@ -174,9 +174,16 @@ def load_config(path: Path | None = None) -> AppConfig:
 
 
 def save_config(config: AppConfig, path: Path | None = None) -> None:
+    def _strip_none(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {k: _strip_none(v) for k, v in value.items() if v is not None}
+        if isinstance(value, list):
+            return [_strip_none(v) for v in value if v is not None]
+        return value
+
     config_path = path or default_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    data = config.to_dict()
+    data = _strip_none(config.to_dict())
     data["output"]["file"]["path"] = str(config.output.file.path)
     with config_path.open("wb") as handle:
         tomli_w.dump(data, handle)
