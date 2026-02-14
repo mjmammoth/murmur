@@ -110,12 +110,21 @@ class BridgeServer:
         self._runtime_capabilities = self._detect_runtime_capabilities()
         self._shutdown_requested = threading.Event()
 
+        self._background_tasks: set[asyncio.Task] = set()
+
         # Audio/transcription components (initialized lazily)
         self.recorder: AudioRecorder | None = None
         self.noise: RNNoiseSuppressor | None = None
         self.vad: VadProcessor | None = None
         self.transcriber: Transcriber | None = None
         self.hotkey: HotkeyListener | None = None
+
+    def _spawn_task(self, coro) -> asyncio.Task:
+        """Create a background task and prevent it from being garbage-collected."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     def _client_path(self, websocket: WebSocketServerProtocol) -> str:
         """Return connection path across websockets API versions."""
@@ -319,7 +328,7 @@ class BridgeServer:
         await self._set_status("transcribing", "Transcribing...")
 
         # Process in background
-        asyncio.create_task(
+        self._spawn_task(
             self._process_audio(
                 audio,
                 transcriber=job_transcriber,
@@ -606,9 +615,9 @@ class BridgeServer:
             elif msg_type == "set_model_language":
                 await self._set_model_language(data.get("language"))
             elif msg_type == "download_model":
-                asyncio.create_task(self._download_model(data.get("name", "")))
+                self._spawn_task(self._download_model(data.get("name", "")))
             elif msg_type == "remove_model":
-                asyncio.create_task(self._remove_model(data.get("name", "")))
+                self._spawn_task(self._remove_model(data.get("name", "")))
             elif msg_type == "set_selected_model":
                 await self._set_selected_model(data.get("name", ""))
             elif msg_type == "set_default_model":
@@ -628,7 +637,7 @@ class BridgeServer:
             elif msg_type == "get_config_file":
                 await self._send_config_file(websocket)
             elif msg_type == "transcribe_paste":
-                asyncio.create_task(self._handle_transcribe_paste(data.get("text", "")))
+                self._spawn_task(self._handle_transcribe_paste(data.get("text", "")))
             else:
                 logger.warning(f"Unknown message type: {msg_type}")
 
@@ -766,7 +775,8 @@ class BridgeServer:
 
     async def _transcribe_audio_file(self, path: Path) -> None:
         try:
-            size_bytes = path.stat().st_size
+            stat_result = await asyncio.to_thread(path.stat)
+            size_bytes = stat_result.st_size
         except OSError as exc:
             await self._broadcast(
                 {

@@ -50,6 +50,13 @@ def load_audio_file(path: Path, target_sample_rate: int) -> np.ndarray:
 
 
 def _resample_audio(audio: np.ndarray, original_rate: int, target_rate: int) -> np.ndarray:
+    """Resample audio from original_rate to target_rate.
+
+    Uses scipy.signal.resample_poly when available for proper anti-aliased
+    resampling. Falls back to numpy linear interpolation (np.interp) which
+    does NOT apply an anti-aliasing filter — this can introduce aliasing
+    artifacts when downsampling. Install scipy for better quality.
+    """
     if audio.ndim > 1:
         audio = np.asarray(audio).reshape(-1)
     if original_rate == target_rate:
@@ -57,8 +64,20 @@ def _resample_audio(audio: np.ndarray, original_rate: int, target_rate: int) -> 
     if audio.size == 0:
         return np.empty(0, dtype=np.float32)
 
-    duration = audio.shape[0] / float(original_rate)
-    target_length = int(duration * target_rate)
+    from math import gcd
+
+    common = gcd(target_rate, original_rate)
+    up = target_rate // common
+    down = original_rate // common
+
+    try:
+        from scipy.signal import resample_poly
+
+        return resample_poly(audio, up, down).astype(np.float32)
+    except ImportError:
+        pass
+
+    target_length = int(audio.shape[0] * up / down)
     if target_length <= 1:
         return np.empty(0, dtype=np.float32)
 

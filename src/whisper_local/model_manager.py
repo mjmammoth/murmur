@@ -14,6 +14,8 @@ from typing import Callable
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 from huggingface_hub import HfApi, snapshot_download
+from huggingface_hub.errors import HfHubHTTPError
+from requests.exceptions import RequestException
 
 from whisper_local import config as config_module
 
@@ -122,7 +124,7 @@ def _resolve_repo_total_bytes(repo_id: str) -> int | None:
     """Return the total model artifact size in bytes, if available."""
     try:
         info = HfApi().model_info(repo_id=repo_id, files_metadata=True)
-    except Exception as exc:
+    except (RequestException, HfHubHTTPError, OSError) as exc:
         logger.debug("Unable to fetch size metadata for %s: %s", repo_id, exc)
         return None
 
@@ -303,14 +305,14 @@ def download_model(
         if cancel_check is not None and cancel_check():
             raise DownloadCancelledError("Download cancelled before transfer")
         return Path(snapshot_download(**kwargs))
+    except DownloadCancelledError:
+        raise
     except Exception as exc:
-        if isinstance(exc, DownloadCancelledError):
-            raise
         if "fds_to_keep" not in str(exc):
             raise
         logger.warning("Retrying model download in clean subprocess due to FD error")
         if cancel_check is not None and cancel_check():
-            raise DownloadCancelledError("Download cancelled before retry")
+            raise DownloadCancelledError("Download cancelled before retry") from exc
         return _download_model_in_subprocess(repo_id)
 
 

@@ -494,19 +494,23 @@ export function Settings(): JSX.Element {
     setCaptureError("");
   }
 
+  function openSettingDialog(id: string) {
+    if (isModelManagerSetting(id)) {
+      dialog.openDialog("model-manager", { returnToSettings: true });
+      return true;
+    }
+    if (isSelectorSetting(id)) {
+      dialog.openDialog("settings-select", { settingId: id, returnToSettings: true });
+      return true;
+    }
+    return false;
+  }
+
   function activateSelected() {
     const item = selectedItem();
     if (!item) return;
 
-    if (isModelManagerSetting(item.id)) {
-      dialog.openDialog("model-manager", { returnToSettings: true });
-      return;
-    }
-
-    if (isSelectorSetting(item.id)) {
-      dialog.openDialog("settings-select", { settingId: item.id, returnToSettings: true });
-      return;
-    }
+    if (openSettingDialog(item.id)) return;
 
     if (item.kind === "toggle") {
       item.toggle();
@@ -665,18 +669,7 @@ export function Settings(): JSX.Element {
                             const idx = flatItems().findIndex((entry) => entry.id === item.id);
                             if (idx >= 0) setSelectedIndex(idx);
 
-                            if (isModelManagerSetting(item.id)) {
-                              dialog.openDialog("model-manager", { returnToSettings: true });
-                              return;
-                            }
-
-                            if (isSelectorSetting(item.id)) {
-                              dialog.openDialog("settings-select", {
-                                settingId: item.id,
-                                returnToSettings: true,
-                              });
-                              return;
-                            }
+                            if (openSettingDialog(item.id)) return;
 
                             if (item.kind === "toggle") item.toggle();
                             if (item.kind === "hotkey") beginHotkeyCapture();
