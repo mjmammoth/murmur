@@ -7,6 +7,7 @@ Local, real-time voice transcription with a Textual TUI, backed by Whisper. Runs
 - macOS menu bar status dot (idle/recording/transcribing/success pulse)
 - Local transcription with pluggable backends (`faster-whisper` or `whisper.cpp`)
 - Textual TUI with transcript history and copy actions
+- Drag-and-drop/paste audio file paths into the TUI to transcribe local files
 - Optional clipboard and file output
 - Optional RNNoise noise suppression (soft dependency)
 - Model management (list/pull/remove/select)
@@ -80,6 +81,7 @@ Defaults live in `configs/default.toml`. The app reads overrides from:
 - `h`: hotkey modal
 - `m`: model manager
 - `s`: interactive settings menu
+- drag/drop (paste path): transcribe audio file(s)
 - `q`: quit
 
 ## Homebrew (custom tap)

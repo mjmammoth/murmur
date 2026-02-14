@@ -5,16 +5,19 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shlex
 import threading
 from datetime import datetime
+from pathlib import Path
 from time import monotonic
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import websockets
 from websockets.server import WebSocketServerProtocol
 
 from whisper_local.audio import AudioRecorder
+from whisper_local.audio_file import load_audio_file
 from whisper_local.config import AppConfig, default_config_path, load_config, save_config
 from whisper_local.hotkey import HotkeyListener, parse_hotkey
 from whisper_local.model_manager import (
@@ -35,6 +38,10 @@ from whisper_local.transcribe import (
 from whisper_local.vad import VadProcessor
 
 logger = logging.getLogger(__name__)
+
+MAX_DROP_FILES = 32
+MAX_DROP_FILE_BYTES = 512 * 1024 * 1024
+MAX_DROP_AUDIO_SECONDS = 4 * 60 * 60
 
 
 class WebSocketLogHandler(logging.Handler):
@@ -99,6 +106,7 @@ class BridgeServer:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._model_reload_lock = asyncio.Lock()
         self._model_op_lock = asyncio.Lock()
+        self._file_transcription_lock = asyncio.Lock()
         self._runtime_capabilities = self._detect_runtime_capabilities()
         self._shutdown_requested = threading.Event()
 
@@ -341,7 +349,8 @@ class BridgeServer:
         transcriber: Transcriber | None = None,
         language: str | None = None,
         sample_rate: int | None = None,
-    ) -> None:
+        source_label: str | None = None,
+    ) -> tuple[str, str]:
         """Process recorded audio through noise/vad/transcription pipeline."""
         final_status = "ready"
         final_message = "Ready"
@@ -367,12 +376,15 @@ class BridgeServer:
         output_language: str | None = None
 
         if audio.size == 0:
-            await self._finalize_transcription_job("ready", "No audio captured")
-            return
+            final_message = "No audio captured"
+            await self._finalize_transcription_job(final_status, final_message)
+            return final_status, final_message
 
         if job_transcriber is None:
-            await self._finalize_transcription_job("error", "Model is not loaded")
-            return
+            final_status = "error"
+            final_message = "Model is not loaded"
+            await self._finalize_transcription_job(final_status, final_message)
+            return final_status, final_message
 
         try:
             # Noise suppression
@@ -406,8 +418,9 @@ class BridgeServer:
             output_language = result.language
 
             if not result.text:
-                await self._finalize_transcription_job("ready", "No speech detected")
-                return
+                final_status = "ready"
+                final_message = "No speech detected"
+                return final_status, final_message
 
             timestamp = datetime.now().strftime("%H:%M:%S")
             await self._broadcast(
@@ -424,10 +437,13 @@ class BridgeServer:
 
         except Exception as exc:
             logger.exception("Transcription failed")
+            error_prefix = "Transcription failed"
+            if source_label:
+                error_prefix = f"Transcription failed ({source_label})"
             await self._broadcast(
                 {
                     "type": "toast",
-                    "message": f"Transcription failed: {exc}",
+                    "message": f"{error_prefix}: {exc}",
                     "level": "error",
                 }
             )
@@ -472,6 +488,8 @@ class BridgeServer:
             )
 
             await self._finalize_transcription_job(final_status, final_message)
+
+        return final_status, final_message
 
     async def _set_status(
         self, status: str, message: str, elapsed: float | None = None
@@ -609,6 +627,8 @@ class BridgeServer:
                     await self._broadcast({"type": "toast", "message": "Copied to clipboard"})
             elif msg_type == "get_config_file":
                 await self._send_config_file(websocket)
+            elif msg_type == "transcribe_paste":
+                asyncio.create_task(self._handle_transcribe_paste(data.get("text", "")))
             else:
                 logger.warning(f"Unknown message type: {msg_type}")
 
@@ -616,6 +636,228 @@ class BridgeServer:
             logger.warning("Invalid JSON message received")
         except Exception:
             logger.exception("Error handling message")
+
+    async def _handle_transcribe_paste(self, raw_text: Any) -> None:
+        text = str(raw_text or "").strip()
+        if not text:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "No file path received from paste",
+                    "level": "error",
+                }
+            )
+            return
+
+        parsed_paths = self._extract_paths_from_paste(text)
+        if not parsed_paths:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Could not parse any file paths from paste",
+                    "level": "error",
+                }
+            )
+            return
+
+        valid_paths: list[Path] = []
+        seen: set[str] = set()
+        for path in parsed_paths:
+            normalized = str(path)
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+
+            if not path.exists():
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"File not found: {path}",
+                        "level": "error",
+                    }
+                )
+                continue
+            if not path.is_file():
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Not a file: {path}",
+                        "level": "error",
+                    }
+                )
+                continue
+
+            valid_paths.append(path)
+
+        if not valid_paths:
+            return
+
+        if len(valid_paths) > MAX_DROP_FILES:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": (
+                        f"Paste contained {len(valid_paths)} files; processing first {MAX_DROP_FILES}."
+                    ),
+                    "level": "error",
+                }
+            )
+            valid_paths = valid_paths[:MAX_DROP_FILES]
+
+        if len(valid_paths) == 1:
+            await self._broadcast(
+                {"type": "toast", "message": f"Queued file transcription: {valid_paths[0].name}"}
+            )
+        else:
+            await self._broadcast(
+                {"type": "toast", "message": f"Queued {len(valid_paths)} files for transcription"}
+            )
+
+        async with self._file_transcription_lock:
+            for path in valid_paths:
+                await self._transcribe_audio_file(path)
+
+    def _extract_paths_from_paste(self, text: str) -> list[Path]:
+        tokens: list[str] = []
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            lines = [text.strip()]
+
+        for line in lines:
+            try:
+                line_tokens = shlex.split(line, posix=True)
+            except ValueError:
+                line_tokens = [line]
+            if line_tokens:
+                tokens.extend(line_tokens)
+
+        paths: list[Path] = []
+        for token in tokens:
+            normalized = self._normalize_paste_path(token)
+            if normalized is not None:
+                paths.append(normalized)
+        return paths
+
+    def _normalize_paste_path(self, token: str) -> Path | None:
+        candidate = token.strip()
+        if not candidate:
+            return None
+
+        if candidate.startswith("file://"):
+            parsed = urlparse(candidate)
+            if parsed.scheme != "file":
+                return None
+            path_part = unquote(parsed.path or "")
+            if parsed.netloc and parsed.netloc not in {"", "localhost"}:
+                path_part = f"//{parsed.netloc}{path_part}"
+            candidate = path_part
+
+        candidate = candidate.strip().strip("'").strip('"')
+        if not candidate:
+            return None
+
+        path = Path(candidate).expanduser()
+        try:
+            if path.is_absolute():
+                return path.resolve(strict=False)
+            return (Path.cwd() / path).resolve(strict=False)
+        except Exception:
+            return None
+
+    async def _transcribe_audio_file(self, path: Path) -> None:
+        try:
+            size_bytes = path.stat().st_size
+        except OSError as exc:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Cannot read file metadata for {path.name}: {exc}",
+                    "level": "error",
+                }
+            )
+            return
+
+        if size_bytes > MAX_DROP_FILE_BYTES:
+            max_mb = int(MAX_DROP_FILE_BYTES / (1024 * 1024))
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": (
+                        f"Skipped {path.name}: file is too large "
+                        f"({size_bytes} bytes, max {max_mb}MB)."
+                    ),
+                    "level": "error",
+                }
+            )
+            return
+
+        target_sample_rate = self.config.audio.sample_rate
+        try:
+            audio = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: load_audio_file(path, target_sample_rate=target_sample_rate),
+            )
+        except Exception as exc:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Decode failed for {path.name}: {exc}",
+                    "level": "error",
+                }
+            )
+            return
+
+        if target_sample_rate > 0:
+            duration_seconds = audio.shape[0] / float(target_sample_rate)
+        else:
+            duration_seconds = 0.0
+
+        if duration_seconds > MAX_DROP_AUDIO_SECONDS:
+            max_minutes = int(MAX_DROP_AUDIO_SECONDS / 60)
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": (
+                        f"Skipped {path.name}: audio exceeds {max_minutes} minutes."
+                    ),
+                    "level": "error",
+                }
+            )
+            return
+
+        job_transcriber = self.transcriber
+        job_language = self.config.model.language
+
+        if self._transcribing_jobs == 0:
+            self._busy_started_at = monotonic()
+        self._transcribing_jobs += 1
+        await self._set_status("transcribing", f"Transcribing {path.name}...")
+
+        final_status, final_message = await self._process_audio(
+            audio,
+            transcriber=job_transcriber,
+            language=job_language,
+            sample_rate=target_sample_rate,
+            source_label=path.name,
+        )
+
+        if final_status != "ready":
+            if final_message == "Model is not loaded":
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"{path.name}: model is not loaded",
+                        "level": "error",
+                    }
+                )
+            return
+
+        if final_message == "Ready":
+            await self._broadcast({"type": "toast", "message": f"Transcribed {path.name}"})
+            return
+
+        if final_message in {"No speech detected", "No audio captured"}:
+            await self._broadcast({"type": "toast", "message": f"{path.name}: {final_message}"})
 
     async def _toggle_noise(self, enabled: bool) -> None:
         """Toggle noise suppression."""

@@ -1,5 +1,5 @@
 import { createEffect, createSignal, Show, type JSX } from "solid-js";
-import { useKeyHandler, useRenderer } from "@opentui/solid";
+import { useKeyHandler, usePaste, useRenderer } from "@opentui/solid";
 import { BorderChars, RGBA, type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
@@ -177,6 +177,15 @@ export function Home(): JSX.Element {
         transcriber.selectNext();
         break;
     }
+  });
+
+  usePaste((event) => {
+    if (dialog.isOpen()) return;
+    const pasted = event.text.trim();
+    if (!pasted) return;
+    event.preventDefault();
+    backend.send({ type: "transcribe_paste", text: event.text });
+    toast.showToast("Drop received. Queueing transcription...");
   });
 
   function handleCopyLatest() {
