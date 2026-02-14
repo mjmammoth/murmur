@@ -58,10 +58,13 @@ export function ModelItem(props: ModelItemProps): JSX.Element {
       paddingRight={1}
       backgroundColor={bgColor()}
     >
-      <box
-        width={1}
-        backgroundColor={props.selected ? colors().secondary : colors().borderSubtle}
-      />
+      <box width={1} justifyContent="center" alignItems="center">
+        <text>
+          <span style={{ fg: props.selected ? colors().secondary : colors().borderSubtle }}>
+            {props.selected ? "┃" : "│"}
+          </span>
+        </text>
+      </box>
       <box flexDirection="row" width="100%">
         <box width={2}>
           <text>

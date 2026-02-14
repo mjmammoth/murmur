@@ -136,7 +136,7 @@ export function Settings(): JSX.Element {
   let searchInput: InputRenderable | undefined;
 
   const configPath = createMemo(
-    () => backend.configFilePath() || "~/.config/whisper-local/config.toml",
+    () => backend.configFilePath() || "~/.config/whisper.local/config.toml",
   );
 
   const items = createMemo<SettingItem[]>(() => {
@@ -177,17 +177,26 @@ export function Settings(): JSX.Element {
         id: "model.name",
         section: "Model",
         kind: "text",
-        title: "Model Name",
-        description: "Default whisper model",
+        title: "Selected Model",
+        description: "Press enter to open model manager",
         keywords: ["model", "whisper"],
         value: () => withFallback(cfg?.model.name),
+      },
+      {
+        id: "model.backend",
+        section: "Model",
+        kind: "text",
+        title: "Backend",
+        description: "Press enter to choose transcription backend",
+        keywords: ["backend", "faster-whisper", "whisper.cpp"],
+        value: () => withFallback(cfg?.model.backend, "faster-whisper"),
       },
       {
         id: "model.device",
         section: "Model",
         kind: "text",
         title: "Device",
-        description: "Runtime device",
+        description: "Press enter to choose runtime device",
         keywords: ["device", "cpu", "cuda", "mps"],
         value: () => withFallback(cfg?.model.device),
       },
@@ -196,7 +205,7 @@ export function Settings(): JSX.Element {
         section: "Model",
         kind: "text",
         title: "Compute Type",
-        description: "Quantization and precision",
+        description: "Press enter to choose quantization",
         keywords: ["compute", "int8", "float16"],
         value: () => withFallback(cfg?.model.compute_type),
       },
@@ -205,7 +214,7 @@ export function Settings(): JSX.Element {
         section: "Model",
         kind: "text",
         title: "Language",
-        description: "Force language or auto-detect",
+        description: "Press enter to search and choose language",
         keywords: ["language", "locale", "auto"],
         value: () => withFallback(cfg?.model.language, "auto"),
       },
@@ -374,6 +383,10 @@ export function Settings(): JSX.Element {
     return list[selectedIndex()] ?? list[0] ?? null;
   });
 
+  const isModelManagerSetting = (id: string) => id === "model.name";
+  const isSelectorSetting = (id: string) =>
+    id === "model.backend" || id === "model.device" || id === "model.compute" || id === "model.language";
+
   createEffect(() => {
     const list = flatItems();
     if (list.length === 0) {
@@ -443,6 +456,17 @@ export function Settings(): JSX.Element {
   function activateSelected() {
     const item = selectedItem();
     if (!item) return;
+
+    if (isModelManagerSetting(item.id)) {
+      dialog.openDialog("model-manager", { returnToSettings: true });
+      return;
+    }
+
+    if (isSelectorSetting(item.id)) {
+      dialog.openDialog("settings-select", { settingId: item.id, returnToSettings: true });
+      return;
+    }
+
     if (item.kind === "toggle") {
       item.toggle();
       return;
@@ -627,14 +651,31 @@ export function Settings(): JSX.Element {
                           onMouseUp={() => {
                             const idx = flatItems().findIndex((entry) => entry.id === item.id);
                             if (idx >= 0) setSelectedIndex(idx);
+
+                            if (isModelManagerSetting(item.id)) {
+                              dialog.openDialog("model-manager", { returnToSettings: true });
+                              return;
+                            }
+
+                            if (isSelectorSetting(item.id)) {
+                              dialog.openDialog("settings-select", {
+                                settingId: item.id,
+                                returnToSettings: true,
+                              });
+                              return;
+                            }
+
                             if (item.kind === "toggle") item.toggle();
                             if (item.kind === "hotkey") beginHotkeyCapture();
                           }}
                         >
-                          <box
-                            width={1}
-                            backgroundColor={isActive() ? colors().secondary : colors().borderSubtle}
-                          />
+                          <box width={1} justifyContent="center" alignItems="center">
+                            <text>
+                              <span style={{ fg: isActive() ? colors().secondary : colors().borderSubtle }}>
+                                {isActive() ? "┃" : "│"}
+                              </span>
+                            </text>
+                          </box>
                           <box paddingLeft={2} flexDirection="row" width="100%" justifyContent="space-between" gap={2}>
                             <box flexDirection="column" flexGrow={1}>
                               <text>
@@ -657,10 +698,30 @@ export function Settings(): JSX.Element {
                               <text>
                                 <span style={{ fg: valueColor(item, isActive()) }}>{valueText(item)}</span>
                               </text>
-                              <Show when={item.kind === "text"}>
+                              <Show
+                                when={
+                                  item.kind === "text" &&
+                                  !isModelManagerSetting(item.id) &&
+                                  !isSelectorSetting(item.id)
+                                }
+                              >
                                 <text>
                                   <span style={{ fg: colors().textDim }}>
                                     read-only
+                                  </span>
+                                </text>
+                              </Show>
+                              <Show when={isModelManagerSetting(item.id)}>
+                                <text>
+                                  <span style={{ fg: colors().textDim }}>
+                                    open manager
+                                  </span>
+                                </text>
+                              </Show>
+                              <Show when={isSelectorSetting(item.id)}>
+                                <text>
+                                  <span style={{ fg: colors().textDim }}>
+                                    open selector
                                   </span>
                                 </text>
                               </Show>

@@ -15,6 +15,7 @@ import { ModelManager } from "../component/model-manager";
 import { Settings } from "../component/settings";
 import { LOG_LEVELS, LogPanel } from "../component/log-panel";
 import { HotkeyModal } from "../component/hotkey-modal";
+import { SettingsSelectModal } from "../component/settings-select-modal";
 
 export function Home(): JSX.Element {
   const { colors } = useTheme();
@@ -274,6 +275,19 @@ export function Home(): JSX.Element {
           backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
         >
           <HotkeyModal />
+        </box>
+      </Show>
+
+      <Show when={dialog.currentDialog()?.type === "settings-select"}>
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
+        >
+          <SettingsSelectModal />
         </box>
       </Show>
     </box>

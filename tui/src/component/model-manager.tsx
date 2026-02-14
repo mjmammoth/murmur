@@ -1,6 +1,7 @@
 import {
   createSignal,
   createEffect,
+  createMemo,
   onMount,
   For,
   Show,
@@ -39,6 +40,17 @@ export function ModelManager(): JSX.Element {
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [statusMessage, setStatusMessage] = createSignal("");
   const spinnerFrame = useSpinnerFrame();
+  const returnToSettings = createMemo(
+    () => Boolean((dialog.currentDialog()?.data as { returnToSettings?: boolean } | undefined)?.returnToSettings),
+  );
+
+  function closeManager() {
+    if (returnToSettings()) {
+      dialog.openDialog("settings");
+      return;
+    }
+    dialog.closeDialog();
+  }
 
   onMount(() => {
     backend.send({ type: "list_models" });
@@ -66,7 +78,7 @@ export function ModelManager(): JSX.Element {
 
     switch (keyName) {
       case "escape":
-        dialog.closeDialog();
+        closeManager();
         break;
       case "up":
       case "k":
@@ -83,7 +95,7 @@ export function ModelManager(): JSX.Element {
         handleRemove();
         break;
       case "d":
-        handleSetDefault();
+        handleSelect();
         break;
       case "l":
         handleRefresh();
@@ -105,11 +117,11 @@ export function ModelManager(): JSX.Element {
     backend.removeModel(model.name);
   }
 
-  function handleSetDefault() {
+  function handleSelect() {
     const model = selectedModel();
     if (!model || !model.installed) return;
-    backend.send({ type: "set_default_model", name: model.name });
-    setStatusMessage(`Default set to ${model.name}`);
+    backend.send({ type: "set_selected_model", name: model.name });
+    setStatusMessage(`Selected ${model.name}`);
   }
 
   function handleRefresh() {
@@ -155,7 +167,7 @@ export function ModelManager(): JSX.Element {
           </text>
           <box flexDirection="row" alignItems="center" gap={2}>
             <text>
-              <span style={{ fg: colors().textMuted }}>install and defaults</span>
+              <span style={{ fg: colors().textMuted }}>install and selection</span>
             </text>
             <box backgroundColor={colors().secondary} paddingX={1}>
               <text>
@@ -195,7 +207,7 @@ export function ModelManager(): JSX.Element {
         <box flexDirection="row" gap={2} alignItems="center">
           <CommandHint keys="p" label="pull" />
           <CommandHint keys="r" label="remove" />
-          <CommandHint keys="d" label="default" />
+          <CommandHint keys="d" label="select" />
           <CommandHint keys="l" label="refresh" />
         </box>
       </box>

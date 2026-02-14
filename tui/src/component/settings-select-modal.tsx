@@ -18,7 +18,7 @@ interface SelectOption {
   label: string;
   description: string;
   disabled?: boolean;
-  reason?: string;
+  reason?: string | null;
 }
 
 const LANGUAGE_OPTIONS: SelectOption[] = [
@@ -531,7 +531,13 @@ export function SettingsSelectModal(): JSX.Element {
                     applyOption(option);
                   }}
                 >
-                  <box width={1} backgroundColor={isActive() ? colors().secondary : undefined} />
+                  <box width={1} justifyContent="center" alignItems="center">
+                    <text>
+                      <span style={{ fg: isActive() ? colors().secondary : colors().borderSubtle }}>
+                        {isActive() ? "┃" : "│"}
+                      </span>
+                    </text>
+                  </box>
                   <box paddingLeft={2} flexDirection="row" width="100%" justifyContent="space-between" gap={2}>
                     <box flexDirection="column" flexGrow={1}>
                       <text>

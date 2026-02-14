@@ -245,10 +245,15 @@ def remove_model(model_name: str) -> None:
         shutil.rmtree(cache_path)
 
 
-def set_default_model(model_name: str, path: Path | None = None) -> None:
+def set_selected_model(model_name: str, path: Path | None = None) -> None:
     if model_name not in MODEL_NAMES:
         raise ValueError(f"Unknown model: {model_name}")
     config = config_module.load_config(path)
     config.model.name = model_name
     config.model.path = None
     config_module.save_config(config, path)
+
+
+def set_default_model(model_name: str, path: Path | None = None) -> None:
+    """Backward-compatible alias for pre-select command naming."""
+    set_selected_model(model_name, path)

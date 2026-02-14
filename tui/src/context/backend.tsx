@@ -6,7 +6,15 @@ import {
   type Accessor,
 } from "solid-js";
 import { createContextHelper } from "./helper";
-import type { AppConfig, ClientMessage, ServerMessage, ModelInfo, TranscriptEntry, AppStatus, LogEntry } from "../types";
+import type {
+  AppConfig,
+  ClientMessage,
+  ServerMessage,
+  ModelInfo,
+  TranscriptEntry,
+  AppStatus,
+  LogEntry,
+} from "../types";
 
 export interface DownloadProgress {
   model: string;
@@ -70,6 +78,13 @@ export function BackendContextProvider(props: {
 
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let unmounted = false;
+
+  function clearReconnectTimer() {
+    if (!reconnectTimer) return;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
 
   // Event handlers
   const transcriptHandlers: ((entry: TranscriptEntry) => void)[] = [];
@@ -78,30 +93,42 @@ export function BackendContextProvider(props: {
   const toastHandlers: ((message: string, level: "info" | "error") => void)[] = [];
 
   function connect() {
-    if (ws?.readyState === WebSocket.OPEN) return;
+    if (unmounted) return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
-    ws = new WebSocket(`ws://${host}:${port}`);
+    const socket = new WebSocket(`ws://${host}:${port}`);
+    ws = socket;
 
-    ws.onopen = () => {
+    socket.onopen = () => {
+      if (unmounted || ws !== socket) {
+        socket.close();
+        return;
+      }
+      clearReconnectTimer();
       setConnected(true);
       setStatus("connecting");
       setStatusMessage("Connected");
     };
 
-    ws.onclose = () => {
+    socket.onclose = () => {
+      if (ws !== socket) return;
+      ws = null;
+      if (unmounted) return;
       setConnected(false);
       setStatus("connecting");
       setStatusMessage("Disconnected. Reconnecting...");
       scheduleReconnect();
     };
 
-    ws.onerror = () => {
+    socket.onerror = () => {
+      if (ws !== socket || unmounted) return;
       setConnected(false);
       setStatus("error");
       setStatusMessage("Connection error");
     };
 
-    ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
+      if (ws !== socket || unmounted) return;
       try {
         const message = JSON.parse(event.data) as ServerMessage;
         handleMessage(message);
@@ -112,9 +139,10 @@ export function BackendContextProvider(props: {
   }
 
   function scheduleReconnect() {
-    if (reconnectTimer) return;
+    if (unmounted || reconnectTimer) return;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
+      if (unmounted) return;
       connect();
     }, RECONNECT_DELAY);
   }
@@ -202,8 +230,52 @@ export function BackendContextProvider(props: {
     }
   }
 
+  function patchModelConfig(updater: (model: AppConfig["model"]) => AppConfig["model"]) {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      return { ...prev, model: updater(prev.model) };
+    });
+  }
+
+  function patchHotkeyConfig(updater: (hotkey: AppConfig["hotkey"]) => AppConfig["hotkey"]) {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      return { ...prev, hotkey: updater(prev.hotkey) };
+    });
+  }
+
+  function applyOptimisticConfig(message: ClientMessage) {
+    switch (message.type) {
+      case "set_selected_model":
+      case "set_default_model":
+        patchModelConfig((model) => ({ ...model, name: message.name, path: null }));
+        return;
+      case "set_model_backend":
+        patchModelConfig((model) => ({ ...model, backend: message.backend }));
+        return;
+      case "set_model_device":
+        patchModelConfig((model) => ({ ...model, device: message.device }));
+        return;
+      case "set_model_compute_type":
+        patchModelConfig((model) => ({ ...model, compute_type: message.compute_type }));
+        return;
+      case "set_model_language":
+        patchModelConfig((model) => ({ ...model, language: message.language }));
+        return;
+      case "set_hotkey_mode":
+        patchHotkeyConfig((hotkey) => ({ ...hotkey, mode: message.mode }));
+        return;
+      case "set_hotkey":
+        patchHotkeyConfig((hotkey) => ({ ...hotkey, key: message.hotkey }));
+        return;
+      default:
+        return;
+    }
+  }
+
   function send(message: ClientMessage) {
     if (ws?.readyState === WebSocket.OPEN) {
+      applyOptimisticConfig(message);
       ws.send(JSON.stringify(message));
     }
   }
@@ -240,14 +312,15 @@ export function BackendContextProvider(props: {
   }
 
   onMount(() => {
+    unmounted = false;
     connect();
   });
 
   onCleanup(() => {
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-    }
+    unmounted = true;
+    clearReconnectTimer();
     ws?.close();
+    ws = null;
   });
 
   const value: BackendContextValue = {

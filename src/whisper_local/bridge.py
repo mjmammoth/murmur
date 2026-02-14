@@ -16,17 +16,18 @@ from whisper_local.audio import AudioRecorder
 from whisper_local.config import AppConfig, default_config_path, load_config, save_config
 from whisper_local.hotkey import HotkeyListener, parse_hotkey
 from whisper_local.model_manager import (
-    ModelInfo,
+    MODEL_NAMES,
     download_model,
-    ensure_model_available,
-    is_model_installed,
     list_installed_models,
     remove_model,
-    set_default_model,
 )
 from whisper_local.noise import RNNoiseSuppressor
 from whisper_local.output import append_to_file, copy_to_clipboard
-from whisper_local.transcribe import Transcriber
+from whisper_local.transcribe import (
+    Transcriber,
+    detect_runtime_capabilities,
+    ensure_whisper_cpp_installed,
+)
 from whisper_local.vad import VadProcessor
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,14 @@ class BridgeLogFilter(logging.Filter):
     """Keep high-signal logs to avoid flooding the TUI log stream."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        # Benign noise: clients that connect then close before sending a full
+        # HTTP upgrade request trigger this handshake traceback in websockets.
+        # This is expected during reconnect races and should not pollute TUI logs.
+        if record.name in {"websockets.server", "websockets.asyncio.server"}:
+            message = record.getMessage()
+            if "opening handshake failed" in message:
+                return False
+
         if record.name.startswith("whisper_local"):
             return record.levelno >= logging.INFO
         return record.levelno >= logging.WARNING
@@ -82,6 +91,8 @@ class BridgeServer:
         self._model_loaded = False
         self._hotkey_started = False
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._model_reload_lock = asyncio.Lock()
+        self._runtime_capabilities = self._detect_runtime_capabilities()
 
         # Audio/transcription components (initialized lazily)
         self.recorder: AudioRecorder | None = None
@@ -98,6 +109,8 @@ class BridgeServer:
     ) -> None:
         """Start the WebSocket server."""
         self._loop = asyncio.get_event_loop()
+
+        ensure_whisper_cpp_installed()
 
         if capture_logs:
             self._install_log_handler()
@@ -136,9 +149,11 @@ class BridgeServer:
         )
         self.transcriber = Transcriber(
             model_name=self.config.model.name,
+            backend=self.config.model.backend,
             device=self.config.model.device,
             compute_type=self.config.model.compute_type,
             model_path=self.config.model.path,
+            auto_download=self.config.model.auto_download,
         )
         self.hotkey = HotkeyListener(
             self.config.hotkey.key,
@@ -146,41 +161,34 @@ class BridgeServer:
             on_release=self._handle_hotkey_release,
         )
 
+    def _detect_runtime_capabilities(self) -> dict[str, Any]:
+        return detect_runtime_capabilities(self.config.model.backend)
+
+    def _refresh_runtime_capabilities(self) -> None:
+        self._runtime_capabilities = self._detect_runtime_capabilities()
+
     async def _load_model_async(self) -> None:
         """Load the transcription model asynchronously."""
-        await self._set_status("downloading", "Loading model...")
+        await self._set_status(
+            "downloading",
+            f"Loading {self.config.model.backend} model {self.config.model.name}...",
+        )
         try:
-            if self.config.model.path:
-                await self._set_status("downloading", "Loading local model...")
-            else:
-                installed = is_model_installed(self.config.model.name)
-                if not installed and not self.config.model.auto_download:
-                    await self._set_status(
-                        "error",
-                        f"Model {self.config.model.name} not installed. "
-                        f"Run `whisper-local models pull {self.config.model.name}`.",
-                    )
-                    return
-                if self.config.model.auto_download:
-                    if not installed:
-                        await self._set_status(
-                            "downloading",
-                            f"Model {self.config.model.name} not found. Downloading...",
-                        )
-                    else:
-                        await self._set_status(
-                            "downloading",
-                            f"Verifying model {self.config.model.name}...",
-                        )
-                    model_path = await asyncio.get_event_loop().run_in_executor(
-                        None, lambda: ensure_model_available(self.config.model.name)
-                    )
-                    self.transcriber.model_path = str(model_path)
-                    await self._set_status("downloading", "Model ready. Loading...")
+            if self.transcriber is None:
+                raise RuntimeError("Transcriber is not initialized")
 
             await asyncio.get_event_loop().run_in_executor(None, self.transcriber.load)
             self._model_loaded = True
             self._start_hotkey()
+            info = self.transcriber.runtime_info()
+            logger.info(
+                "Transcriber ready backend=%s model=%s device=%s compute_type=%s source=%s",
+                info.get("backend", "unknown"),
+                info.get("model_name", self.config.model.name),
+                info.get("effective_device", "unknown"),
+                info.get("effective_compute_type", "unknown"),
+                info.get("model_source", "unknown"),
+            )
             await self._set_status("ready", "Ready")
         except Exception as exc:
             logger.exception("Model load failed")
@@ -238,6 +246,10 @@ class BridgeServer:
         audio = self.recorder.stop()
         self._recording = False
 
+        job_transcriber = self.transcriber
+        job_language = self.config.model.language
+        job_sample_rate = self.config.audio.sample_rate
+
         if self._transcribing_jobs == 0:
             self._busy_started_at = monotonic()
         self._transcribing_jobs += 1
@@ -245,7 +257,14 @@ class BridgeServer:
         await self._set_status("transcribing", "Transcribing...")
 
         # Process in background
-        asyncio.create_task(self._process_audio(audio))
+        asyncio.create_task(
+            self._process_audio(
+                audio,
+                transcriber=job_transcriber,
+                language=job_language,
+                sample_rate=job_sample_rate,
+            )
+        )
 
     async def _finalize_transcription_job(self, final_status: str, final_message: str) -> None:
         """Finalize one transcription task without regressing live recording state."""
@@ -261,35 +280,76 @@ class BridgeServer:
 
         await self._set_status(final_status, final_message)
 
-    async def _process_audio(self, audio) -> None:
+    async def _process_audio(
+        self,
+        audio,
+        *,
+        transcriber: Transcriber | None = None,
+        language: str | None = None,
+        sample_rate: int | None = None,
+    ) -> None:
         """Process recorded audio through noise/vad/transcription pipeline."""
         final_status = "ready"
         final_message = "Ready"
+        pipeline_started = monotonic()
+
+        job_transcriber = transcriber or self.transcriber
+        job_language = language
+        job_sample_rate = sample_rate or self.config.audio.sample_rate
+        input_samples = int(audio.shape[0])
+
+        noise_enabled = bool(self.noise and self.noise.enabled)
+        noise_available = bool(self.noise and self.noise.available)
+        noise_applied = False
+        noise_backend = getattr(self.noise, "_backend", "none") if self.noise else "none"
+
+        vad_enabled = bool(self.config.vad.enabled and self.vad)
+        vad_available = bool(self.vad and getattr(self.vad, "_vad", None))
+        vad_applied = False
+
+        post_noise_samples = input_samples
+        post_vad_samples = input_samples
+        transcribe_ms = 0
+        output_language: str | None = None
 
         if audio.size == 0:
             await self._finalize_transcription_job("ready", "No audio captured")
             return
 
+        if job_transcriber is None:
+            await self._finalize_transcription_job("error", "Model is not loaded")
+            return
+
         try:
             # Noise suppression
             if self.noise:
-                noise_result = self.noise.process(audio, self.config.audio.sample_rate)
+                noise_result = self.noise.process(audio, job_sample_rate)
                 audio = noise_result.audio
+                noise_available = noise_result.available
+                noise_applied = noise_result.applied
+                post_noise_samples = int(audio.shape[0])
 
             # VAD
             if self.config.vad.enabled and self.vad:
-                vad_result = self.vad.trim(audio, self.config.audio.sample_rate)
+                vad_result = self.vad.trim(audio, job_sample_rate)
                 audio = vad_result.audio
+                vad_available = vad_result.available
+                vad_applied = vad_result.applied
+
+            post_vad_samples = int(audio.shape[0])
 
             # Transcription
+            transcribe_started = monotonic()
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self.transcriber.transcribe(
+                lambda: job_transcriber.transcribe(
                     audio,
-                    sample_rate=self.config.audio.sample_rate,
-                    language=self.config.model.language,
+                    sample_rate=job_sample_rate,
+                    language=job_language,
                 ),
             )
+            transcribe_ms = int((monotonic() - transcribe_started) * 1000)
+            output_language = result.language
 
             if not result.text:
                 await self._finalize_transcription_job("ready", "No speech detected")
@@ -320,6 +380,43 @@ class BridgeServer:
             final_status = "error"
             final_message = f"Transcription failed: {exc}"
         finally:
+            total_ms = int((monotonic() - pipeline_started) * 1000)
+            input_ms = int((input_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
+            post_noise_ms = (
+                int((post_noise_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
+            )
+            post_vad_ms = int((post_vad_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
+            preprocess_ms = max(0, total_ms - transcribe_ms)
+            rtf = (transcribe_ms / input_ms) if input_ms > 0 else 0.0
+            backend_info = job_transcriber.runtime_info()
+
+            logger.info(
+                "bench backend=%s model_size=%s device=%s compute_type=%s input_ms=%d post_noise_ms=%d post_ms=%d "
+                "noise(enabled=%s,available=%s,applied=%s,backend=%s) "
+                "vad(enabled=%s,available=%s,applied=%s) preprocess_ms=%d transcribe_ms=%d total_ms=%d rtf=%.3f "
+                "language(requested=%s,detected=%s)",
+                backend_info.get("backend", self.config.model.backend),
+                backend_info.get("model_name", self.config.model.name),
+                backend_info.get("effective_device", self.config.model.device),
+                backend_info.get("effective_compute_type", self.config.model.compute_type),
+                input_ms,
+                post_noise_ms,
+                post_vad_ms,
+                noise_enabled,
+                noise_available,
+                noise_applied,
+                noise_backend,
+                vad_enabled,
+                vad_available,
+                vad_applied,
+                preprocess_ms,
+                transcribe_ms,
+                total_ms,
+                rtf,
+                job_language if job_language else "auto",
+                output_language if output_language else "unknown",
+            )
+
             await self._finalize_transcription_job(final_status, final_message)
 
     async def _set_status(
@@ -414,12 +511,23 @@ class BridgeServer:
                 self._hotkey_blocked = bool(data.get("enabled", False))
             elif msg_type == "set_hotkey_mode":
                 await self._set_hotkey_mode(data.get("mode", ""))
+            elif msg_type == "set_model_backend":
+                await self._set_model_backend(data.get("backend", ""))
+            elif msg_type == "set_model_device":
+                await self._set_model_device(data.get("device", ""))
+            elif msg_type == "set_model_compute_type":
+                await self._set_model_compute_type(data.get("compute_type", ""))
+            elif msg_type == "set_model_language":
+                await self._set_model_language(data.get("language"))
             elif msg_type == "download_model":
                 await self._download_model(data.get("name", ""))
             elif msg_type == "remove_model":
                 await self._remove_model(data.get("name", ""))
+            elif msg_type == "set_selected_model":
+                await self._set_selected_model(data.get("name", ""))
             elif msg_type == "set_default_model":
-                await self._set_default_model(data.get("name", ""))
+                # Backward compatibility with older clients.
+                await self._set_selected_model(data.get("name", ""))
             elif msg_type == "set_hotkey":
                 await self._set_hotkey(data.get("hotkey", ""))
             elif msg_type == "list_models":
@@ -513,18 +621,398 @@ class BridgeServer:
                 {"type": "toast", "message": f"Remove failed: {exc}", "level": "error"}
             )
 
-    async def _set_default_model(self, name: str) -> None:
-        """Set default model."""
+    async def _set_selected_model(self, name: str) -> None:
+        """Set selected model."""
         if not name:
             return
-        try:
-            set_default_model(name)
-            self.config.model.name = name
-            await self._broadcast({"type": "toast", "message": f"Default model set to {name}"})
-            await self._broadcast_config()
-        except ValueError as exc:
+
+        known_models = set(MODEL_NAMES)
+        if name not in known_models:
             await self._broadcast(
-                {"type": "toast", "message": str(exc), "level": "error"}
+                {
+                    "type": "toast",
+                    "message": f"Unknown model: {name}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        previous_name = self.config.model.name
+        previous_path = self.config.model.path
+
+        self.config.model.name = name
+        self.config.model.path = None
+
+        persist_error = self._persist_config("selected model")
+
+        try:
+            await self._reload_transcriber()
+        except Exception as exc:
+            logger.exception("Failed to apply selected model")
+            self.config.model.name = previous_name
+            self.config.model.path = previous_path
+            rollback_error = self._persist_config("selected model rollback")
+            await self._broadcast_config()
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Failed to apply selected model: {exc}",
+                    "level": "error",
+                }
+            )
+            if rollback_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Rollback config save failed: {rollback_error}",
+                        "level": "error",
+                    }
+                )
+            return
+
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Selected model set to {name}"})
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Selected model applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    def _persist_config(self, context: str) -> str | None:
+        try:
+            save_config(self.config)
+        except Exception as exc:
+            logger.exception("Failed to persist %s config", context)
+            return str(exc)
+        return None
+
+    async def _reload_transcriber(self) -> None:
+        """Load a fresh transcriber from current model config and swap it in."""
+        async with self._model_reload_lock:
+            next_transcriber = Transcriber(
+                model_name=self.config.model.name,
+                backend=self.config.model.backend,
+                device=self.config.model.device,
+                compute_type=self.config.model.compute_type,
+                model_path=self.config.model.path,
+                auto_download=self.config.model.auto_download,
+            )
+            await asyncio.get_event_loop().run_in_executor(None, next_transcriber.load)
+            self.transcriber = next_transcriber
+            self._model_loaded = True
+            self._refresh_runtime_capabilities()
+
+    async def _set_model_backend(self, backend_name: str) -> None:
+        normalized = str(backend_name).strip().lower()
+        if normalized in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
+            normalized = "whisper.cpp"
+
+        supported = {"faster-whisper", "whisper.cpp"}
+        if normalized not in supported:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Invalid model backend: {backend_name}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        capabilities = detect_runtime_capabilities(normalized)
+        backend_options = capabilities.get("model", {}).get("backends", {})
+        backend_state = backend_options.get(normalized, {"enabled": False, "reason": "Unsupported"})
+        if not backend_state.get("enabled", False):
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": (
+                        f"Backend {normalized} unavailable: "
+                        f"{backend_state.get('reason', 'unsupported')}"
+                    ),
+                    "level": "error",
+                }
+            )
+            self._runtime_capabilities = capabilities
+            await self._broadcast_config()
+            return
+
+        if self.config.model.backend == normalized:
+            self._runtime_capabilities = capabilities
+            await self._broadcast_config()
+            return
+
+        previous_backend = self.config.model.backend
+        previous_device = self.config.model.device
+        previous_compute_type = self.config.model.compute_type
+        self.config.model.backend = normalized
+        self._runtime_capabilities = capabilities
+
+        runtime_model = capabilities.get("model", {})
+        runtime_devices = runtime_model.get("devices", {})
+        current_device_state = runtime_devices.get(self.config.model.device, {"enabled": False})
+        if not current_device_state.get("enabled", False):
+            for candidate in ("mps", "cpu", "cuda"):
+                candidate_state = runtime_devices.get(candidate, {"enabled": False})
+                if candidate_state.get("enabled", False):
+                    self.config.model.device = candidate
+                    break
+
+        compute_map = runtime_model.get("compute_types_by_device", {})
+        valid_compute_types = {
+            str(item).strip().lower()
+            for item in compute_map.get(self.config.model.device, [])
+            if str(item).strip()
+        }
+        if valid_compute_types and self.config.model.compute_type not in valid_compute_types:
+            for candidate in (
+                "int8",
+                "default",
+                "int8_float32",
+                "float32",
+                "float16",
+                "int8_float16",
+            ):
+                if candidate in valid_compute_types:
+                    self.config.model.compute_type = candidate
+                    break
+            else:
+                self.config.model.compute_type = sorted(valid_compute_types)[0]
+
+        persist_error = self._persist_config("model backend")
+
+        try:
+            await self._reload_transcriber()
+        except Exception as exc:
+            logger.exception("Failed to apply model backend")
+            self.config.model.backend = previous_backend
+            self.config.model.device = previous_device
+            self.config.model.compute_type = previous_compute_type
+            self._runtime_capabilities = detect_runtime_capabilities(previous_backend)
+            rollback_error = self._persist_config("model backend rollback")
+            await self._broadcast_config()
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Failed to apply model backend: {exc}",
+                    "level": "error",
+                }
+            )
+            if rollback_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Rollback config save failed: {rollback_error}",
+                        "level": "error",
+                    }
+                )
+            return
+
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Model backend {normalized}"})
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Model backend applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_model_device(self, device: str) -> None:
+        self._refresh_runtime_capabilities()
+        normalized = str(device).strip().lower()
+        if normalized not in {"cpu", "cuda", "mps"}:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Invalid model device: {device}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        runtime_devices = self._runtime_capabilities.get("model", {}).get("devices", {})
+        runtime_device = runtime_devices.get(normalized)
+        if runtime_device and not runtime_device.get("enabled", False):
+            reason = runtime_device.get("reason") or "Unsupported on this machine"
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Model device {normalized} unavailable: {reason}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if self.config.model.device == normalized:
+            return
+
+        previous_device = self.config.model.device
+        self.config.model.device = normalized
+        persist_error = self._persist_config("model device")
+
+        try:
+            await self._reload_transcriber()
+        except Exception as exc:
+            logger.exception("Failed to apply model device")
+            self.config.model.device = previous_device
+            rollback_error = self._persist_config("model device rollback")
+            await self._broadcast_config()
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Failed to apply model device: {exc}",
+                    "level": "error",
+                }
+            )
+            if rollback_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Rollback config save failed: {rollback_error}",
+                        "level": "error",
+                    }
+                )
+            return
+
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Model device {normalized}"})
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Model device applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_model_compute_type(self, compute_type: str) -> None:
+        self._refresh_runtime_capabilities()
+        normalized = str(compute_type).strip().lower()
+        allowed = {"default", "int8", "float16", "float32", "int8_float16", "int8_float32"}
+        if normalized not in allowed:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Invalid compute type: {compute_type}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        runtime_model = self._runtime_capabilities.get("model", {})
+        current_device = self.config.model.device.lower().strip()
+        supported_for_device = {
+            str(item).strip().lower()
+            for item in runtime_model.get("compute_types_by_device", {}).get(current_device, [])
+            if str(item).strip()
+        }
+
+        if current_device == "cpu" and normalized in {"float16", "int8_float16"}:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Selected compute type is not usable on CPU (falls back to int8)",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if supported_for_device and normalized not in supported_for_device:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Compute type {normalized} unsupported on {current_device}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if self.config.model.compute_type == normalized:
+            return
+
+        previous_compute_type = self.config.model.compute_type
+        self.config.model.compute_type = normalized
+        persist_error = self._persist_config("model compute type")
+
+        try:
+            await self._reload_transcriber()
+        except Exception as exc:
+            logger.exception("Failed to apply model compute type")
+            self.config.model.compute_type = previous_compute_type
+            rollback_error = self._persist_config("model compute type rollback")
+            await self._broadcast_config()
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Failed to apply compute type: {exc}",
+                    "level": "error",
+                }
+            )
+            if rollback_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Rollback config save failed: {rollback_error}",
+                        "level": "error",
+                    }
+                )
+            return
+
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Compute type {normalized}"})
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Compute type applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_model_language(self, language: Any) -> None:
+        raw = "" if language is None else str(language)
+        normalized = raw.strip().lower()
+        if normalized in {"", "auto", "none"}:
+            next_language: str | None = None
+        else:
+            next_language = normalized
+
+        if self.config.model.language == next_language:
+            return
+
+        self.config.model.language = next_language
+        persist_error = self._persist_config("model language")
+
+        await self._broadcast_config()
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": (
+                    "Model language auto"
+                    if next_language is None
+                    else f"Model language {next_language}"
+                ),
+            }
+        )
+
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Model language applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
             )
 
     async def _set_hotkey(self, hotkey: str) -> None:
@@ -669,19 +1157,19 @@ class BridgeServer:
 
     async def _send_config(self, websocket: WebSocketServerProtocol) -> None:
         """Send config to a client."""
-        config_dict = self.config.to_dict()
-        # Add bridge config
-        config_dict["bridge"] = {"host": "localhost", "port": 7878}
-        # Add auto_copy state
-        config_dict["auto_copy"] = self._auto_copy
-        await websocket.send(json.dumps({"type": "config", "config": config_dict}))
+        await websocket.send(json.dumps({"type": "config", "config": self._config_payload()}))
 
     async def _broadcast_config(self) -> None:
         """Broadcast config to all clients."""
+        await self._broadcast({"type": "config", "config": self._config_payload()})
+
+    def _config_payload(self) -> dict[str, Any]:
+        self._refresh_runtime_capabilities()
         config_dict = self.config.to_dict()
         config_dict["bridge"] = {"host": "localhost", "port": 7878}
         config_dict["auto_copy"] = self._auto_copy
-        await self._broadcast({"type": "config", "config": config_dict})
+        config_dict["runtime"] = self._runtime_capabilities
+        return config_dict
 
     def shutdown(self) -> None:
         """Clean up resources."""

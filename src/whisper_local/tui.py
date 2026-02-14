@@ -20,7 +20,7 @@ from whisper_local.model_manager import (
     is_model_installed,
     list_installed_models,
     model_cache_size_bytes,
-    set_default_model,
+    set_selected_model,
 )
 from whisper_local.noise import RNNoiseSuppressor
 from whisper_local.output import append_to_file, copy_to_clipboard
@@ -57,7 +57,7 @@ class ModelManagerScreen(Screen):
         ("escape", "close", "Close"),
         ("p", "pull", "Download"),
         ("r", "remove", "Remove"),
-        ("d", "set_default", "Set default"),
+        ("d", "set_default", "Select"),
         ("l", "refresh", "Refresh"),
     ]
 
@@ -103,11 +103,11 @@ class ModelManagerScreen(Screen):
         if not model:
             return
         try:
-            set_default_model(model)
+            set_selected_model(model)
         except ValueError as exc:
             self._set_status(str(exc))
             return
-        self._set_status(f"Default model set to {model}")
+        self._set_status(f"Selected model set to {model}")
 
     def _selected_model(self) -> Optional[str]:
         list_view = self.query_one("#models-list", ListView)
@@ -344,7 +344,7 @@ class WhisperApp(App):
                 if not installed and not self.config.model.auto_download:
                     self.call_from_thread(
                         self._set_error_status,
-                        f"Model {self.config.model.name} is not installed. Run `whisper-local models pull {self.config.model.name}`.",
+                        f"Model {self.config.model.name} is not installed. Run `whisper.local models pull {self.config.model.name}`.",
                     )
                     return
                 if self.config.model.auto_download:
@@ -366,7 +366,7 @@ class WhisperApp(App):
                         self.call_from_thread(
                             self._set_error_status,
                             "Model download failed. Check your network, then retry or run "
-                            f"`whisper-local models pull {self.config.model.name}`. ({exc})",
+                            f"`whisper.local models pull {self.config.model.name}`. ({exc})",
                         )
                         return
                     finally:
@@ -382,7 +382,7 @@ class WhisperApp(App):
         except Exception as exc:  # pragma: no cover - runtime dependent
             self.call_from_thread(
                 self._set_error_status,
-                f"Model load failed: {exc}. You can prefetch with `whisper-local models pull {self.config.model.name}`.",
+                f"Model load failed: {exc}. You can prefetch with `whisper.local models pull {self.config.model.name}`.",
             )
 
     def _set_ready_status(self, message: str = "Ready") -> None:

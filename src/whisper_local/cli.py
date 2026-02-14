@@ -16,8 +16,9 @@ from whisper_local.model_manager import (
     download_model,
     list_installed_models,
     remove_model,
-    set_default_model,
+    set_selected_model,
 )
+from whisper_local.transcribe import ensure_whisper_cpp_installed
 
 
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="whisper-local")
+    parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
     subparsers = parser.add_subparsers(dest="command")
 
     run_parser = subparsers.add_parser("run", help="Start the TUI (bridge + TypeScript frontend)")
@@ -51,8 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
     remove_parser = models_sub.add_parser("remove", help="Remove a model")
     remove_parser.add_argument("name")
 
-    default_parser = models_sub.add_parser("set-default", help="Set default model")
-    default_parser.add_argument("name")
+    select_parser = models_sub.add_parser(
+        "select",
+        aliases=["set-default"],
+        help="Select model",
+    )
+    select_parser.add_argument("name")
 
     config_parser = subparsers.add_parser("config", help="Show config")
     config_parser.add_argument("--path", type=Path)
@@ -79,8 +84,18 @@ def _check_bun() -> bool:
     return shutil.which("bun") is not None
 
 
+def _ensure_runtime_dependencies() -> None:
+    """Fail fast with actionable message when required runtime deps are missing."""
+    try:
+        ensure_whisper_cpp_installed()
+    except Exception as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+
+
 def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
     """Run the bridge server."""
+    _ensure_runtime_dependencies()
     from whisper_local.bridge import run_bridge
     config = load_config()
     run_bridge(config, host, port, capture_logs=capture_logs)
@@ -114,6 +129,7 @@ def _restore_terminal_state() -> None:
 
 def _run_combined(host: str, port: int) -> None:
     """Run both bridge and TUI together."""
+    _ensure_runtime_dependencies()
     if not _check_bun():
         print("Error: bun is not installed. Install it with: curl -fsSL https://bun.sh/install | bash")
         sys.exit(1)
@@ -198,6 +214,7 @@ def main() -> None:
         host = getattr(args, "host", "localhost")
         port = getattr(args, "port", 7878)
         legacy = getattr(args, "legacy", False)
+        _ensure_runtime_dependencies()
 
         if legacy:
             # Use legacy Textual TUI
@@ -242,14 +259,17 @@ def main() -> None:
             remove_model(args.name)
             print(f"Removed {args.name}")
             return
-        if args.models_command == "set-default":
-            set_default_model(args.name)
-            print(f"Default model set to {args.name}")
+        if args.models_command in ("select", "set-default"):
+            set_selected_model(args.name)
+            print(f"Selected model set to {args.name}")
             return
 
     if args.command == "config":
         config = load_config(args.path)
         for section, values in config.to_dict().items():
+            if not isinstance(values, dict):
+                print(f"{section} = {values}")
+                continue
             print(f"[{section}]")
             for key, value in values.items():
                 if isinstance(value, dict):

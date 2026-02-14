@@ -422,7 +422,7 @@ export const { use: useConfig, provider: ConfigProvider } =
   createSimpleContext({
     name: "Config",
     init: () => {
-      const configPath = path.join(os.homedir(), ".config/whisper-local/config.toml")
+      const configPath = path.join(os.homedir(), ".config/whisper.local/config.toml")
       const [config, setConfig] = createStore<AppConfig>(loadConfig(configPath))
 
       // Auto-save on changes
