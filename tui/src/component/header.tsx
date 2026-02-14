@@ -1,6 +1,25 @@
-import { type JSX } from "solid-js";
+import { type JSX, For } from "solid-js";
 import { useTheme } from "../context/theme";
 import { useConfig } from "../context/config";
+
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+
+function lerpColor(from: string, to: string, t: number): string {
+  const [r1, g1, b1] = hexToRgb(from);
+  const [r2, g2, b2] = hexToRgb(to);
+  return rgbToHex(
+    Math.round(r1 + (r2 - r1) * t),
+    Math.round(g1 + (g2 - g1) * t),
+    Math.round(b1 + (b2 - b1) * t),
+  );
+}
 
 interface ToggleHintProps {
   keyChar: string;
@@ -41,7 +60,20 @@ export function Header(): JSX.Element {
     >
       <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
         <text>
-          <span style={{ fg: colors().primary }}>whisper.local</span>
+          <For each={"whisper.local".split("")}>
+            {(ch, i) => {
+              const peak = 7; // the '.' in whisper.local
+              const t = i() <= peak ? i() / peak : (12 - i()) / (12 - peak);
+              return (
+                <span style={{
+                  fg: lerpColor("#87CEEB", colors().secondary, t),
+                  bold: true,
+                }}>
+                  {ch}
+                </span>
+              );
+            }}
+          </For>
         </text>
 
         <box
