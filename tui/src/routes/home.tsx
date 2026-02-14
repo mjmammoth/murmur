@@ -17,6 +17,13 @@ import { LOG_LEVELS, LogPanel } from "../component/log-panel";
 import { HotkeyModal } from "../component/hotkey-modal";
 import { SettingsSelectModal } from "../component/settings-select-modal";
 
+/**
+ * Render the application's main terminal UI and coordinate global state, dialogs, logs, and hotkeys.
+ *
+ * Manages layout (header, transcript list, footer, optional log panel), keyboard shortcuts (app exit, pane navigation, log level, copy actions, toggles, and dialog opening), and modal overlays (model manager, settings, hotkey, settings-select). Provides handlers for copying the latest or selected transcript and ensures terminal/renderer cleanup on exit.
+ *
+ * @returns The root JSX element for the application's home screen
+ */
 export function Home(): JSX.Element {
   const { colors } = useTheme();
   const renderer = useRenderer();

@@ -65,6 +65,20 @@ class BridgeLogFilter(logging.Filter):
         # Benign noise: clients that connect then close before sending a full
         # HTTP upgrade request trigger this handshake traceback in websockets.
         # This is expected during reconnect races and should not pollute TUI logs.
+        """
+        Decides whether a logging record should be forwarded to the UI by applying source- and level-based filters.
+        
+        Parameters:
+            record (logging.LogRecord): The log record to evaluate.
+        
+        Returns:
+            bool: `True` if the record should be emitted to clients; `False` if it should be suppressed.
+        
+        Details:
+        - Suppresses known benign websockets handshake noise (records from `websockets.server` or `websockets.asyncio.server` containing "opening handshake failed").
+        - Allows logs from `whisper_local` at level INFO or higher.
+        - Allows all other logs at level WARNING or higher.
+        """
         if record.name in {"websockets.server", "websockets.asyncio.server"}:
             message = record.getMessage()
             if "opening handshake failed" in message:
@@ -79,6 +93,12 @@ class BridgeServer:
     """WebSocket server bridging the TypeScript TUI to Python backend."""
 
     def __init__(self, config: AppConfig) -> None:
+        """
+        Initialize the bridge server state from the provided application configuration.
+        
+        Parameters:
+            config (AppConfig): Application configuration used to populate runtime settings and persisted options. Components for audio capture, noise suppression, VAD, transcription, and hotkey handling are created lazily; runtime capability detection and a model reload lock are initialized eagerly.
+        """
         self.config = config
         self.clients: set[WebSocketServerProtocol] = set()
         self._recording = False
@@ -107,7 +127,16 @@ class BridgeServer:
         port: int = 7878,
         capture_logs: bool = False,
     ) -> None:
-        """Start the WebSocket server."""
+        """
+        Start and run the Bridge WebSocket server: initialize runtime components, accept client connections on the given host and port, and load the transcription model in the background.
+        
+        This method initializes internal components, optionally installs a WebSocket log handler when capture_logs is True, starts serving clients at ws://{host}:{port}, begins model loading once the server is listening, and then runs indefinitely until cancelled.
+        
+        Parameters:
+            host (str): Hostname or IP address to bind the WebSocket server to.
+            port (int): TCP port to listen on.
+            capture_logs (bool): If True, route Python log records to connected WebSocket clients by installing the WebSocket log handler.
+        """
         self._loop = asyncio.get_event_loop()
 
         ensure_whisper_cpp_installed()
@@ -162,13 +191,28 @@ class BridgeServer:
         )
 
     def _detect_runtime_capabilities(self) -> dict[str, Any]:
+        """
+        Detects runtime capabilities for the currently configured model backend.
+        
+        Returns:
+            dict[str, Any]: Mapping of runtime capability names (for example supported backends, available devices, supported compute types, and related flags) to their detected values.
+        """
         return detect_runtime_capabilities(self.config.model.backend)
 
     def _refresh_runtime_capabilities(self) -> None:
+        """
+        Refresh the cached runtime capabilities by re-running capability detection and storing the result on the instance.
+        
+        This updates the internal `self._runtime_capabilities` attribute with the latest detected capabilities.
+        """
         self._runtime_capabilities = self._detect_runtime_capabilities()
 
     async def _load_model_async(self) -> None:
-        """Load the transcription model asynchronously."""
+        """
+        Load and activate the configured transcription model.
+        
+        Updates the bridge status to indicate model downloading, loads the model, marks the model as loaded, starts the hotkey listener, logs runtime information about the loaded transcriber, and updates the status to ready. If loading fails, logs the exception and sets the bridge status to error with the failure message.
+        """
         await self._set_status(
             "downloading",
             f"Loading {self.config.model.backend} model {self.config.model.name}...",
@@ -240,7 +284,11 @@ class BridgeServer:
         await self._set_status("recording", "Recording...")
 
     async def _stop_recording(self) -> None:
-        """Stop recording and process audio."""
+        """
+        Stop active audio capture, mark the server as not recording, and schedule transcription of the captured audio in the background.
+        
+        If no recording is active this is a no-op. When audio is captured the function updates internal recording and job counters, sets the status to "transcribing", records a busy-start timestamp if this is the first transcription job, and enqueues a background task to process the audio with the current transcriber, language, and sample rate.
+        """
         if not self._recording or not self.recorder:
             return
         audio = self.recorder.stop()
@@ -267,7 +315,15 @@ class BridgeServer:
         )
 
     async def _finalize_transcription_job(self, final_status: str, final_message: str) -> None:
-        """Finalize one transcription task without regressing live recording state."""
+        """
+        Finalize a completed transcription job and update the server status without interrupting active recording.
+        
+        Decrements the in-flight transcription job counter. If recording is currently active, the status is set to "recording". If other transcription jobs remain, the status is set to "transcribing". When no recording or transcribing remains, sets the status to the provided final status and message.
+        
+        Parameters:
+            final_status (str): Status to set when there are no ongoing recordings or transcriptions (e.g., "ready", "error").
+            final_message (str): Human-readable message associated with `final_status`.
+        """
         self._transcribing_jobs = max(0, self._transcribing_jobs - 1)
 
         if self._recording:
@@ -288,7 +344,17 @@ class BridgeServer:
         language: str | None = None,
         sample_rate: int | None = None,
     ) -> None:
-        """Process recorded audio through noise/vad/transcription pipeline."""
+        """
+        Process a chunk of recorded audio through suppression, VAD trimming, transcription, and output handling, then update bridge status.
+        
+        Processes the provided audio (numpy-like array) using optional noise suppression and voice-activity detection, transcribes the resulting audio with the given or configured Transcriber, and emits results and state updates to connected clients. Side effects include broadcasting a `transcript` message, sending error or info toasts, optionally copying text to the clipboard or appending it to the configured output file, logging benchmark metrics, and finalizing the transcription job state.
+        
+        Parameters:
+            audio (numpy.ndarray): 1-D array of raw audio samples to process.
+            transcriber (Transcriber | None): Optional transcriber to use for this job; if None, uses the server's current transcriber.
+            language (str | None): Optional language code to request for transcription; `None` requests automatic language detection.
+            sample_rate (int | None): Sample rate of `audio` in Hz; if `None`, the server's configured audio sample rate is used.
+        """
         final_status = "ready"
         final_message = "Ready"
         pipeline_started = monotonic()
@@ -422,7 +488,18 @@ class BridgeServer:
     async def _set_status(
         self, status: str, message: str, elapsed: float | None = None
     ) -> None:
-        """Update and broadcast status."""
+        """
+        Update the server status and broadcast a status payload to connected clients.
+        
+        Parameters:
+            status (str): New status identifier (e.g., "ready", "recording", "transcribing", "downloading", "error").
+            message (str): Human-readable status message to include in the payload.
+            elapsed (float | None): If provided, include this elapsed time in seconds (converted to int) in the payload.
+                If omitted and the status is "transcribing" or "downloading" and a busy start time exists,
+                elapsed is computed as the time since that busy start.
+        
+        The broadcasted payload contains: `type: "status"`, `status`, `message`, and an optional integer `elapsed`.
+        """
         self._status = status
         self._status_message = message
         msg: dict[str, Any] = {"type": "status", "status": status, "message": message}
@@ -473,7 +550,11 @@ class BridgeServer:
     async def _handle_message(
         self, websocket: WebSocketServerProtocol, message: str
     ) -> None:
-        """Handle incoming client message."""
+        """
+        Dispatches a parsed client JSON message to the appropriate bridge action.
+        
+        Accepts a JSON-encoded command in `message`, routes it to the matching handler (recording control, noise/VAD toggles, auto-copy config, hotkey and hotkey mode updates, model management and selection, device/compute/language settings, model download/remove, config/model queries, and clipboard copy), persists config changes when applicable, and broadcasts user-facing toasts or updated config/state to connected clients. Invalid JSON or unknown message types are logged.
+        """
         try:
             data = json.loads(message)
             msg_type = data.get("type")
@@ -607,7 +688,14 @@ class BridgeServer:
             )
 
     async def _remove_model(self, name: str) -> None:
-        """Remove a model."""
+        """
+        Remove an installed model by name and notify connected clients of the result.
+        
+        If `name` is empty this is a no-op. On success broadcasts a success toast and refreshes the model list to all clients; on failure broadcasts an error toast containing the exception message.
+        
+        Parameters:
+            name (str): The model name to remove. If empty, the function returns without action.
+        """
         if not name:
             return
         try:
@@ -622,7 +710,17 @@ class BridgeServer:
             )
 
     async def _set_selected_model(self, name: str) -> None:
-        """Set selected model."""
+        """
+        Set the active model by name and attempt to apply it.
+        
+        If the given name is not a known model the client is notified and the current config is re-broadcast.
+        On a valid name the config is updated and a transcriber reload is attempted. If reloading fails the previous
+        model selection is restored, the failure is broadcast to clients, and the rollback save error (if any) is also
+        notified. If applying succeeds but saving the new config fails, a notification is sent.
+        
+        Parameters:
+            name (str): Name of the model to select. An empty string is treated as a no-op.
+        """
         if not name:
             return
 
@@ -683,6 +781,15 @@ class BridgeServer:
             )
 
     def _persist_config(self, context: str) -> str | None:
+        """
+        Persist the server's configuration to disk.
+        
+        Parameters:
+            context (str): Short description of what part of the system triggered the persist operation; used in error logging.
+        
+        Returns:
+            error (str) | None: Error message if persisting failed, otherwise `None`.
+        """
         try:
             save_config(self.config)
         except Exception as exc:
@@ -691,7 +798,11 @@ class BridgeServer:
         return None
 
     async def _reload_transcriber(self) -> None:
-        """Load a fresh transcriber from current model config and swap it in."""
+        """
+        Reload the transcriber from the current model configuration and install it on the server.
+        
+        Creates a new Transcriber using the current model settings, loads it in a thread executor, replaces the server's active transcriber with the newly loaded instance, marks the model as loaded, and refreshes runtime capability information. This operation is serialized using the instance's model reload lock to prevent concurrent reloads.
+        """
         async with self._model_reload_lock:
             next_transcriber = Transcriber(
                 model_name=self.config.model.name,
@@ -707,6 +818,14 @@ class BridgeServer:
             self._refresh_runtime_capabilities()
 
     async def _set_model_backend(self, backend_name: str) -> None:
+        """
+        Change the active transcription model backend, validate it against runtime capabilities, and apply related configuration updates.
+        
+        If the requested backend is unsupported or unavailable on the current runtime, a client-facing error message is broadcast and the configuration is not changed. When the backend is switched successfully, the function adjusts device and compute-type settings to values supported by the new backend, persists the updated configuration, reloads the transcriber, and broadcasts the updated config and a success toast. If reloading the transcriber fails, the previous configuration is restored, persisted, and error toasts are broadcast.
+        
+        Parameters:
+            backend_name (str): Backend identifier or alias (examples: "faster-whisper", "whisper.cpp", or aliases like "whispercpp"). The name is normalized before validation.
+        """
         normalized = str(backend_name).strip().lower()
         if normalized in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
             normalized = "whisper.cpp"
@@ -824,6 +943,14 @@ class BridgeServer:
             )
 
     async def _set_model_device(self, device: str) -> None:
+        """
+        Set the target compute device for the transcription model.
+        
+        Updates the server config to use the specified device ("cpu", "cuda", or "mps"), validates availability against detected runtime capabilities, persists the change, and attempts to reload the transcriber. On success broadcasts the updated config and a confirmation toast; on failure restores the previous device, persists the rollback, and broadcasts error toasts. Also refreshes runtime capability information before validation.
+        
+        Parameters:
+            device (str): Desired model device identifier (e.g., "cpu", "cuda", "mps").
+        """
         self._refresh_runtime_capabilities()
         normalized = str(device).strip().lower()
         if normalized not in {"cpu", "cuda", "mps"}:
@@ -894,6 +1021,14 @@ class BridgeServer:
             )
 
     async def _set_model_compute_type(self, compute_type: str) -> None:
+        """
+        Validate and apply a new model compute type, persist the change, reload the transcriber, and notify connected clients.
+        
+        Validates the provided compute type against allowed values and the runtime capabilities for the currently selected device, broadcasts error toasts and the current config when validation fails, updates the configured compute type when valid, attempts to reload the transcriber, and rolls back the configuration on failure. On success broadcasts the updated config and a success toast; if saving the config fails the failure is reported as an error toast.
+        
+        Parameters:
+            compute_type (str): Compute type to apply (case-insensitive, trimmed). Examples include "default", "int8", "float16", "float32", "int8_float16", "int8_float32".
+        """
         self._refresh_runtime_capabilities()
         normalized = str(compute_type).strip().lower()
         allowed = {"default", "int8", "float16", "float32", "int8_float16", "int8_float32"}
@@ -981,6 +1116,14 @@ class BridgeServer:
             )
 
     async def _set_model_language(self, language: Any) -> None:
+        """
+        Update the configured transcription language and notify connected clients.
+        
+        Sets the bridge's model language to the provided value (treating "", "auto", "none", or None as automatic language detection), persists the configuration, and broadcasts the updated config and a user-facing toast. If saving the configuration fails, broadcasts an error toast indicating the persistence failure.
+        
+        Parameters:
+        	language (Any): The desired language name or identifier; values that are empty, "auto", "none", or None enable automatic language detection.
+        """
         raw = "" if language is None else str(language)
         normalized = raw.strip().lower()
         if normalized in {"", "auto", "none"}:
@@ -1016,7 +1159,15 @@ class BridgeServer:
             )
 
     async def _set_hotkey(self, hotkey: str) -> None:
-        """Update and restart the global hotkey listener."""
+        """
+        Set and activate a new global hotkey and persist the change.
+        
+        Validates the provided hotkey string; if empty or invalid, broadcasts an error toast and returns.
+        Stops and replaces the current hotkey listener, starts the new listener if a model is loaded, and rolls back to the previous listener on failure while broadcasting an error toast. Persists the updated config; always broadcasts the updated config and a success toast, and broadcasts an error toast if persisting the config fails.
+        
+        Parameters:
+            hotkey (str): Hotkey specification string to apply (must be non-empty and parseable).
+        """
         if not hotkey:
             await self._broadcast(
                 {"type": "toast", "message": "Hotkey cannot be empty", "level": "error"}
@@ -1156,14 +1307,33 @@ class BridgeServer:
         )
 
     async def _send_config(self, websocket: WebSocketServerProtocol) -> None:
-        """Send config to a client."""
+        """
+        Send the current configuration payload to the given client.
+        
+        The payload includes the bridge configuration augmented with runtime capabilities and bridge metadata and is sent as a JSON message with type "config".
+        """
         await websocket.send(json.dumps({"type": "config", "config": self._config_payload()}))
 
     async def _broadcast_config(self) -> None:
-        """Broadcast config to all clients."""
+        """
+        Broadcast the current configuration payload to all connected clients.
+        
+        Sends a message with type `"config"` whose `config` field contains the current config payload (includes runtime capabilities and bridge metadata).
+        """
         await self._broadcast({"type": "config", "config": self._config_payload()})
 
     def _config_payload(self) -> dict[str, Any]:
+        """
+        Builds and returns the configuration payload sent to clients.
+        
+        Refreshes the server's runtime capability snapshot, then returns a dictionary representation of the current configuration augmented with:
+        - "bridge": dict with "host" and "port" of the bridge,
+        - "auto_copy": boolean indicating whether automatic copy-to-clipboard is enabled,
+        - "runtime": the latest runtime capability information.
+        
+        Returns:
+            config_payload (dict[str, Any]): The full config payload ready for broadcasting to clients.
+        """
         self._refresh_runtime_capabilities()
         config_dict = self.config.to_dict()
         config_dict["bridge"] = {"host": "localhost", "port": 7878}
@@ -1172,7 +1342,11 @@ class BridgeServer:
         return config_dict
 
     def shutdown(self) -> None:
-        """Clean up resources."""
+        """
+        Stop any running hotkey listener and release audio/noise-suppression resources.
+        
+        Stops the hotkey listener if it was started, and closes the noise suppressor if present to free underlying resources.
+        """
         if self._hotkey_started and self.hotkey:
             self.hotkey.stop()
         if self.noise:

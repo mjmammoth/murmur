@@ -123,6 +123,17 @@ function LegendHint(props: { keys: string; label: string }): JSX.Element {
   );
 }
 
+/**
+ * Render the searchable, keyboard-navigable settings panel with grouped configurable items.
+ *
+ * The panel lists settings grouped by section, supports incremental search, keyboard and mouse
+ * navigation, toggle controls, read-only value displays, hotkey capture, and actions that open
+ * auxiliary dialogs (model manager and selector dialogs). Keyboard shortcuts handled include
+ * navigation (up/down), activation (enter/space), toggle on/off (left/right), and hotkey capture
+ * cancellation (escape).
+ *
+ * @returns A JSX element representing the settings UI.
+ */
 export function Settings(): JSX.Element {
   const { colors } = useTheme();
   const config = useConfig();

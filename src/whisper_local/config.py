@@ -21,6 +21,22 @@ class ModelConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ModelConfig":
+        """
+        Create a ModelConfig from a dictionary, normalizing backend names and filling missing fields with sensible defaults.
+        
+        Parameters:
+            data (dict[str, Any]): Mapping containing model configuration keys. Recognized keys:
+                - name: model name (default: "small")
+                - backend: backend identifier; variant forms of "whisper.cpp" (e.g. "whispercpp", "whisper_cpp", "whisper-cpp") are normalized to "whisper.cpp". Allowed backends are "faster-whisper" and "whisper.cpp" (default: "faster-whisper").
+                - device: device to run the model on (default: "cpu")
+                - compute_type: compute precision/type (default: "int8")
+                - auto_download: whether to auto-download the model (default: True)
+                - path: optional filesystem path to a local model
+                - language: optional language code
+        
+        Returns:
+            ModelConfig: Instance populated from `data` with normalized backend and defaults applied.
+        """
         backend = str(data.get("backend", "faster-whisper")).strip().lower()
         if backend in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
             backend = "whisper.cpp"
@@ -132,6 +148,17 @@ class AppConfig:
     auto_copy: bool = False
 
     def to_dict(self) -> dict[str, Any]:
+        """
+        Serialize the AppConfig into a plain dictionary for persistence.
+        
+        The returned dictionary reflects the current configuration state and ensures
+        path and model fields are concrete values rather than dataclass objects.
+        
+        Returns:
+            dict: Configuration dictionary where `output.file.path` is a string and
+            `model.backend`, `model.path`, and `model.language` are set to the
+            current model values.
+        """
         data = asdict(self)
         data["output"]["file"]["path"] = str(self.output.file.path)
         data["model"]["backend"] = self.model.backend
@@ -141,10 +168,22 @@ class AppConfig:
 
 
 def default_config_path() -> Path:
+    """
+    Get the default configuration file path used by the application.
+    
+    Returns:
+        Path: The path to the default config file ("~/.config/whisper.local/config.toml") with the user home expanded.
+    """
     return Path("~/.config/whisper.local/config.toml").expanduser()
 
 
 def _load_default_config() -> dict[str, Any]:
+    """
+    Load the package's built-in default configuration from the bundled default_config.toml.
+    
+    Returns:
+        dict[str, Any]: Parsed configuration data from the package resource `whisper_local/default_config.toml`.
+    """
     with resources.files("whisper_local").joinpath("default_config.toml").open("rb") as handle:
         return tomllib.load(handle)
 

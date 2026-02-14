@@ -9,6 +9,12 @@ export interface ModelItemProps {
   selected: boolean;
 }
 
+/**
+ * Render a single model row showing the model name, a left selection indicator, and a status indicator.
+ *
+ * @param props - Component props containing `model` (model metadata and install state) and `selected` (whether the row is highlighted)
+ * @returns A JSX element representing the model item row with selection and status indicators
+ */
 export function ModelItem(props: ModelItemProps): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();

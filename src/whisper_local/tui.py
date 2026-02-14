@@ -99,6 +99,11 @@ class ModelManagerScreen(Screen):
         self.run_worker(lambda: self._remove_model(model), thread=True)
 
     def action_set_default(self) -> None:
+        """
+        Set the currently highlighted model as the selected model.
+        
+        If no model is highlighted, the method does nothing. On success it updates the status to "Selected model set to <model>". If setting the selection fails with a ValueError, the error message is shown in the status.
+        """
         model = self._selected_model()
         if not model:
             return
@@ -110,6 +115,12 @@ class ModelManagerScreen(Screen):
         self._set_status(f"Selected model set to {model}")
 
     def _selected_model(self) -> Optional[str]:
+        """
+        Return the name of the currently highlighted model in the models list.
+        
+        Returns:
+            model_name (Optional[str]): The selected model's name, or `None` if no model is highlighted or the highlighted item is not a model.
+        """
         list_view = self.query_one("#models-list", ListView)
         item = list_view.get_highlighted() if hasattr(list_view, "get_highlighted") else list_view.highlighted_child
         if isinstance(item, ModelItem):
@@ -336,6 +347,15 @@ class WhisperApp(App):
         self._set_ready_status("Ready")
 
     def _load_model(self) -> None:
+        """
+        Load the configured transcription model into the transcriber and update the UI status.
+        
+        If a local model path is configured, the function proceeds to load that model. If no path is set, it verifies whether the named model is installed and:
+        - If the model is not installed and auto-download is disabled, sets an error status instructing how to pull the model.
+        - If auto-download is enabled, attempts to download or verify the model (this can take several minutes on first run), updates download progress/status, and sets an error status if download fails.
+        
+        When a model path is available, the function assigns it to the transcriber, invokes the transcriber's load routine, and sets the UI to a ready state on success. On any unexpected failure while loading, it sets an error status with guidance to prefetch the model via `whisper.local models pull <model-name>`.
+        """
         try:
             if self.config.model.path:
                 self.call_from_thread(self._set_busy_status, "Loading local model...")
@@ -386,6 +406,12 @@ class WhisperApp(App):
             )
 
     def _set_ready_status(self, message: str = "Ready") -> None:
+        """
+        Set the application status to ready, clear any busy state, and ensure hotkey listening is started.
+        
+        Parameters:
+            message (str): Status message to display when ready (default: "Ready").
+        """
         self._busy_operation = False
         self._busy_hint = None
         self._status_message = message

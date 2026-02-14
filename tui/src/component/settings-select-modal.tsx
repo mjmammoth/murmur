@@ -84,6 +84,14 @@ function isPrintableKey(key: KeyEvent): boolean {
   return key.name.length === 1;
 }
 
+/**
+ * Render a modal dialog that lets the user choose and apply a configuration option (model backend, device, compute type, or language).
+ *
+ * The modal displays a list of context-aware options with disabled states and reasons, highlights the current and selected entries,
+ * supports keyboard navigation (arrow keys, j/k, enter, escape) and mouse selection, and — when picking a language — provides a live text filter.
+ *
+ * @returns The JSX element for the settings selection modal
+ */
 export function SettingsSelectModal(): JSX.Element {
   const { colors } = useTheme();
   const dialog = useDialog();

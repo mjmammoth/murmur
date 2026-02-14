@@ -54,6 +54,19 @@ export { useBackend };
 
 const RECONNECT_DELAY = 2000;
 
+/**
+ * Provides backend connection state and actions to descendant components through context.
+ *
+ * Establishes and manages a WebSocket connection to the backend (host and port configurable),
+ * maintains backend-related state (connection status, app status/message, config, models, logs,
+ * download progress, active model operations, etc.), and exposes actions for model operations,
+ * sending client messages, requesting the config file, and subscribing to transcript/hotkey/toast events.
+ *
+ * @param props.host - Backend hostname (defaults to `"localhost"`)
+ * @param props.port - Backend port (defaults to `7878`)
+ * @param props.children - Child element to render within the provider
+ * @returns A JSX element that provides the backend context to its children
+ */
 export function BackendContextProvider(props: {
   host?: string;
   port?: number;

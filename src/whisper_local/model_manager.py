@@ -240,12 +240,32 @@ def _download_model_in_subprocess(repo_id: str) -> Path:
 
 
 def remove_model(model_name: str) -> None:
+    """
+    Remove the cached files for the specified model.
+    
+    Deletes the model's cache directory under the HuggingFace cache location if it exists.
+    
+    Parameters:
+        model_name (str): Name of the model whose cache should be removed.
+    """
     cache_path = _model_cache_path(model_name)
     if cache_path.exists():
         shutil.rmtree(cache_path)
 
 
 def set_selected_model(model_name: str, path: Path | None = None) -> None:
+    """
+    Set the selected model in the application's configuration and clear any custom model path.
+    
+    Updates the persisted configuration so the chosen model name becomes the active selection and any previously stored custom model path is removed.
+    
+    Parameters:
+        model_name (str): Name of the model to select; must be one of the values in MODEL_NAMES.
+        path (Path | None): Optional path to the configuration file or directory. If None, the default config location is used.
+    
+    Raises:
+        ValueError: If `model_name` is not a known model.
+    """
     if model_name not in MODEL_NAMES:
         raise ValueError(f"Unknown model: {model_name}")
     config = config_module.load_config(path)
@@ -255,5 +275,11 @@ def set_selected_model(model_name: str, path: Path | None = None) -> None:
 
 
 def set_default_model(model_name: str, path: Path | None = None) -> None:
-    """Backward-compatible alias for pre-select command naming."""
+    """
+    Alias preserving the legacy `set_default_model` name while delegating to `set_selected_model`.
+    
+    Parameters:
+        model_name (str): Name of the model to set as the selected/default model.
+        path (Path | None): Optional path to the configuration file or directory to load and save; if omitted, the default config location is used.
+    """
     set_selected_model(model_name, path)

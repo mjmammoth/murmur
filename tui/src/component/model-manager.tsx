@@ -32,6 +32,17 @@ function CommandHint(props: { keys: string; label: string }): JSX.Element {
   );
 }
 
+/**
+ * Render the Model Manager dialog for browsing, downloading, removing, and selecting models.
+ *
+ * Displays the list of available models, highlights the current selection, shows ongoing
+ * operation status (download/remove) with progress, and provides keyboard-driven commands
+ * for pull (`p`), remove (`r`), select (`d`), refresh (`l`), navigation (`up`/`down`/`k`/`j`),
+ * and close (`esc`). When closed, the dialog either returns to the settings dialog if the
+ * dialog data requests it or simply closes.
+ *
+ * @returns The JSX element for the model manager dialog UI.
+ */
 export function ModelManager(): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();

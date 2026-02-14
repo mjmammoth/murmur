@@ -26,6 +26,19 @@ logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """
+    Create the top-level command-line argument parser for the application.
+    
+    Configures subcommands:
+    - run: starts the TUI (bridge + TypeScript frontend) with options --host, --port, and --legacy.
+    - bridge: starts only the WebSocket bridge with --host and --port.
+    - tui: starts only the TypeScript TUI with --host and --port.
+    - models: manages models with subcommands `list`, `pull <name>`, `remove <name>`, and `select <name>` (alias: `set-default`).
+    - config: shows configuration with an optional --path.
+    
+    Returns:
+        argparse.ArgumentParser: An ArgumentParser configured with the described subcommands and options.
+    """
     parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
     subparsers = parser.add_subparsers(dest="command")
 
@@ -80,12 +93,21 @@ def _get_tui_path() -> Path:
 
 
 def _check_bun() -> bool:
-    """Check if bun is installed."""
+    """
+    Determine whether the 'bun' executable is available on the system PATH.
+    
+    Returns:
+        True if the 'bun' executable is found in PATH, False otherwise.
+    """
     return shutil.which("bun") is not None
 
 
 def _ensure_runtime_dependencies() -> None:
-    """Fail fast with actionable message when required runtime deps are missing."""
+    """
+    Ensure required runtime dependencies are installed.
+    
+    If a required dependency is missing or an installation check fails, prints the error message and exits the process with status 1.
+    """
     try:
         ensure_whisper_cpp_installed()
     except Exception as exc:
@@ -94,7 +116,14 @@ def _ensure_runtime_dependencies() -> None:
 
 
 def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
-    """Run the bridge server."""
+    """
+    Start the WebSocket bridge server using the loaded configuration.
+    
+    Parameters:
+        host (str): Hostname or IP address to bind the bridge to.
+        port (int): TCP port to listen on.
+        capture_logs (bool): If True, capture the bridge's logs for collection, otherwise let them be emitted normally.
+    """
     _ensure_runtime_dependencies()
     from whisper_local.bridge import run_bridge
     config = load_config()
@@ -128,7 +157,11 @@ def _restore_terminal_state() -> None:
 
 
 def _run_combined(host: str, port: int) -> None:
-    """Run both bridge and TUI together."""
+    """
+    Start the bridge server and the TypeScript TUI together, running the bridge in a background thread and the TUI as a subprocess.
+    
+    Ensures runtime dependencies and that `bun` is installed, validates configuration early, suppresses Python logging and stderr while the TUI owns the terminal, and restores terminal state on exit. The function may print error messages to stderr and call `sys.exit(1)` on fatal failures (for example, missing `bun`, config load errors, or bridge start failures).
+    """
     _ensure_runtime_dependencies()
     if not _check_bun():
         print("Error: bun is not installed. Install it with: curl -fsSL https://bun.sh/install | bash")
@@ -207,6 +240,17 @@ def _run_combined(host: str, port: int) -> None:
 
 
 def main() -> None:
+    """
+    Parse command-line arguments and execute the selected CLI command.
+    
+    This function is the program entry point: it parses args produced by build_parser() and dispatches to the appropriate action for subcommands:
+    - run: ensure runtime dependencies, then start either the legacy Textual TUI or the combined bridge + TypeScript TUI.
+    - bridge: start only the WebSocket bridge server.
+    - tui: start only the TypeScript TUI (exits with an error if the `bun` runtime is missing); restores terminal state on exit.
+    - models: manage models with operations `list`, `pull`, `remove`, and `select`/`set-default`.
+    - config: load and print configuration sections and values.
+    If no recognized command is provided, print the CLI help.
+    """
     parser = build_parser()
     args = parser.parse_args()
 
