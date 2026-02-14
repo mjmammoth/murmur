@@ -146,6 +146,13 @@ export function Settings(): JSX.Element {
     return Math.max(minHeight, Math.min(preferred, maxHeight));
   });
 
+  const selectedInstalledModelName = createMemo(() => {
+    const selected = config.config()?.model.name;
+    if (!selected) return "none";
+    const match = backend.models().find((model) => model.name === selected);
+    return match?.installed ? selected : "none";
+  });
+
   const items = createMemo<SettingItem[]>(() => {
     const cfg = config.config();
 
@@ -187,7 +194,7 @@ export function Settings(): JSX.Element {
         title: "Selected Model",
         description: "Press enter to open model manager",
         keywords: ["model", "whisper"],
-        value: () => withFallback(cfg?.model.name),
+        value: () => selectedInstalledModelName(),
       },
       {
         id: "model.backend",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 from datetime import datetime
 from time import monotonic
 from typing import Any
@@ -17,8 +18,10 @@ from whisper_local.audio import AudioRecorder
 from whisper_local.config import AppConfig, default_config_path, load_config, save_config
 from whisper_local.hotkey import HotkeyListener, parse_hotkey
 from whisper_local.model_manager import (
+    DownloadCancelledError,
     MODEL_NAMES,
     download_model,
+    get_installed_model_path,
     list_installed_models,
     remove_model,
 )
@@ -97,6 +100,7 @@ class BridgeServer:
         self._model_reload_lock = asyncio.Lock()
         self._model_op_lock = asyncio.Lock()
         self._runtime_capabilities = self._detect_runtime_capabilities()
+        self._shutdown_requested = threading.Event()
 
         # Audio/transcription components (initialized lazily)
         self.recorder: AudioRecorder | None = None
@@ -137,8 +141,11 @@ class BridgeServer:
     def _active_client_count(self) -> int:
         return sum(1 for client in self.clients if client not in self._passive_clients)
 
+    def _installed_model_names(self) -> list[str]:
+        return [model.name for model in list_installed_models() if model.installed]
+
     def _has_installed_models(self) -> bool:
-        return any(model.installed for model in list_installed_models())
+        return bool(self._installed_model_names())
 
     async def start(
         self,
@@ -656,18 +663,35 @@ class BridgeServer:
 
             try:
                 await loop.run_in_executor(
-                    None, lambda: download_model(name, progress_callback=on_progress)
+                    None,
+                    lambda: download_model(
+                        name,
+                        progress_callback=on_progress,
+                        cancel_check=self._shutdown_requested.is_set,
+                    ),
                 )
                 # Send 100% to ensure TUI sees completion
                 await self._broadcast(
                     {"type": "download_progress", "model": name, "percent": 100}
                 )
                 await self._broadcast({"type": "toast", "message": f"Downloaded {name}"})
+                # After a successful pull, make the downloaded model active.
+                await self._set_selected_model(name)
                 await self._broadcast_models()
+            except DownloadCancelledError:
+                if not self._shutdown_requested.is_set():
+                    await self._broadcast(
+                        {
+                            "type": "toast",
+                            "message": f"Download cancelled: {name}",
+                            "level": "error",
+                        }
+                    )
             except Exception as exc:
-                await self._broadcast(
-                    {"type": "toast", "message": f"Download failed: {exc}", "level": "error"}
-                )
+                if not self._shutdown_requested.is_set():
+                    await self._broadcast(
+                        {"type": "toast", "message": f"Download failed: {exc}", "level": "error"}
+                    )
 
     async def _remove_model(self, name: str) -> None:
         """Remove a model."""
@@ -679,11 +703,37 @@ class BridgeServer:
                     None, lambda: remove_model(name)
                 )
                 await self._broadcast({"type": "toast", "message": f"Removed {name}"})
+                installed_model_names = self._installed_model_names()
+
+                if not installed_model_names:
+                    await self._enter_first_run_setup()
+                    await self._broadcast(
+                        {
+                            "type": "toast",
+                            "message": "No models installed. Download and select a model to continue.",
+                        }
+                    )
+                elif self.config.model.name not in installed_model_names:
+                    fallback_name = installed_model_names[0]
+                    await self._set_selected_model(fallback_name)
+
                 await self._broadcast_models()
             except Exception as exc:
                 await self._broadcast(
                     {"type": "toast", "message": f"Remove failed: {exc}", "level": "error"}
                 )
+
+    async def _enter_first_run_setup(self) -> None:
+        self._first_run_setup_required = True
+        self._model_loaded = False
+        if self._hotkey_started and self.hotkey:
+            self.hotkey.stop()
+            self._hotkey_started = False
+        await self._set_status(
+            "connecting",
+            "First run setup required. Download and select a model in Model Manager.",
+        )
+        await self._broadcast_config()
 
     async def _set_selected_model(self, name: str) -> None:
         """Set selected model."""
@@ -696,6 +746,17 @@ class BridgeServer:
                 {
                     "type": "toast",
                     "message": f"Unknown model: {name}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if get_installed_model_path(name) is None:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Model {name} is not pulled. Download it before selecting.",
                     "level": "error",
                 }
             )
@@ -1195,7 +1256,13 @@ class BridgeServer:
             json.dumps({
                 "type": "models",
                 "models": [
-                    {"name": m.name, "installed": m.installed, "path": str(m.path) if m.path else None}
+                    {
+                        "name": m.name,
+                        "installed": m.installed,
+                        "path": str(m.path) if m.path else None,
+                        "size_bytes": m.size_bytes,
+                        "size_estimated": m.size_estimated,
+                    }
                     for m in models
                 ],
             })
@@ -1207,7 +1274,13 @@ class BridgeServer:
         await self._broadcast({
             "type": "models",
             "models": [
-                {"name": m.name, "installed": m.installed, "path": str(m.path) if m.path else None}
+                {
+                    "name": m.name,
+                    "installed": m.installed,
+                    "path": str(m.path) if m.path else None,
+                    "size_bytes": m.size_bytes,
+                    "size_estimated": m.size_estimated,
+                }
                 for m in models
             ],
         })
@@ -1243,6 +1316,13 @@ class BridgeServer:
 
     def shutdown(self) -> None:
         """Clean up resources."""
+        self._shutdown_requested.set()
+        if self.recorder and self._recording:
+            try:
+                self.recorder.stop()
+            except Exception:
+                pass
+            self._recording = False
         if self._hotkey_started and self.hotkey:
             self.hotkey.stop()
         if self.noise:

@@ -89,6 +89,8 @@ export interface ModelInfo {
   name: string;
   installed: boolean;
   path: string | null;
+  size_bytes?: number | null;
+  size_estimated?: boolean;
 }
 
 // Application status

@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import logging
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -186,6 +187,9 @@ def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
     bridge_server = None
     bridge_error: list[Exception] = []
     status_indicator_process: subprocess.Popen | None = None
+    tui_process: subprocess.Popen | None = None
+    interrupted = False
+    previous_sigint = signal.getsignal(signal.SIGINT)
 
     def _bridge_target() -> None:
         nonlocal bridge_server
@@ -220,13 +224,29 @@ def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
         tui_process = _run_tui(host, port)
         tui_process.wait()
     except KeyboardInterrupt:
-        pass
+        interrupted = True
     except FileNotFoundError as e:
         sys.stderr = real_stderr
         print(f"Error: {e}", file=real_stderr)
         print("Make sure you're running from the project root directory.", file=real_stderr)
         sys.exit(1)
     finally:
+        if interrupted:
+            try:
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+            except Exception:
+                pass
+
+        if tui_process is not None and tui_process.poll() is None:
+            tui_process.terminate()
+            try:
+                tui_process.wait(timeout=1.0)
+            except Exception:
+                try:
+                    tui_process.kill()
+                except Exception:
+                    pass
+
         if status_indicator_process is not None:
             status_indicator_process.terminate()
             try:
@@ -244,6 +264,11 @@ def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
         sys.stderr = real_stderr
         _restore_terminal_state()
         devnull.close()
+        if interrupted:
+            try:
+                signal.signal(signal.SIGINT, previous_sigint)
+            except Exception:
+                pass
 
 
 def main() -> None:

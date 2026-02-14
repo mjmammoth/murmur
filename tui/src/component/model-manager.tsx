@@ -7,7 +7,7 @@ import {
   Show,
   type JSX,
 } from "solid-js";
-import { useKeyHandler, useTerminalDimensions } from "@opentui/solid";
+import { useKeyHandler, useRenderer, useTerminalDimensions } from "@opentui/solid";
 import type { KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
@@ -19,17 +19,6 @@ import { useSpinnerFrame } from "./spinner";
 interface ModelManagerDialogData {
   returnToSettings?: boolean;
   firstRunSetup?: boolean;
-}
-
-function clampPercent(value: number): number {
-  return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function buildProgressBar(percent: number, width = 24): string {
-  const safePercent = clampPercent(percent);
-  const filled = Math.round((safePercent / 100) * width);
-  const empty = Math.max(0, width - filled);
-  return `[${"#".repeat(filled)}${"-".repeat(empty)}] ${safePercent}%`;
 }
 
 function CommandHint(props: { keys: string; label: string }): JSX.Element {
@@ -54,6 +43,7 @@ export function ModelManager(): JSX.Element {
   const backend = useBackend();
   const config = useConfig();
   const dialog = useDialog();
+  const renderer = useRenderer();
   const terminal = useTerminalDimensions();
 
   const [selectedIndex, setSelectedIndex] = createSignal(0);
@@ -79,6 +69,31 @@ export function ModelManager(): JSX.Element {
     dialog.closeDialog();
   }
 
+  function exitApp() {
+    try {
+      renderer.destroy();
+    } catch {
+      // Ignore renderer teardown errors during exit
+    }
+
+    try {
+      if (process.stdin.isTTY && "setRawMode" in process.stdin) {
+        (process.stdin as NodeJS.ReadStream).setRawMode(false);
+      }
+    } catch {
+      // Ignore raw mode reset errors during exit
+    }
+
+    try {
+      // Disable common mouse tracking modes and restore cursor/style.
+      process.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?25h\x1b[0m");
+    } catch {
+      // Ignore terminal restore write errors during exit
+    }
+
+    process.exit(0);
+  }
+
   onMount(() => {
     backend.send({ type: "list_models" });
   });
@@ -100,7 +115,7 @@ export function ModelManager(): JSX.Element {
   const primaryActionLabel = createMemo(() => {
     const model = selectedModel();
     if (!model) return "pull/select";
-    return model.installed ? "select" : "pull";
+    return model.installed ? "select" : "pull + select";
   });
 
   const modalHeight = createMemo(() => {
@@ -110,7 +125,12 @@ export function ModelManager(): JSX.Element {
     return Math.max(minHeight, Math.min(preferred, maxHeight));
   });
 
-  const selectedModelName = createMemo(() => config.config()?.model.name ?? null);
+  const selectedModelName = createMemo(() => {
+    const configured = config.config()?.model.name ?? null;
+    if (!configured) return null;
+    const match = backend.models().find((model) => model.name === configured);
+    return match?.installed ? configured : null;
+  });
 
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "model-manager") return;
@@ -134,9 +154,18 @@ export function ModelManager(): JSX.Element {
       case "enter":
         handlePrimaryAction();
         break;
+      case "p":
+        handlePull();
+        break;
       case "r":
       case "backspace":
         handleRemove();
+        break;
+      case "q":
+        if (setupLocked()) {
+          key.preventDefault();
+          exitApp();
+        }
         break;
     }
   });
@@ -172,40 +201,21 @@ export function ModelManager(): JSX.Element {
     setStatusMessage(`Selected ${model.name}`);
   }
 
-  const activePullProgress = createMemo(() => {
-    const op = backend.activeModelOp();
-    if (!op || op.type !== "pulling") return null;
-    const progress = backend.downloadProgress();
-    if (!progress || progress.model !== op.model) return null;
-    return clampPercent(progress.percent);
-  });
-
   const statusDisplay = () => {
     const op = backend.activeModelOp();
     if (op) {
-      const progressPercent = activePullProgress();
-      if (op.type === "pulling" && progressPercent !== null) {
-        if (progressPercent >= 100) {
-          return `${spinnerFrame()} Finalizing ${op.model}...`;
-        }
-        return `${spinnerFrame()} Downloading ${op.model}... ${progressPercent}%`;
+      if (op.type === "removing") {
+        return `${spinnerFrame()} Removing ${op.model}...`;
       }
-      const label = op.type === "pulling" ? "Downloading" : "Removing";
-      return `${spinnerFrame()} ${label} ${op.model}...`;
+      return "";
     }
     return statusMessage();
   };
 
-  const progressDisplay = createMemo(() => {
-    const progressPercent = activePullProgress();
-    if (progressPercent === null) return "";
-    return buildProgressBar(progressPercent);
-  });
-
   const statusColor = () => {
     const op = backend.activeModelOp();
     if (op) {
-      return op.type === "pulling" ? colors().transcribing : colors().warning;
+      return op.type === "removing" ? colors().warning : colors().textMuted;
     }
     return colors().textMuted;
   };
@@ -254,13 +264,10 @@ export function ModelManager(): JSX.Element {
       <Show when={firstRunSetup()}>
         <box paddingX={2} paddingTop={1} flexDirection="column" flexShrink={0}>
           <text>
-            <span style={{ fg: colors().warning, bold: true }}>First run setup (one-time)</span>
+            <span style={{ fg: colors().warning, bold: true }}>First run setup</span>
           </text>
           <text>
             <span style={{ fg: colors().textMuted }}>Download and select a model to continue.</span>
-          </text>
-          <text>
-            <span style={{ fg: colors().textMuted }}>This appears only when no models are installed.</span>
           </text>
         </box>
       </Show>
@@ -287,18 +294,14 @@ export function ModelManager(): JSX.Element {
         </box>
       </Show>
 
-      <Show when={progressDisplay()}>
-        <box paddingX={2} flexShrink={0}>
-          <text>
-            <span style={{ fg: colors().textMuted }}>{progressDisplay()}</span>
-          </text>
-        </box>
-      </Show>
-
       <box paddingX={2} paddingTop={1} flexShrink={0}>
         <box flexDirection="row" gap={2} alignItems="center">
           <CommandHint keys="enter" label={primaryActionLabel()} />
+          <CommandHint keys="p" label="pull" />
           <CommandHint keys="r/backspace" label="remove" />
+          <Show when={setupLocked()}>
+            <CommandHint keys="q" label="quit app" />
+          </Show>
         </box>
       </box>
     </box>
