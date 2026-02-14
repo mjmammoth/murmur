@@ -121,16 +121,25 @@ export function HotkeyModal(): JSX.Element {
       borderColor={colors().borderSubtle}
       paddingY={1}
     >
-      <box paddingX={3} paddingY={1} flexDirection="row" justifyContent="space-between">
-        <text>
-          <span style={{ fg: colors().secondary }}>■</span>
-          <span style={{ fg: colors().primary }}> Hotkey</span>
-          <span style={{ fg: colors().textMuted }}> / press combo</span>
-        </text>
-        <box backgroundColor={colors().secondary} paddingX={1}>
+      <box paddingX={3} paddingTop={1} paddingBottom={0} flexDirection="column">
+        <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
           <text>
-            <span style={{ fg: colors().selectedText }}>esc</span>
+            <span style={{ fg: colors().primary, bold: true }}>Hotkey</span>
           </text>
+          <box flexDirection="row" alignItems="center" gap={2}>
+            <text>
+              <span style={{ fg: colors().textMuted }}>press combo</span>
+            </text>
+            <box backgroundColor={colors().secondary} paddingX={1}>
+              <text>
+                <span style={{ fg: colors().selectedText }}>esc</span>
+              </text>
+            </box>
+          </box>
+        </box>
+        <box flexDirection="row" width="100%" marginTop={0}>
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
 

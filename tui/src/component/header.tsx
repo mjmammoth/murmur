@@ -37,6 +37,7 @@ export function Header(): JSX.Element {
       paddingX={2}
       paddingTop={0}
       paddingBottom={0}
+      flexShrink={0}
     >
       <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
         <text>
@@ -50,9 +51,9 @@ export function Header(): JSX.Element {
           alignItems="center"
           flexShrink={0}
         >
-          <ToggleHint keyChar="n" label="noise" active={config.noiseEnabled()} />
+          <ToggleHint keyChar="n" label="noise cancellation" active={config.noiseEnabled()} />
           <ToggleHint keyChar="v" label="vad" active={config.vadEnabled()} />
-          <ToggleHint keyChar="a" label="auto-copy" active={config.autoCopy()} />
+          <ToggleHint keyChar="a" label="auto copy" active={config.autoCopy()} />
         </box>
       </box>
     </box>

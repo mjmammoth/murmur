@@ -10,6 +10,11 @@ export function TranscriptList(): JSX.Element {
   const terminal = useTerminalDimensions();
 
   const count = () => transcriber.transcripts().length;
+  const countLabel = () => {
+    const n = count();
+    return `${n} ${n === 1 ? "item" : "items"}`;
+  };
+
   const emptyStateMode = (): "full" | "compact" | "icon" => {
     const h = terminal().height;
     if (h >= 22) return "full";
@@ -20,15 +25,23 @@ export function TranscriptList(): JSX.Element {
   return (
     <box
       flexGrow={1}
+      flexShrink={1}
       flexDirection="column"
       backgroundColor={colors().backgroundPanel}
     >
-      <box paddingX={2} paddingY={1}>
-        <text>
-          <span style={{ fg: colors().secondary }}>■</span>
-          <span style={{ fg: colors().primary }}> Transcripts</span>
-          <span style={{ fg: colors().textMuted }}> / {count()}</span>
-        </text>
+      <box paddingX={2} paddingTop={1} paddingBottom={0} flexDirection="column" flexShrink={0}>
+        <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
+          <text>
+            <span style={{ fg: colors().primary, bold: true }}>Transcripts</span>
+          </text>
+          <text>
+            <span style={{ fg: colors().textMuted }}>{countLabel()}</span>
+          </text>
+        </box>
+        <box flexDirection="row" width="100%" marginTop={0}>
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
+        </box>
       </box>
 
       <Show
@@ -36,6 +49,7 @@ export function TranscriptList(): JSX.Element {
         fallback={
           <box
             flexGrow={1}
+            flexShrink={1}
             justifyContent="center"
             alignItems="center"
             paddingY={emptyStateMode() === "full" ? 2 : 0}
@@ -63,7 +77,7 @@ export function TranscriptList(): JSX.Element {
           </box>
         }
       >
-        <scrollbox flexGrow={1} paddingX={1} stickyScroll stickyStart="bottom">
+        <scrollbox flexGrow={1} flexShrink={1} paddingX={1} stickyScroll stickyStart="bottom">
           <box flexDirection="column">
             <For each={transcriber.transcripts()}>
               {(entry, index) => (

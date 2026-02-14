@@ -119,6 +119,7 @@ export function Footer(): JSX.Element {
       paddingTop={1}
       paddingBottom={1}
       backgroundColor={colors().backgroundPanel}
+      flexShrink={0}
     >
       <box flexDirection="row" alignItems="center" width="100%">
         <box width="33%" flexDirection="row" alignItems="center" gap={2} flexShrink={1}>
@@ -137,11 +138,8 @@ export function Footer(): JSX.Element {
         </box>
 
         <box width="33%" justifyContent="flex-end" flexDirection="row" gap={2} alignItems="center" flexShrink={0}>
-          <KeyHint keyChar="q" word="Quit" />
-          <KeyHint keyChar="c" word="Copy" />
-          <KeyHint keyChar="h" word="Hotkey" />
-          <KeyHint keyChar="o" word="Mode" />
-          <KeyHint keyChar="s" word="Settings" />
+          <KeyHint keyChar="q" word="quit" />
+          <KeyHint keyChar="s" word="settings" />
         </box>
       </box>
     </box>

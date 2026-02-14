@@ -203,9 +203,15 @@ export function Home(): JSX.Element {
           paddingLeft={showLogs() ? 1 : 0}
           gap={1}
         >
-          <Header />
-          <TranscriptList />
-          <Footer />
+          <box flexShrink={0}>
+            <Header />
+          </box>
+          <box flexGrow={1} flexShrink={1} height="100%">
+            <TranscriptList />
+          </box>
+          <box flexShrink={0}>
+            <Footer />
+          </box>
           <ToastContainer />
         </box>
       </box>

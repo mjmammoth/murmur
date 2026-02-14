@@ -559,16 +559,25 @@ export function Settings(): JSX.Element {
       borderColor={colors().borderSubtle}
       paddingY={1}
     >
-      <box paddingX={3} paddingY={1} flexDirection="row" justifyContent="space-between">
-        <text>
-          <span style={{ fg: colors().secondary }}>■</span>
-          <span style={{ fg: colors().primary }}> Settings</span>
-          <span style={{ fg: colors().textMuted }}> / search and toggle</span>
-        </text>
-        <box backgroundColor={colors().secondary} paddingX={1}>
+      <box paddingX={3} paddingTop={1} paddingBottom={0} flexDirection="column">
+        <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
           <text>
-            <span style={{ fg: colors().selectedText }}>esc</span>
+            <span style={{ fg: colors().primary, bold: true }}>Settings</span>
           </text>
+          <box flexDirection="row" alignItems="center" gap={2}>
+            <text>
+              <span style={{ fg: colors().textMuted }}>search and toggle</span>
+            </text>
+            <box backgroundColor={colors().secondary} paddingX={1}>
+              <text>
+                <span style={{ fg: colors().selectedText }}>esc</span>
+              </text>
+            </box>
+          </box>
+        </box>
+        <box flexDirection="row" width="100%" marginTop={0}>
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
 
@@ -587,12 +596,6 @@ export function Settings(): JSX.Element {
             searchInput = r;
           }}
         />
-      </box>
-
-      <box paddingX={2} paddingTop={1}>
-        <text>
-          <span style={{ fg: colors().textDim }}>{"-".repeat(80)}</span>
-        </text>
       </box>
 
       <scrollbox flexGrow={1} paddingTop={1}>
@@ -683,9 +686,6 @@ export function Settings(): JSX.Element {
 
       <box paddingX={3} paddingTop={1}>
         <box flexDirection="row" gap={2} alignItems="center">
-          <text>
-            <span style={{ fg: colors().secondary }}>■</span>
-          </text>
           <LegendHint keys="↑/↓" label="navigate" />
           <LegendHint keys="enter" label="activate" />
           <LegendHint keys="space" label="activate" />

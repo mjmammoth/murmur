@@ -148,25 +148,26 @@ export function ModelManager(): JSX.Element {
       borderColor={colors().borderSubtle}
       padding={1}
     >
-      <box paddingX={2} paddingY={1} flexDirection="row" justifyContent="space-between">
-        <text>
-          <span style={{ fg: colors().secondary }}>■</span>
-          <span style={{ fg: colors().primary }}> Models</span>
-          <span style={{ fg: colors().textMuted }}> / install and defaults</span>
-        </text>
-        <box backgroundColor={colors().secondary} paddingX={1}>
+      <box paddingX={2} paddingTop={1} paddingBottom={0} flexDirection="column">
+        <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
           <text>
-            <span style={{ fg: colors().selectedText }}>esc</span>
+            <span style={{ fg: colors().primary, bold: true }}>Models</span>
           </text>
+          <box flexDirection="row" alignItems="center" gap={2}>
+            <text>
+              <span style={{ fg: colors().textMuted }}>install and defaults</span>
+            </text>
+            <box backgroundColor={colors().secondary} paddingX={1}>
+              <text>
+                <span style={{ fg: colors().selectedText }}>esc</span>
+              </text>
+            </box>
+          </box>
         </box>
-      </box>
-
-      <box paddingX={1}>
-        <text>
-          <span style={{ fg: colors().borderSubtle }}>
-            {"-".repeat(68)}
-          </span>
-        </text>
+        <box flexDirection="row" width="100%" marginTop={0}>
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
+        </box>
       </box>
 
       <scrollbox flexGrow={1} paddingY={1}>
@@ -192,9 +193,6 @@ export function ModelManager(): JSX.Element {
 
       <box paddingX={2} paddingTop={1}>
         <box flexDirection="row" gap={2} alignItems="center">
-          <text>
-            <span style={{ fg: colors().secondary }}>■</span>
-          </text>
           <CommandHint keys="p" label="pull" />
           <CommandHint keys="r" label="remove" />
           <CommandHint keys="d" label="default" />
