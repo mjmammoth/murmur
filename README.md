@@ -31,6 +31,14 @@ If RNNoise still is not available, the app continues without noise suppression.
 whisper-local
 ```
 
+## TUI (development)
+The terminal UI is a SolidJS app run with [Bun](https://bun.sh).
+```bash
+cd tui
+bun install
+bun run dev
+```
+
 ## macOS permissions
 Global hotkeys require Input Monitoring permission for your terminal or app host.
 

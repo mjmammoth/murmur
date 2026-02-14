@@ -20,3 +20,5 @@ logs/
 # Model caches
 .cache/huggingface/
 .cache/ctranslate2/
+
+node_modules/
