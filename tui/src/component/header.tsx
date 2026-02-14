@@ -66,7 +66,7 @@ export function Header(): JSX.Element {
               const t = i() <= peak ? i() / peak : (12 - i()) / (12 - peak);
               return (
                 <span style={{
-                  fg: lerpColor("#87CEEB", colors().secondary, t),
+                  fg: lerpColor(colors().brandStart, colors().secondary, t),
                   bold: true,
                 }}>
                   {ch}

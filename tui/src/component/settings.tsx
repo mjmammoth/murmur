@@ -124,7 +124,7 @@ function LegendHint(props: { keys: string; label: string }): JSX.Element {
 }
 
 export function Settings(): JSX.Element {
-  const { colors } = useTheme();
+  const { colors, theme } = useTheme();
   const config = useConfig();
   const backend = useBackend();
   const dialog = useDialog();
@@ -343,6 +343,15 @@ export function Settings(): JSX.Element {
         value: () => withFallback(cfg?.bridge.port),
       },
       {
+        id: "ui.theme",
+        section: "System",
+        kind: "text",
+        title: "Theme",
+        description: "Press enter to choose UI theme",
+        keywords: ["theme", "appearance", "color", "palette"],
+        value: () => withFallback(theme().label),
+      },
+      {
         id: "system.config_path",
         section: "System",
         kind: "text",
@@ -381,6 +390,7 @@ export function Settings(): JSX.Element {
   const isModelManagerSetting = (id: string) => id === "model.name";
   const isSelectorSetting = (id: string) =>
     id === "model.backend" || id === "model.device" || id === "model.compute" || id === "model.language";
+  const isThemeSetting = (id: string) => id === "ui.theme";
 
   createEffect(() => {
     const list = flatItems();
@@ -498,6 +508,11 @@ export function Settings(): JSX.Element {
 
     if (isSelectorSetting(item.id)) {
       dialog.openDialog("settings-select", { settingId: item.id, returnToSettings: true });
+      return;
+    }
+
+    if (isThemeSetting(item.id)) {
+      dialog.openDialog("theme-picker", { returnToSettings: true });
       return;
     }
 

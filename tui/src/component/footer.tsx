@@ -141,6 +141,7 @@ export function Footer(): JSX.Element {
           <KeyHint keyChar="q" word="quit" />
           <KeyHint keyChar="l" word="logs" />
           <KeyHint keyChar="s" word="settings" />
+          <KeyHint keyChar="t" word="theme" />
         </box>
       </box>
     </box>

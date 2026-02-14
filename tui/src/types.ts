@@ -64,6 +64,10 @@ export interface BridgeConfig {
   port: number;
 }
 
+export interface UiConfig {
+  theme: string;
+}
+
 export interface AppConfig {
   model: ModelConfig;
   hotkey: HotkeyConfig;
@@ -71,6 +75,7 @@ export interface AppConfig {
   vad: VadConfig;
   output: OutputConfig;
   bridge: BridgeConfig;
+  ui?: UiConfig;
   auto_copy?: boolean;
   first_run_setup_required?: boolean;
   runtime?: RuntimeCapabilities;
@@ -119,6 +124,7 @@ export type ClientMessage =
   | { type: "set_model_device"; device: string }
   | { type: "set_model_compute_type"; compute_type: string }
   | { type: "set_model_language"; language: string | null }
+  | { type: "set_theme"; theme: string }
   | { type: "download_model"; name: string }
   | { type: "remove_model"; name: string }
   | { type: "list_models" }
@@ -160,7 +166,7 @@ export interface Toast {
 
 // Dialog types
 
-export type DialogType = "model-manager" | "settings" | "settings-select" | "hotkey";
+export type DialogType = "model-manager" | "settings" | "settings-select" | "hotkey" | "theme-picker";
 
 export interface DialogState {
   type: DialogType;

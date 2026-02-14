@@ -31,6 +31,9 @@ clipboard = true
 enabled = false
 path = "~/transcripts.txt"
 
+[ui]
+theme = "dark"
+
 [bridge]
 host = "localhost"
 port = 7878

@@ -242,6 +242,16 @@ export function BackendContextProvider(props: {
     });
   }
 
+  function patchUiConfig(
+    updater: (ui: NonNullable<AppConfig["ui"]>) => NonNullable<AppConfig["ui"]>
+  ) {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      const currentUi = prev.ui ?? { theme: "dark" };
+      return { ...prev, ui: updater(currentUi) };
+    });
+  }
+
   function applyOptimisticConfig(message: ClientMessage) {
     switch (message.type) {
       case "set_selected_model":
@@ -265,6 +275,9 @@ export function BackendContextProvider(props: {
         return;
       case "set_hotkey":
         patchHotkeyConfig((hotkey) => ({ ...hotkey, key: message.hotkey }));
+        return;
+      case "set_theme":
+        patchUiConfig((ui) => ({ ...ui, theme: message.theme }));
         return;
       default:
         return;

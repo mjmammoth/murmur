@@ -27,3 +27,6 @@ clipboard = true
 [output.file]
 enabled = false
 path = "~/transcripts.txt"
+
+[ui]
+theme = "dark"

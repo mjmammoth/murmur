@@ -16,6 +16,7 @@ import { Settings } from "../component/settings";
 import { LOG_LEVELS, LogPanel } from "../component/log-panel";
 import { HotkeyModal } from "../component/hotkey-modal";
 import { SettingsSelectModal } from "../component/settings-select-modal";
+import { ThemePickerModal } from "../component/theme-picker-modal";
 
 interface ModelManagerDialogData {
   firstRunSetup?: boolean;
@@ -168,6 +169,9 @@ export function Home(): JSX.Element {
       case "h":
         dialog.openDialog("hotkey");
         break;
+      case "t":
+        dialog.openDialog("theme-picker");
+        break;
       case "up":
       case "k":
         transcriber.selectPrev();
@@ -196,6 +200,11 @@ export function Home(): JSX.Element {
     }
     transcriber.copyText(selected.text);
   }
+
+  const modalOverlayColor = () => {
+    const overlay = RGBA.fromHex(colors().backgroundOverlay);
+    return RGBA.fromValues(overlay.r, overlay.g, overlay.b, colors().overlayAlpha);
+  };
 
   return (
     <box
@@ -281,7 +290,7 @@ export function Home(): JSX.Element {
           height="100%"
           justifyContent="center"
           alignItems="center"
-          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
+          backgroundColor={modalOverlayColor()}
         >
           <ModelManager />
         </box>
@@ -294,7 +303,7 @@ export function Home(): JSX.Element {
           height="100%"
           justifyContent="center"
           alignItems="center"
-          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
+          backgroundColor={modalOverlayColor()}
         >
           <Settings />
         </box>
@@ -307,7 +316,7 @@ export function Home(): JSX.Element {
           height="100%"
           justifyContent="center"
           alignItems="center"
-          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
+          backgroundColor={modalOverlayColor()}
         >
           <HotkeyModal />
         </box>
@@ -320,9 +329,22 @@ export function Home(): JSX.Element {
           height="100%"
           justifyContent="center"
           alignItems="center"
-          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
+          backgroundColor={modalOverlayColor()}
         >
           <SettingsSelectModal />
+        </box>
+      </Show>
+
+      <Show when={dialog.currentDialog()?.type === "theme-picker"}>
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={modalOverlayColor()}
+        >
+          <ThemePickerModal />
         </box>
       </Show>
     </box>

@@ -123,12 +123,23 @@ class OutputConfig:
 
 
 @dataclass
+class UiConfig:
+    theme: str = "dark"
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "UiConfig":
+        theme = str(data.get("theme", "dark")).strip() or "dark"
+        return cls(theme=theme)
+
+
+@dataclass
 class AppConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     vad: VadConfig = field(default_factory=VadConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    ui: UiConfig = field(default_factory=UiConfig)
     auto_copy: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -175,6 +186,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         audio=AudioConfig.from_dict(merged.get("audio", {})),
         vad=VadConfig.from_dict(merged.get("vad", {})),
         output=OutputConfig.from_dict(merged.get("output", {})),
+        ui=UiConfig.from_dict(merged.get("ui", {})),
         auto_copy=bool(merged.get("auto_copy", False)),
     )
 

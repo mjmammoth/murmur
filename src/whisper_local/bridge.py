@@ -572,6 +572,8 @@ class BridgeServer:
                 self._hotkey_blocked = bool(data.get("enabled", False))
             elif msg_type == "set_hotkey_mode":
                 await self._set_hotkey_mode(data.get("mode", ""))
+            elif msg_type == "set_theme":
+                await self._set_theme(data.get("theme", ""))
             elif msg_type == "set_model_backend":
                 await self._set_model_backend(data.get("backend", ""))
             elif msg_type == "set_model_device":
@@ -1080,6 +1082,31 @@ class BridgeServer:
                 {
                     "type": "toast",
                     "message": f"Model language applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_theme(self, theme_name: str) -> None:
+        normalized = str(theme_name).strip().lower()
+        if not normalized:
+            await self._broadcast(
+                {"type": "toast", "message": "Theme cannot be empty", "level": "error"}
+            )
+            return
+
+        if self.config.ui.theme == normalized:
+            return
+
+        self.config.ui.theme = normalized
+        persist_error = self._persist_config("theme")
+
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Theme {normalized}"})
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Theme applied, but failed to save: {persist_error}",
                     "level": "error",
                 }
             )

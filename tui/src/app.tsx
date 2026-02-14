@@ -8,17 +8,19 @@ import { ToastContextProvider } from "./context/toast";
 import { Home } from "./routes/home";
 
 function ErrorFallback(props: { error: Error }): JSX.Element {
+  const { colors } = useTheme();
+
   return (
-      <box flexDirection="column" padding={2} backgroundColor="#1a0000">
+    <box flexDirection="column" padding={2} backgroundColor={colors().errorBackground}>
+      <text>
+        <span style={{ fg: colors().errorText }}>✗ Error: {props.error.message}</span>
+      </text>
+      <box paddingTop={1}>
         <text>
-          <span style={{ fg: "#ff6b6b" }}>✗ Error: {props.error.message}</span>
+          <span style={{ fg: colors().errorTrace }}>{props.error.stack}</span>
         </text>
-        <box paddingTop={1}>
-          <text>
-            <span style={{ fg: "#666666" }}>{props.error.stack}</span>
-          </text>
-        </box>
       </box>
+    </box>
   );
 }
 
@@ -29,9 +31,9 @@ export interface AppProps {
 
 export function App(props: AppProps): JSX.Element {
   return (
-    <ErrorBoundary fallback={(err) => <ErrorFallback error={err} />}>
+    <BackendContextProvider host={props.host} port={props.port}>
       <ThemeContextProvider>
-        <BackendContextProvider host={props.host} port={props.port}>
+        <ErrorBoundary fallback={(err) => <ErrorFallback error={err} />}>
           <ConfigContextProvider>
             <TranscriberContextProvider>
               <DialogContextProvider>
@@ -41,8 +43,8 @@ export function App(props: AppProps): JSX.Element {
               </DialogContextProvider>
             </TranscriberContextProvider>
           </ConfigContextProvider>
-        </BackendContextProvider>
+        </ErrorBoundary>
       </ThemeContextProvider>
-    </ErrorBoundary>
+    </BackendContextProvider>
   );
 }
