@@ -1,6 +1,6 @@
 import type { CliRenderer } from "@opentui/core";
 
-export function exitApp(renderer: CliRenderer): never {
+export function exitApp(renderer: CliRenderer, exitCode: number = 0): never {
   try {
     renderer.destroy();
   } catch {
@@ -22,5 +22,5 @@ export function exitApp(renderer: CliRenderer): never {
     // Ignore terminal restore write errors during exit
   }
 
-  process.exit(0);
+  process.exit(exitCode);
 }

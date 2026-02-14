@@ -17,7 +17,7 @@ import websockets
 from websockets.server import WebSocketServerProtocol
 
 from whisper_local.audio import AudioRecorder
-from whisper_local.audio_file import load_audio_file
+from whisper_local.audio_file import DEFAULT_DECODE_SAMPLE_RATE, load_audio_file
 from whisper_local.config import AppConfig, default_config_path, load_config, save_config
 from whisper_local.hotkey import HotkeyListener, parse_hotkey
 from whisper_local.model_manager import (
@@ -802,6 +802,9 @@ class BridgeServer:
             return
 
         target_sample_rate = self.config.audio.sample_rate
+        effective_sample_rate = (
+            target_sample_rate if target_sample_rate > 0 else DEFAULT_DECODE_SAMPLE_RATE
+        )
         try:
             audio = await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -817,10 +820,7 @@ class BridgeServer:
             )
             return
 
-        if target_sample_rate > 0:
-            duration_seconds = audio.shape[0] / float(target_sample_rate)
-        else:
-            duration_seconds = 0.0
+        duration_seconds = audio.shape[0] / float(effective_sample_rate)
 
         if duration_seconds > MAX_DROP_AUDIO_SECONDS:
             max_minutes = int(MAX_DROP_AUDIO_SECONDS / 60)
@@ -847,7 +847,7 @@ class BridgeServer:
             audio,
             transcriber=job_transcriber,
             language=job_language,
-            sample_rate=target_sample_rate,
+            sample_rate=effective_sample_rate,
             source_label=path.name,
         )
 
