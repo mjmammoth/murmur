@@ -9,7 +9,7 @@ auto_download = true
 
 [hotkey]
 mode = "ptt"
-key = "cmd+shift+space"
+key = "f3"
 
 [audio]
 sample_rate = 48000

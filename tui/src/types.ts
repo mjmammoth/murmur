@@ -72,6 +72,7 @@ export interface AppConfig {
   output: OutputConfig;
   bridge: BridgeConfig;
   auto_copy?: boolean;
+  first_run_setup_required?: boolean;
   runtime?: RuntimeCapabilities;
 }
 

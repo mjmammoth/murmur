@@ -164,6 +164,7 @@ export function BackendContextProvider(props: {
       case "models":
         setModels(message.models);
         setActiveModelOp(null);
+        setDownloadProgress(null);
         break;
 
       case "config":
@@ -194,6 +195,7 @@ export function BackendContextProvider(props: {
         setStatus("error");
         setStatusMessage(message.message);
         setActiveModelOp(null);
+        setDownloadProgress(null);
         for (const handler of toastHandlers) {
           handler(message.message, "error");
         }
@@ -207,10 +209,6 @@ export function BackendContextProvider(props: {
 
       case "download_progress":
         setDownloadProgress({ model: message.model, percent: message.percent });
-        // Clear progress when download completes
-        if (message.percent >= 100) {
-          setTimeout(() => setDownloadProgress(null), 1000);
-        }
         break;
 
       case "log":
@@ -282,12 +280,13 @@ export function BackendContextProvider(props: {
 
   function downloadModel(name: string) {
     setActiveModelOp({ type: "pulling", model: name });
-    setDownloadProgress(null);
+    setDownloadProgress({ model: name, percent: 0 });
     send({ type: "download_model", name });
   }
 
   function removeModel(name: string) {
     setActiveModelOp({ type: "removing", model: name });
+    setDownloadProgress(null);
     send({ type: "remove_model", name });
   }
 

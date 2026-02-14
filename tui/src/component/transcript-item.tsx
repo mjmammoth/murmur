@@ -22,13 +22,10 @@ export function TranscriptItem(props: TranscriptItemProps): JSX.Element {
       backgroundColor={zebraBackground()}
       onMouseUp={props.onClick}
     >
-      <box width={1} justifyContent="center" alignItems="center">
-        <text>
-          <span style={{ fg: props.selected ? colors().secondary : zebraBackground() }}>
-            {props.selected ? "┃" : " "}
-          </span>
-        </text>
-      </box>
+      <box
+        width={1}
+        backgroundColor={props.selected ? colors().secondary : zebraBackground()}
+      />
       <box flexDirection="row" width="100%" paddingLeft={1}>
         <box width={10}>
           <text>

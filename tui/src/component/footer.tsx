@@ -139,6 +139,7 @@ export function Footer(): JSX.Element {
 
         <box width="33%" justifyContent="flex-end" flexDirection="row" gap={2} alignItems="center" flexShrink={0}>
           <KeyHint keyChar="q" word="quit" />
+          <KeyHint keyChar="l" word="logs" />
           <KeyHint keyChar="s" word="settings" />
         </box>
       </box>

@@ -7,13 +7,30 @@ import {
   Show,
   type JSX,
 } from "solid-js";
-import { useKeyHandler } from "@opentui/solid";
+import { useKeyHandler, useTerminalDimensions } from "@opentui/solid";
 import type { KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
 import { useDialog } from "../context/dialog";
+import { useConfig } from "../context/config";
 import { ModelItem } from "./model-item";
 import { useSpinnerFrame } from "./spinner";
+
+interface ModelManagerDialogData {
+  returnToSettings?: boolean;
+  firstRunSetup?: boolean;
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function buildProgressBar(percent: number, width = 24): string {
+  const safePercent = clampPercent(percent);
+  const filled = Math.round((safePercent / 100) * width);
+  const empty = Math.max(0, width - filled);
+  return `[${"#".repeat(filled)}${"-".repeat(empty)}] ${safePercent}%`;
+}
 
 function CommandHint(props: { keys: string; label: string }): JSX.Element {
   const { colors } = useTheme();
@@ -35,16 +52,26 @@ function CommandHint(props: { keys: string; label: string }): JSX.Element {
 export function ModelManager(): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();
+  const config = useConfig();
   const dialog = useDialog();
+  const terminal = useTerminalDimensions();
 
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [statusMessage, setStatusMessage] = createSignal("");
   const spinnerFrame = useSpinnerFrame();
-  const returnToSettings = createMemo(
-    () => Boolean((dialog.currentDialog()?.data as { returnToSettings?: boolean } | undefined)?.returnToSettings),
+  const dialogData = createMemo<ModelManagerDialogData>(
+    () => (dialog.currentDialog()?.data as ModelManagerDialogData | undefined) ?? {},
   );
+  const returnToSettings = createMemo(() => Boolean(dialogData().returnToSettings));
+  const firstRunSetup = createMemo(() => Boolean(dialogData().firstRunSetup));
+  const setupRequired = createMemo(() => Boolean(backend.config()?.first_run_setup_required));
+  const setupLocked = createMemo(() => firstRunSetup() && setupRequired());
 
   function closeManager() {
+    if (setupLocked()) {
+      setStatusMessage("First run setup: download and select a model to continue.");
+      return;
+    }
     if (returnToSettings()) {
       dialog.openDialog("settings");
       return;
@@ -70,6 +97,21 @@ export function ModelManager(): JSX.Element {
     return models[idx];
   };
 
+  const primaryActionLabel = createMemo(() => {
+    const model = selectedModel();
+    if (!model) return "pull/select";
+    return model.installed ? "select" : "pull";
+  });
+
+  const modalHeight = createMemo(() => {
+    const minHeight = 16;
+    const maxHeight = Math.max(minHeight, terminal().height - 4);
+    const preferred = Math.floor(terminal().height * 0.68);
+    return Math.max(minHeight, Math.min(preferred, maxHeight));
+  });
+
+  const selectedModelName = createMemo(() => config.config()?.model.name ?? null);
+
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "model-manager") return;
 
@@ -88,20 +130,26 @@ export function ModelManager(): JSX.Element {
       case "j":
         setSelectedIndex((idx) => Math.min(models.length - 1, idx + 1));
         break;
-      case "p":
-        handlePull();
+      case "return":
+      case "enter":
+        handlePrimaryAction();
         break;
       case "r":
+      case "backspace":
         handleRemove();
-        break;
-      case "d":
-        handleSelect();
-        break;
-      case "l":
-        handleRefresh();
         break;
     }
   });
+
+  function handlePrimaryAction() {
+    const model = selectedModel();
+    if (!model || backend.activeModelOp()) return;
+    if (model.installed) {
+      handleSelect();
+      return;
+    }
+    handlePull();
+  }
 
   function handlePull() {
     const model = selectedModel();
@@ -124,23 +172,35 @@ export function ModelManager(): JSX.Element {
     setStatusMessage(`Selected ${model.name}`);
   }
 
-  function handleRefresh() {
-    backend.send({ type: "list_models" });
-    setStatusMessage("Refreshed");
-  }
+  const activePullProgress = createMemo(() => {
+    const op = backend.activeModelOp();
+    if (!op || op.type !== "pulling") return null;
+    const progress = backend.downloadProgress();
+    if (!progress || progress.model !== op.model) return null;
+    return clampPercent(progress.percent);
+  });
 
   const statusDisplay = () => {
     const op = backend.activeModelOp();
     if (op) {
-      const progress = backend.downloadProgress();
-      if (op.type === "pulling" && progress && progress.model === op.model) {
-        return `${spinnerFrame()} Downloading ${op.model}... ${progress.percent}%`;
+      const progressPercent = activePullProgress();
+      if (op.type === "pulling" && progressPercent !== null) {
+        if (progressPercent >= 100) {
+          return `${spinnerFrame()} Finalizing ${op.model}...`;
+        }
+        return `${spinnerFrame()} Downloading ${op.model}... ${progressPercent}%`;
       }
       const label = op.type === "pulling" ? "Downloading" : "Removing";
       return `${spinnerFrame()} ${label} ${op.model}...`;
     }
     return statusMessage();
   };
+
+  const progressDisplay = createMemo(() => {
+    const progressPercent = activePullProgress();
+    if (progressPercent === null) return "";
+    return buildProgressBar(progressPercent);
+  });
 
   const statusColor = () => {
     const op = backend.activeModelOp();
@@ -154,26 +214,35 @@ export function ModelManager(): JSX.Element {
     <box
       flexDirection="column"
       width={72}
-      height={24}
+      height={modalHeight()}
       backgroundColor={colors().backgroundPanel}
-      borderStyle="single"
-      borderColor={colors().borderSubtle}
       padding={1}
     >
-      <box paddingX={2} paddingTop={1} paddingBottom={0} flexDirection="column">
+      <box paddingX={2} paddingTop={1} paddingBottom={0} flexDirection="column" flexShrink={0}>
         <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
           <text>
             <span style={{ fg: colors().primary, bold: true }}>Models</span>
           </text>
           <box flexDirection="row" alignItems="center" gap={2}>
             <text>
-              <span style={{ fg: colors().textMuted }}>install and selection</span>
+              <span style={{ fg: colors().textMuted }}>
+                {setupLocked() ? "first run setup required" : "pull and selection"}
+              </span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1}>
-              <text>
-                <span style={{ fg: colors().selectedText }}>esc</span>
-              </text>
-            </box>
+            <Show
+              when={!setupLocked()}
+              fallback={(
+                <text>
+                  <span style={{ fg: colors().warning }}>locked</span>
+                </text>
+              )}
+            >
+              <box backgroundColor={colors().secondary} paddingX={1}>
+                <text>
+                  <span style={{ fg: colors().selectedText }}>esc</span>
+                </text>
+              </box>
+            </Show>
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
@@ -182,13 +251,28 @@ export function ModelManager(): JSX.Element {
         </box>
       </box>
 
-      <scrollbox flexGrow={1} paddingY={1}>
+      <Show when={firstRunSetup()}>
+        <box paddingX={2} paddingTop={1} flexDirection="column" flexShrink={0}>
+          <text>
+            <span style={{ fg: colors().warning, bold: true }}>First run setup (one-time)</span>
+          </text>
+          <text>
+            <span style={{ fg: colors().textMuted }}>Download and select a model to continue.</span>
+          </text>
+          <text>
+            <span style={{ fg: colors().textMuted }}>This appears only when no models are installed.</span>
+          </text>
+        </box>
+      </Show>
+
+      <scrollbox flexGrow={1} flexShrink={1} paddingY={1}>
         <box flexDirection="column">
           <For each={backend.models()}>
             {(model, index) => (
               <ModelItem
                 model={model}
                 selected={index() === selectedIndex()}
+                isSelectedModel={model.name === selectedModelName()}
               />
             )}
           </For>
@@ -196,19 +280,25 @@ export function ModelManager(): JSX.Element {
       </scrollbox>
 
       <Show when={statusDisplay()}>
-        <box paddingX={2} paddingTop={1}>
+        <box paddingX={2} paddingTop={1} flexShrink={0}>
           <text>
             <span style={{ fg: statusColor() }}>{statusDisplay()}</span>
           </text>
         </box>
       </Show>
 
-      <box paddingX={2} paddingTop={1}>
+      <Show when={progressDisplay()}>
+        <box paddingX={2} flexShrink={0}>
+          <text>
+            <span style={{ fg: colors().textMuted }}>{progressDisplay()}</span>
+          </text>
+        </box>
+      </Show>
+
+      <box paddingX={2} paddingTop={1} flexShrink={0}>
         <box flexDirection="row" gap={2} alignItems="center">
-          <CommandHint keys="p" label="pull" />
-          <CommandHint keys="r" label="remove" />
-          <CommandHint keys="d" label="select" />
-          <CommandHint keys="l" label="refresh" />
+          <CommandHint keys="enter" label={primaryActionLabel()} />
+          <CommandHint keys="r/backspace" label="remove" />
         </box>
       </box>
     </box>

@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 from time import monotonic
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import websockets
 from websockets.server import WebSocketServerProtocol
@@ -81,6 +82,7 @@ class BridgeServer:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.clients: set[WebSocketServerProtocol] = set()
+        self._passive_clients: set[WebSocketServerProtocol] = set()
         self._recording = False
         self._auto_copy = bool(config.auto_copy)
         self._busy_started_at = 0.0
@@ -89,9 +91,11 @@ class BridgeServer:
         self._status = "initializing"
         self._status_message = "Initializing..."
         self._model_loaded = False
+        self._first_run_setup_required = False
         self._hotkey_started = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._model_reload_lock = asyncio.Lock()
+        self._model_op_lock = asyncio.Lock()
         self._runtime_capabilities = self._detect_runtime_capabilities()
 
         # Audio/transcription components (initialized lazily)
@@ -100,6 +104,41 @@ class BridgeServer:
         self.vad: VadProcessor | None = None
         self.transcriber: Transcriber | None = None
         self.hotkey: HotkeyListener | None = None
+
+    def _client_path(self, websocket: WebSocketServerProtocol) -> str:
+        """Return connection path across websockets API versions."""
+        # websockets <=13 exposes `.path` directly.
+        legacy_path = getattr(websocket, "path", None)
+        if isinstance(legacy_path, str):
+            return legacy_path
+
+        # websockets >=14 exposes `.request.path`.
+        request = getattr(websocket, "request", None)
+        request_path = getattr(request, "path", None) if request is not None else None
+        if isinstance(request_path, str):
+            return request_path
+
+        return ""
+
+    def _is_passive_client(self, websocket: WebSocketServerProtocol) -> bool:
+        path = self._client_path(websocket)
+        if not path:
+            return False
+        try:
+            query = parse_qs(urlparse(path).query)
+        except Exception:
+            return False
+        client_type = query.get("client", [""])[0].strip().lower()
+        return client_type in {"status-indicator", "passive"}
+
+    def _has_active_clients(self) -> bool:
+        return any(client not in self._passive_clients for client in self.clients)
+
+    def _active_client_count(self) -> int:
+        return sum(1 for client in self.clients if client not in self._passive_clients)
+
+    def _has_installed_models(self) -> bool:
+        return any(model.installed for model in list_installed_models())
 
     async def start(
         self,
@@ -116,12 +155,19 @@ class BridgeServer:
             self._install_log_handler()
 
         self._init_components()
+        self._first_run_setup_required = not self._has_installed_models()
 
         # Start the WebSocket server FIRST so the TUI can connect immediately,
         # then load the model in the background while clients see the loading status.
         async with websockets.serve(self._handle_client, host, port):
             logger.info(f"Bridge server running on ws://{host}:{port}")
-            await self._load_model_async()
+            if self._first_run_setup_required:
+                await self._set_status(
+                    "connecting",
+                    "First run setup required. Download and select a model in Model Manager.",
+                )
+            else:
+                await self._load_model_async()
             await asyncio.Future()  # Run forever
 
     def _install_log_handler(self) -> None:
@@ -189,6 +235,7 @@ class BridgeServer:
                 info.get("effective_compute_type", "unknown"),
                 info.get("model_source", "unknown"),
             )
+            self._first_run_setup_required = False
             await self._set_status("ready", "Ready")
         except Exception as exc:
             logger.exception("Model load failed")
@@ -444,10 +491,18 @@ class BridgeServer:
     async def _handle_client(self, websocket: WebSocketServerProtocol) -> None:
         """Handle a single client connection."""
         self.clients.add(websocket)
-        logger.info(f"Client connected. Total clients: {len(self.clients)}")
+        passive_client = self._is_passive_client(websocket)
+        if passive_client:
+            self._passive_clients.add(websocket)
+        logger.info(
+            "Client connected. total=%d active=%d passive=%d",
+            len(self.clients),
+            self._active_client_count(),
+            len(self._passive_clients),
+        )
 
         # Keep global hotkey capture active only while a client is connected.
-        if self._model_loaded:
+        if self._model_loaded and self._has_active_clients():
             self._start_hotkey()
 
         # Send current state
@@ -463,12 +518,18 @@ class BridgeServer:
             pass
         finally:
             self.clients.discard(websocket)
-            if not self.clients and self.hotkey and self._hotkey_started:
+            self._passive_clients.discard(websocket)
+            if not self._has_active_clients() and self.hotkey and self._hotkey_started:
                 self.hotkey.stop()
                 self._hotkey_started = False
             if not self.clients:
                 self._hotkey_blocked = False
-            logger.info(f"Client disconnected. Total clients: {len(self.clients)}")
+            logger.info(
+                "Client disconnected. total=%d active=%d passive=%d",
+                len(self.clients),
+                self._active_client_count(),
+                len(self._passive_clients),
+            )
 
     async def _handle_message(
         self, websocket: WebSocketServerProtocol, message: str
@@ -520,9 +581,9 @@ class BridgeServer:
             elif msg_type == "set_model_language":
                 await self._set_model_language(data.get("language"))
             elif msg_type == "download_model":
-                await self._download_model(data.get("name", ""))
+                asyncio.create_task(self._download_model(data.get("name", "")))
             elif msg_type == "remove_model":
-                await self._remove_model(data.get("name", ""))
+                asyncio.create_task(self._remove_model(data.get("name", "")))
             elif msg_type == "set_selected_model":
                 await self._set_selected_model(data.get("name", ""))
             elif msg_type == "set_default_model":
@@ -573,53 +634,56 @@ class BridgeServer:
         """Download a model with progress reporting."""
         if not name:
             return
-        await self._broadcast({"type": "toast", "message": f"Downloading {name}..."})
+        async with self._model_op_lock:
+            await self._broadcast({"type": "toast", "message": f"Downloading {name}..."})
+            loop = asyncio.get_event_loop()
+            last_percent = -1
 
-        loop = asyncio.get_event_loop()
-        last_percent = -1
+            def on_progress(percent: int) -> None:
+                nonlocal last_percent
+                # Keep in-flight progress below 100; reserve 100 for true completion.
+                percent = max(0, min(percent, 99))
+                # Throttle: only broadcast when percent actually changes.
+                if percent == last_percent:
+                    return
+                last_percent = percent
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast(
+                        {"type": "download_progress", "model": name, "percent": percent}
+                    ),
+                    loop,
+                )
 
-        def on_progress(percent: int) -> None:
-            nonlocal last_percent
-            # Throttle: only broadcast when percent actually changes
-            if percent == last_percent:
-                return
-            last_percent = percent
-            asyncio.run_coroutine_threadsafe(
-                self._broadcast(
-                    {"type": "download_progress", "model": name, "percent": percent}
-                ),
-                loop,
-            )
-
-        try:
-            await loop.run_in_executor(
-                None, lambda: download_model(name, progress_callback=on_progress)
-            )
-            # Send 100% to ensure TUI sees completion
-            await self._broadcast(
-                {"type": "download_progress", "model": name, "percent": 100}
-            )
-            await self._broadcast({"type": "toast", "message": f"Downloaded {name}"})
-            await self._broadcast_models()
-        except Exception as exc:
-            await self._broadcast(
-                {"type": "toast", "message": f"Download failed: {exc}", "level": "error"}
-            )
+            try:
+                await loop.run_in_executor(
+                    None, lambda: download_model(name, progress_callback=on_progress)
+                )
+                # Send 100% to ensure TUI sees completion
+                await self._broadcast(
+                    {"type": "download_progress", "model": name, "percent": 100}
+                )
+                await self._broadcast({"type": "toast", "message": f"Downloaded {name}"})
+                await self._broadcast_models()
+            except Exception as exc:
+                await self._broadcast(
+                    {"type": "toast", "message": f"Download failed: {exc}", "level": "error"}
+                )
 
     async def _remove_model(self, name: str) -> None:
         """Remove a model."""
         if not name:
             return
-        try:
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: remove_model(name)
-            )
-            await self._broadcast({"type": "toast", "message": f"Removed {name}"})
-            await self._broadcast_models()
-        except Exception as exc:
-            await self._broadcast(
-                {"type": "toast", "message": f"Remove failed: {exc}", "level": "error"}
-            )
+        async with self._model_op_lock:
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: remove_model(name)
+                )
+                await self._broadcast({"type": "toast", "message": f"Removed {name}"})
+                await self._broadcast_models()
+            except Exception as exc:
+                await self._broadcast(
+                    {"type": "toast", "message": f"Remove failed: {exc}", "level": "error"}
+                )
 
     async def _set_selected_model(self, name: str) -> None:
         """Set selected model."""
@@ -704,7 +768,12 @@ class BridgeServer:
             await asyncio.get_event_loop().run_in_executor(None, next_transcriber.load)
             self.transcriber = next_transcriber
             self._model_loaded = True
+            self._first_run_setup_required = False
             self._refresh_runtime_capabilities()
+            if self._has_active_clients():
+                self._start_hotkey()
+            if not self._recording and self._transcribing_jobs <= 0:
+                await self._set_status("ready", "Ready")
 
     async def _set_model_backend(self, backend_name: str) -> None:
         normalized = str(backend_name).strip().lower()
@@ -1168,6 +1237,7 @@ class BridgeServer:
         config_dict = self.config.to_dict()
         config_dict["bridge"] = {"host": "localhost", "port": 7878}
         config_dict["auto_copy"] = self._auto_copy
+        config_dict["first_run_setup_required"] = self._first_run_setup_required
         config_dict["runtime"] = self._runtime_capabilities
         return config_dict
 

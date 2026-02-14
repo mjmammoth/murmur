@@ -13,7 +13,7 @@ from typing import Callable
 # Set before importing huggingface_hub so it applies reliably.
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
-from huggingface_hub import snapshot_download
+from huggingface_hub import HfApi, snapshot_download
 
 from whisper_local import config as config_module
 
@@ -88,7 +88,26 @@ def list_installed_models() -> list[ModelInfo]:
     return models
 
 
-def _make_progress_tqdm(callback: Callable[[int], None]):
+def _resolve_repo_total_bytes(repo_id: str) -> int | None:
+    """Return the total model artifact size in bytes, if available."""
+    try:
+        info = HfApi().model_info(repo_id=repo_id, files_metadata=True)
+    except Exception as exc:
+        logger.debug("Unable to fetch size metadata for %s: %s", repo_id, exc)
+        return None
+
+    total = 0
+    for sibling in getattr(info, "siblings", []) or []:
+        size = getattr(sibling, "size", None)
+        if isinstance(size, int) and size > 0:
+            total += size
+    return total or None
+
+
+def _make_progress_tqdm(
+    callback: Callable[[int], None],
+    expected_total_bytes: int | None = None,
+):
     """Create a tqdm-compatible class that reports download progress via callback.
 
     ``snapshot_download`` uses the class in two ways:
@@ -100,6 +119,8 @@ def _make_progress_tqdm(callback: Callable[[int], None]):
     class _ProgressTqdm:
         _total_bytes: int = 0
         _downloaded_bytes: int = 0
+        _expected_total_bytes: int = expected_total_bytes or 0
+        _last_percent: int = 0
         _lock = threading.Lock()
 
         def __init__(self, iterable=None, *args, **kwargs):
@@ -109,7 +130,8 @@ def _make_progress_tqdm(callback: Callable[[int], None]):
             self.total = kwargs.get("total", 0) or 0
             self.n = 0
             self.disable = kwargs.get("disable", False)
-            if self.total > 0:
+            self._is_byte_bar = self._iterable is None and self.total > 0
+            if self._is_byte_bar and _ProgressTqdm._expected_total_bytes <= 0:
                 _ProgressTqdm._total_bytes += self.total
 
         def __iter__(self):
@@ -124,15 +146,29 @@ def _make_progress_tqdm(callback: Callable[[int], None]):
 
         def update(self, n=1):
             self.n += n
-            if self.total > 0:
+            if not self._is_byte_bar:
+                return
+
+            with _ProgressTqdm._lock:
                 _ProgressTqdm._downloaded_bytes += n
-                if _ProgressTqdm._total_bytes > 0:
-                    pct = int(
-                        _ProgressTqdm._downloaded_bytes
-                        / _ProgressTqdm._total_bytes
-                        * 100
-                    )
-                    callback(min(pct, 100))
+                total_bytes = (
+                    _ProgressTqdm._expected_total_bytes
+                    if _ProgressTqdm._expected_total_bytes > 0
+                    else _ProgressTqdm._total_bytes
+                )
+                if total_bytes <= 0:
+                    return
+
+                pct = int((_ProgressTqdm._downloaded_bytes / total_bytes) * 100)
+                pct = max(0, min(pct, 100))
+                if _ProgressTqdm._expected_total_bytes <= 0:
+                    # Without server metadata, late-discovered file sizes can
+                    # skew totals; keep headroom for final completion.
+                    pct = min(pct, 95)
+                pct = max(pct, _ProgressTqdm._last_percent)
+                _ProgressTqdm._last_percent = pct
+
+            callback(pct)
 
         def close(self):
             pass
@@ -183,6 +219,7 @@ def _make_progress_tqdm(callback: Callable[[int], None]):
     # Reset class-level counters for each download
     _ProgressTqdm._total_bytes = 0
     _ProgressTqdm._downloaded_bytes = 0
+    _ProgressTqdm._last_percent = 0
     return _ProgressTqdm
 
 
@@ -200,7 +237,11 @@ def download_model(
 
     kwargs: dict = {"repo_id": repo_id}
     if progress_callback is not None:
-        kwargs["tqdm_class"] = _make_progress_tqdm(progress_callback)
+        expected_total_bytes = _resolve_repo_total_bytes(repo_id)
+        kwargs["tqdm_class"] = _make_progress_tqdm(
+            progress_callback,
+            expected_total_bytes=expected_total_bytes,
+        )
 
     try:
         return Path(snapshot_download(**kwargs))

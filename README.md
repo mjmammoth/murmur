@@ -4,6 +4,7 @@ Local, real-time voice transcription with a Textual TUI, backed by Whisper. Runs
 
 ## Features
 - Global hotkey (PTT or toggle) for recording
+- macOS menu bar status dot (idle/recording/transcribing/success pulse)
 - Local transcription with pluggable backends (`faster-whisper` or `whisper.cpp`)
 - Textual TUI with transcript history and copy actions
 - Optional clipboard and file output
@@ -38,12 +39,13 @@ If RNNoise still is not available, the app continues without noise suppression.
 whisper.local
 ```
 `whisper-local` also works as an alias.
+Use `whisper.local run --no-status-indicator` to disable the macOS menu bar indicator.
 
 ## macOS permissions
 Global hotkeys require Input Monitoring permission for your terminal or app host.
 
 ## Hotkey
-Default hotkey is `cmd+shift+space`. Configure it in the config file:
+Default hotkey is `f3`. Configure it in the config file:
 `~/.config/whisper.local/config.toml`
 Supported keys: letters, digits, space, return, tab, escape, and function keys `f1`-`f12`.
 

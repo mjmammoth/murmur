@@ -1,6 +1,6 @@
 import { createEffect, createSignal, Show, type JSX } from "solid-js";
 import { useKeyHandler, useRenderer } from "@opentui/solid";
-import { RGBA, type KeyEvent } from "@opentui/core";
+import { BorderChars, RGBA, type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
 import { useConfig } from "../context/config";
@@ -17,6 +17,10 @@ import { LOG_LEVELS, LogPanel } from "../component/log-panel";
 import { HotkeyModal } from "../component/hotkey-modal";
 import { SettingsSelectModal } from "../component/settings-select-modal";
 
+interface ModelManagerDialogData {
+  firstRunSetup?: boolean;
+}
+
 export function Home(): JSX.Element {
   const { colors } = useTheme();
   const renderer = useRenderer();
@@ -28,6 +32,26 @@ export function Home(): JSX.Element {
   const [showLogs, setShowLogs] = createSignal(false);
   const [activePane, setActivePane] = createSignal<"main" | "logs">("main");
   const [logLevelIndex, setLogLevelIndex] = createSignal(1);
+  const firstRunSetupRequired = () => Boolean(backend.config()?.first_run_setup_required);
+
+  createEffect(() => {
+    if (!backend.connected()) return;
+    backend.send({ type: "list_models" });
+  });
+
+  createEffect(() => {
+    if (!firstRunSetupRequired()) return;
+    const models = backend.models();
+    if (models.length === 0) return;
+
+    const currentDialog = dialog.currentDialog();
+    const currentData = (currentDialog?.data as ModelManagerDialogData | undefined) ?? undefined;
+    if (currentDialog?.type === "model-manager" && currentData?.firstRunSetup) {
+      return;
+    }
+
+    dialog.openDialog("model-manager", { firstRunSetup: true });
+  });
 
   createEffect(() => {
     backend.send({ type: "set_hotkey_blocked", enabled: dialog.isOpen() });
@@ -189,19 +213,21 @@ export function Home(): JSX.Element {
         paddingLeft={2}
         paddingRight={2}
       >
-        <Show when={showLogs()}>
-          <box
-            width={1}
-            borderStyle="single"
-            border={["left"]}
-            borderColor={activePane() === "main" ? colors().secondary : colors().borderSubtle}
-          />
-        </Show>
+        <box
+          width={1}
+          borderStyle="single"
+          border={["left"]}
+          borderColor={activePane() === "main" ? colors().secondary : colors().borderSubtle}
+          customBorderChars={{
+            ...BorderChars.single,
+            vertical: activePane() === "main" ? "┃" : "│",
+          }}
+        />
         <box
           flexDirection="column"
           flexGrow={1}
           height="100%"
-          paddingLeft={showLogs() ? 1 : 0}
+          paddingLeft={1}
           gap={1}
         >
           <box flexShrink={0}>
@@ -224,17 +250,26 @@ export function Home(): JSX.Element {
           paddingLeft={2}
         >
           <box
+            flexDirection="row"
             flexGrow={1}
             height="100%"
-            paddingLeft={1}
-            borderStyle="single"
-            border={["left"]}
-            borderColor={activePane() === "logs" ? colors().secondary : colors().borderSubtle}
           >
-            <LogPanel
-              minLevel={LOG_LEVELS[logLevelIndex()]!}
-              active={activePane() === "logs"}
+            <box
+              width={1}
+              borderStyle="single"
+              border={["left"]}
+              borderColor={activePane() === "logs" ? colors().secondary : colors().borderSubtle}
+              customBorderChars={{
+                ...BorderChars.single,
+                vertical: activePane() === "logs" ? "┃" : "│",
+              }}
             />
+            <box flexGrow={1} height="100%" paddingLeft={1}>
+              <LogPanel
+                minLevel={LOG_LEVELS[logLevelIndex()]!}
+                active={activePane() === "logs"}
+              />
+            </box>
           </box>
         </box>
       </Show>

@@ -41,13 +41,13 @@ class ModelConfig:
 @dataclass
 class HotkeyConfig:
     mode: str = "ptt"
-    key: str = "cmd+shift+space"
+    key: str = "f3"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "HotkeyConfig":
         return cls(
             mode=data.get("mode", "ptt"),
-            key=data.get("key", "cmd+shift+space"),
+            key=data.get("key", "f3"),
         )
 
 

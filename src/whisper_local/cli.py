@@ -33,6 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--host", default="localhost", help="Bridge host")
     run_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
     run_parser.add_argument("--legacy", action="store_true", help="Use legacy Textual TUI")
+    run_parser.add_argument(
+        "--no-status-indicator",
+        action="store_true",
+        help="Disable macOS menu bar status indicator",
+    )
 
     bridge_parser = subparsers.add_parser("bridge", help="Start only the WebSocket bridge server")
     bridge_parser.add_argument("--host", default="localhost", help="Bridge host")
@@ -109,6 +114,30 @@ def _run_tui(host: str, port: int) -> subprocess.Popen:
     return subprocess.Popen(cmd, cwd=str(tui_path))
 
 
+def _start_status_indicator(host: str, port: int) -> subprocess.Popen | None:
+    """Start the macOS menu bar status indicator sidecar."""
+    if sys.platform != "darwin":
+        return None
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "whisper_local.status_indicator",
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+    try:
+        return subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return None
+
+
 def _restore_terminal_state() -> None:
     """Best-effort terminal recovery in parent process."""
     if not sys.stdin.isatty() or not sys.stdout.isatty():
@@ -127,7 +156,7 @@ def _restore_terminal_state() -> None:
         pass
 
 
-def _run_combined(host: str, port: int) -> None:
+def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
     """Run both bridge and TUI together."""
     _ensure_runtime_dependencies()
     if not _check_bun():
@@ -156,6 +185,7 @@ def _run_combined(host: str, port: int) -> None:
     # Track bridge state/errors
     bridge_server = None
     bridge_error: list[Exception] = []
+    status_indicator_process: subprocess.Popen | None = None
 
     def _bridge_target() -> None:
         nonlocal bridge_server
@@ -182,6 +212,9 @@ def _run_combined(host: str, port: int) -> None:
         print(f"Bridge failed to start: {bridge_error[0]}", file=real_stderr)
         sys.exit(1)
 
+    if status_indicator:
+        status_indicator_process = _start_status_indicator(host, port)
+
     # Start TUI
     try:
         tui_process = _run_tui(host, port)
@@ -194,6 +227,13 @@ def _run_combined(host: str, port: int) -> None:
         print("Make sure you're running from the project root directory.", file=real_stderr)
         sys.exit(1)
     finally:
+        if status_indicator_process is not None:
+            status_indicator_process.terminate()
+            try:
+                status_indicator_process.wait(timeout=1.0)
+            except Exception:
+                pass
+
         if bridge_server is not None:
             bridge_server.shutdown()
             loop = bridge_server._loop
@@ -214,6 +254,7 @@ def main() -> None:
         host = getattr(args, "host", "localhost")
         port = getattr(args, "port", 7878)
         legacy = getattr(args, "legacy", False)
+        no_status_indicator = getattr(args, "no_status_indicator", False)
         _ensure_runtime_dependencies()
 
         if legacy:
@@ -222,7 +263,7 @@ def main() -> None:
             run_app()
         else:
             # Use new TypeScript TUI
-            _run_combined(host, port)
+            _run_combined(host, port, status_indicator=not no_status_indicator)
         return
 
     if args.command == "bridge":
