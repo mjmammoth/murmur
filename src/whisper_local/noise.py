@@ -195,17 +195,17 @@ def _rnnoise_library_candidates() -> list[str]:
     if found:
         candidates.append(found)
 
-    for candidate in _candidate_rnnoise_paths():
-        candidates.append(str(candidate))
+    for candidate_path in _candidate_rnnoise_paths():
+        candidates.append(str(candidate_path))
 
     # Keep order but remove duplicates.
     deduped: list[str] = []
     seen = set()
-    for candidate in candidates:
-        if candidate in seen:
+    for candidate_name in candidates:
+        if candidate_name in seen:
             continue
-        seen.add(candidate)
-        deduped.append(candidate)
+        seen.add(candidate_name)
+        deduped.append(candidate_name)
     return deduped
 
 

@@ -15,8 +15,6 @@ from typing import Callable
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 from huggingface_hub import HfApi, snapshot_download
-from huggingface_hub.errors import HfHubHTTPError
-from requests.exceptions import RequestException
 
 from whisper_local import config as config_module
 
@@ -257,7 +255,7 @@ def _resolve_repo_total_bytes(repo_id: str) -> int | None:
     """Return the total model artifact size in bytes, if available."""
     try:
         info = HfApi().model_info(repo_id=repo_id, files_metadata=True)
-    except (RequestException, HfHubHTTPError, OSError) as exc:
+    except Exception as exc:
         logger.debug("Unable to fetch size metadata for %s: %s", repo_id, exc)
         return None
 
