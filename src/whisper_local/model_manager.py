@@ -500,17 +500,24 @@ def _download_model_in_subprocess(
 
     cache_path = _cache_path_for_repo_id(repo_id)
     last_percent = -1
+    last_size = 0
+    last_scan_time = 0.0
+    SIZE_SCAN_INTERVAL = 5.0
 
     def emit_progress() -> None:
-        nonlocal last_percent
+        nonlocal last_percent, last_size, last_scan_time
         if progress_callback is None:
             return
 
+        current_time = time.monotonic()
         total = int(expected_total_bytes or 0)
         if total <= 0:
             percent = 0
         else:
-            downloaded = _cache_path_size_bytes(cache_path)
+            if current_time - last_scan_time >= SIZE_SCAN_INTERVAL:
+                last_size = _cache_path_size_bytes(cache_path)
+                last_scan_time = current_time
+            downloaded = last_size
             percent = int(max(0.0, min((downloaded / float(total)) * 100.0, 99.0)))
 
         if percent == last_percent:

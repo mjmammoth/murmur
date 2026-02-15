@@ -37,6 +37,10 @@ export function ExitConfirmModal(): JSX.Element {
   }
 
   function confirmExit() {
+    const model = modelName();
+    if (model && model !== "selected model") {
+      backend.cancelModelDownload(model);
+    }
     exitApp(renderer);
   }
 

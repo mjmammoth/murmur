@@ -1076,7 +1076,8 @@ class BridgeServer:
                     )
                     await self._broadcast_models()
             finally:
-                self._download_cancel_events.pop(name, None)
+                if self._download_cancel_events.get(name) is cancel_event:
+                    self._download_cancel_events.pop(name, None)
 
     async def _cancel_model_download(self, name: str) -> None:
         model_name = str(name or "").strip()
