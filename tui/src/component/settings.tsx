@@ -849,8 +849,6 @@ export function Settings(): JSX.Element {
                       return (
                         <box
                           id={item.id}
-                          role="option"
-                          aria-selected={isActive()}
                           flexDirection="row"
                           paddingRight={1}
                           backgroundColor={isActive() ? colors().backgroundElement : undefined}

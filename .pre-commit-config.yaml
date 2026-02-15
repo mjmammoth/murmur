@@ -12,11 +12,19 @@ repos:
       - id: ruff
         args: [--fix]
 
-  - repo: https://github.com/python/mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.10.0
     hooks:
       - id: mypy
         entry: mypy src/
         additional_dependencies:
           - types-requests
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: tui-typecheck
+        name: TUI typecheck
+        entry: bunx tsc --noEmit -p tui/tsconfig.json
+        language: system
         pass_filenames: false

@@ -68,6 +68,9 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: tui
 
+      - name: Type check TUI
+        run: bunx tsc --noEmit -p tui/tsconfig.json
+
       - name: Build TUI release artifact (smoke)
         run: bun run build:release
         working-directory: tui
