@@ -28,6 +28,13 @@ class WhisperLocal < Formula
     system "python3.12", "-m", "pip", "--python=#{libexec}/bin/python",
            "install", "--no-cache-dir", wheel_path
 
+    # Fix bundled dylib IDs to use @loader_path so Homebrew skips relinking.
+    # Pip wheels bundle native libs with short placeholder IDs that can't
+    # accommodate the full Cellar path due to Mach-O header size limits.
+    Dir.glob(libexec/"lib/python3.12/site-packages/**/*.dylib") do |dylib|
+      quiet_system "install_name_tool", "-id", "@loader_path/#{File.basename(dylib)}", dylib
+    end
+
     resource("whisper-local-tui").stage do
       (libexec/"bin").install "whisper-local-tui"
     end
