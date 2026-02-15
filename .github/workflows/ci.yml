@@ -53,6 +53,33 @@ jobs:
           name: ci-python-dist
           path: dist/*
 
+  brew_formula_smoke:
+    needs: [python_checks]
+    runs-on: macos-14
+    steps:
+      - name: Download wheel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-python-dist
+          path: dist
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Simulate Homebrew formula install
+        run: |
+          python -m venv --system-site-packages venv
+          WHEEL="$(ls dist/*.whl | head -n 1)"
+          # This mirrors the formula: pip install with deps resolved from PyPI
+          venv/bin/pip install --no-cache-dir "${WHEEL}"
+
+      - name: Verify CLI works (catches missing deps)
+        run: |
+          venv/bin/whisper-local --help
+          venv/bin/whisper-local bridge --help
+
   tui_build_smoke:
     runs-on: macos-14
     steps:

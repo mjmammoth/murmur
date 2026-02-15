@@ -24,10 +24,8 @@ class WhisperLocal < Formula
     wheel_name = cached_download.basename.to_s.sub(/\A[0-9a-f]{64}--/i, "")
     wheel_path = buildpath/wheel_name
     cp cached_download, wheel_path
-    # Install wheel without deps to create entry point scripts.
-    # Dependencies are installed in post_install to avoid Homebrew's dylib
-    # relinking on pip wheels with bundled native libs (e.g. PyAV's FFmpeg).
-    venv.pip_install wheel_path
+    # Install wheel with dependencies from PyPI (venv.pip_install uses --no-deps)
+    system libexec/"bin/pip", "install", "--no-cache-dir", wheel_path
 
     resource("whisper-local-tui").stage do
       (libexec/"bin").install "whisper-local-tui"
@@ -38,16 +36,6 @@ class WhisperLocal < Formula
     if (libexec/"bin/whisper.local").exist?
       (bin/"whisper.local").write_env_script libexec/"bin/whisper.local", WHISPER_LOCAL_TUI_BIN: libexec/"bin/whisper-local-tui"
     end
-  end
-
-  def post_install
-    # Install Python dependencies after Homebrew's linkage fixup has run.
-    # Pip wheels like PyAV bundle native dylibs with short placeholder IDs
-    # that can't accommodate the full Cellar path, causing relinking failures.
-    system libexec/"bin/pip", "install", "--no-cache-dir",
-           "faster-whisper>=1.0.0", "huggingface-hub>=0.24.0", "numpy>=1.24.0",
-           "pyobjc-framework-Quartz>=9.0", "pyperclip>=1.8.2", "sounddevice>=0.4.6",
-           "textual>=0.60.0", "tomli-w>=1.0.0", "websockets>=12.0"
   end
 
   def caveats
