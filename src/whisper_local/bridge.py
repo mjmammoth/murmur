@@ -154,7 +154,12 @@ class BridgeServer:
             existing.cancel()
         task = self._spawn_task(coro)
         self._model_tasks[name] = task
-        task.add_done_callback(lambda _t, _name=name: self._model_tasks.pop(_name, None))
+
+        def _cleanup(_t: asyncio.Task) -> None:
+            if self._model_tasks.get(name) is _t:
+                self._model_tasks.pop(name, None)
+
+        task.add_done_callback(_cleanup)
         return task
 
     def _client_path(self, websocket: WebSocketServerProtocol) -> str:

@@ -1,13 +1,13 @@
 # whisper.local
 
-Local, real-time voice transcription with an OpenTUI frontend, backed by Whisper. Runs fully offline on macOS.
+Local, real-time voice transcription with a Textual TUI frontend, backed by Whisper. Runs fully offline on macOS.
 
 ## Features
 
 - Global hotkey (PTT or toggle) for recording
 - macOS menu bar status dot (idle/recording/transcribing/success pulse)
 - Local transcription with pluggable backends (`faster-whisper` or `whisper.cpp`)
-- OpenTUI frontend with transcript history and copy actions
+- Textual TUI frontend with transcript history and copy actions
 - Drag-and-drop/paste audio file paths into the TUI to transcribe local files
 - Optional clipboard and file output
 - Optional RNNoise noise suppression (soft dependency)
@@ -22,7 +22,7 @@ python -m pip install whisper-local
 ## Homebrew (v1 arm64)
 
 ```bash
-brew tap <org>/tap
+brew tap mjmammoth/homebrew-tap
 brew install whisper-local
 ```
 
@@ -60,7 +60,7 @@ whisper.local
 
 `whisper-local` also works as an alias.
 Use `whisper.local run --no-status-indicator` to disable the macOS menu bar indicator.
-For local contributors running from source, set `WHISPER_LOCAL_DEV_USE_BUN=1` to use Bun-backed TUI dev mode.
+For local contributors running from source, set `WHISPER_LOCAL_DEV_USE_BUN=1` (Bun is a JavaScript/TypeScript runtime) to use Bun-backed TUI dev mode.
 
 ## macOS permissions
 
@@ -115,10 +115,10 @@ Defaults live in `configs/default.toml`. The app reads overrides from:
 - drag/drop (paste path): transcribe audio file(s)
 - `q`: quit
 
-## Homebrew notes
+## Homebrew notes (Developer/Release operators — not for end users)
 
 - Formula wrapper sets `WHISPER_LOCAL_TUI_BIN` to the packaged `whisper-local-tui` executable.
 - Homebrew formula dependencies are installed by brew, including `whisper-cpp`.
 - Python optional extras (for example `whisper-local[rnnoise]`) are not auto-installed unless requested.
 - Optional RNNoise support remains best-effort because cask-provided plugins are not always directly loadable.
-- Release operators should follow `/Users/mark.marryatt/Git/sideprojects/whisper.local/RELEASE_BREW_V1.md`.
+- Release operators should follow `RELEASE_BREW_V1.md`.

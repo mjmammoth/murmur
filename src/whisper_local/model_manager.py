@@ -23,7 +23,15 @@ from whisper_local import config as config_module
 logger = logging.getLogger(__name__)
 
 MODEL_NAMES = ["tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo"]
-MODEL_REPO_PREFIX = "Systran/faster-whisper-"
+MODEL_REPO_IDS: dict[str, str] = {
+    "tiny": "Systran/faster-whisper-tiny",
+    "base": "Systran/faster-whisper-base",
+    "small": "Systran/faster-whisper-small",
+    "medium": "Systran/faster-whisper-medium",
+    "large-v2": "Systran/faster-whisper-large-v2",
+    "large-v3": "Systran/faster-whisper-large-v3",
+    "large-v3-turbo": "dropbox-dash/faster-whisper-large-v3-turbo",
+}
 # Fallback display sizes when remote metadata is unavailable.
 # Values are approximate and may vary slightly by repository revision.
 MODEL_ESTIMATED_SIZE_BYTES: dict[str, int] = {
@@ -66,7 +74,16 @@ def get_hf_cache_dir() -> Path:
 
 
 def _model_cache_path(model_name: str) -> Path:
-    return get_hf_cache_dir() / "hub" / f"models--Systran--faster-whisper-{model_name}"
+    repo_id = _model_repo_id(model_name)
+    cache_name = f"models--{repo_id.replace('/', '--')}"
+    return get_hf_cache_dir() / "hub" / cache_name
+
+
+def _model_repo_id(model_name: str) -> str:
+    repo_id = MODEL_REPO_IDS.get(model_name)
+    if not repo_id:
+        raise ValueError(f"Unknown model: {model_name}")
+    return repo_id
 
 
 def is_model_installed(model_name: str) -> bool:
@@ -281,9 +298,7 @@ def download_model(
     progress_callback: Callable[[int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> Path:
-    if model_name not in MODEL_NAMES:
-        raise ValueError(f"Unknown model: {model_name}")
-    repo_id = f"{MODEL_REPO_PREFIX}{model_name}"
+    repo_id = _model_repo_id(model_name)
     # HF Xet can trigger subprocess FD issues in some TUI/runtime contexts.
     os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
     os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
