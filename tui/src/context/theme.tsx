@@ -32,6 +32,7 @@ export interface ThemeColors {
   ready: string;
 
   brandStart: string;
+  brandEnd: string;
 
   errorBackground: string;
   errorText: string;
@@ -81,6 +82,7 @@ const darkTheme: Theme = {
     ready: "#7fd88f",
 
     brandStart: "#87ceeb",
+    brandEnd: "#5c9cf5",
 
     errorBackground: "#1a0000",
     errorText: "#ff6b6b",
@@ -124,6 +126,7 @@ const lightTheme: Theme = {
     ready: "#16a34a",
 
     brandStart: "#0ea5e9",
+    brandEnd: "#2563eb",
 
     errorBackground: "#fee2e2",
     errorText: "#b91c1c",
@@ -167,6 +170,7 @@ const catppuccinMochaTheme: Theme = {
     ready: "#a6e3a1",
 
     brandStart: "#74c7ec",
+    brandEnd: "#89b4fa",
 
     errorBackground: "#2b1a22",
     errorText: "#f38ba8",
@@ -210,6 +214,7 @@ const catppuccinLatteTheme: Theme = {
     ready: "#40a02b",
 
     brandStart: "#179299",
+    brandEnd: "#1e66f5",
 
     errorBackground: "#f4d9df",
     errorText: "#d20f39",

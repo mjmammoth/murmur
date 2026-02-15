@@ -50,6 +50,11 @@ function ToggleHint(props: ToggleHintProps): JSX.Element {
 export function Header(): JSX.Element {
   const { colors } = useTheme();
   const config = useConfig();
+  const titleChars = "whisper.local".split("");
+  const titleStripChars = [" ", ...titleChars, " "];
+  const titleLastIndex = Math.max(1, titleStripChars.length - 1);
+  const peakIndex = Math.max(0, "whisper.local".indexOf(".")) + 1;
+  const maxDistanceFromPeak = Math.max(1, Math.max(peakIndex, titleLastIndex - peakIndex));
 
   return (
     <box
@@ -59,22 +64,23 @@ export function Header(): JSX.Element {
       flexShrink={0}
     >
       <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
-        <text>
-          <For each={"whisper.local".split("")}>
+        <box flexDirection="row" flexShrink={0}>
+          <For each={titleStripChars}>
             {(ch, i) => {
-              const peak = 7; // the '.' in whisper.local
-              const t = i() <= peak ? i() / peak : (12 - i()) / (12 - peak);
+              const distanceFromPeak = Math.abs(i() - peakIndex);
+              const baseIntensity = Math.max(0, 1 - distanceFromPeak / maxDistanceFromPeak);
+              const intensity = Math.pow(baseIntensity, 2.1);
+              const bgColor = lerpColor(colors().brandStart, colors().brandEnd, intensity);
               return (
-                <span style={{
-                  fg: lerpColor(colors().brandStart, colors().secondary, t),
-                  bold: true,
-                }}>
-                  {ch}
-                </span>
+                <box backgroundColor={bgColor}>
+                  <text>
+                    <span style={{ fg: colors().background, bold: true }}>{ch}</span>
+                  </text>
+                </box>
               );
             }}
           </For>
-        </text>
+        </box>
 
         <box
           justifyContent="flex-end"
