@@ -110,6 +110,11 @@ export function ModelManager(): JSX.Element {
     return model.installed ? "select" : "pull + select";
   });
 
+  const primaryActionKeys = createMemo(() => {
+    if (selectedModelIsPulling()) return "x/enter";
+    return "enter";
+  });
+
   const modalHeight = createMemo(() => {
     const minHeight = 16;
     const maxHeight = Math.max(minHeight, terminal().height - 4);
@@ -297,10 +302,7 @@ export function ModelManager(): JSX.Element {
 
       <box paddingX={2} paddingTop={1} flexShrink={0}>
         <box flexDirection="row" gap={2} alignItems="center">
-          <CommandHint keys="enter" label={primaryActionLabel()} />
-          <Show when={activePullingModelName()}>
-            <CommandHint keys="x" label="cancel pull" />
-          </Show>
+          <CommandHint keys={primaryActionKeys()} label={primaryActionLabel()} />
           <CommandHint keys="p" label="pull" />
           <CommandHint keys="r/backspace" label="remove" />
         </box>

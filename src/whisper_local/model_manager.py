@@ -41,7 +41,9 @@ MODEL_REQUIRED_FILES = (
     "model.bin",
     "config.json",
     "tokenizer.json",
-    "vocabulary.json",
+)
+MODEL_REQUIRED_FILE_ALTERNATIVES = (
+    ("vocabulary.json", "vocabulary.txt"),
 )
 # Fallback display sizes when remote metadata is unavailable.
 # Values are approximate and may vary slightly by repository revision.
@@ -148,15 +150,23 @@ def _iter_snapshot_paths(cache_path: Path) -> list[Path]:
 
 
 def _snapshot_is_complete(snapshot_path: Path) -> bool:
-    for filename in MODEL_REQUIRED_FILES:
+    def has_nonempty_file(filename: str) -> bool:
         candidate = snapshot_path / filename
         if not candidate.is_file():
             return False
         try:
-            if candidate.stat().st_size <= 0:
-                return False
+            return candidate.stat().st_size > 0
         except OSError:
             return False
+
+    for filename in MODEL_REQUIRED_FILES:
+        if not has_nonempty_file(filename):
+            return False
+
+    for candidate_group in MODEL_REQUIRED_FILE_ALTERNATIVES:
+        if not any(has_nonempty_file(filename) for filename in candidate_group):
+            return False
+
     return True
 
 

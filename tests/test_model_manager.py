@@ -6,12 +6,12 @@ from pathlib import Path
 from whisper_local import model_manager
 
 
-def _write_complete_snapshot(snapshot_path: Path) -> None:
+def _write_complete_snapshot(snapshot_path: Path, vocabulary_file: str = "vocabulary.json") -> None:
     snapshot_path.mkdir(parents=True, exist_ok=True)
     (snapshot_path / "model.bin").write_bytes(b"00")
     (snapshot_path / "config.json").write_text("{}", encoding="utf-8")
     (snapshot_path / "tokenizer.json").write_text("{}", encoding="utf-8")
-    (snapshot_path / "vocabulary.json").write_text("{}", encoding="utf-8")
+    (snapshot_path / vocabulary_file).write_text("{}", encoding="utf-8")
 
 
 def test_get_installed_model_path_ignores_incomplete_snapshot(
@@ -48,6 +48,17 @@ def test_prune_invalid_model_cache_keeps_valid_snapshot(
 
     assert valid_snapshot.exists()
     assert not incomplete_snapshot.exists()
+
+
+def test_get_installed_model_path_accepts_vocabulary_txt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+
+    valid_snapshot = model_manager._model_cache_path("base") / "snapshots" / "valid"
+    _write_complete_snapshot(valid_snapshot, vocabulary_file="vocabulary.txt")
+
+    assert model_manager.get_installed_model_path("base") == valid_snapshot
 
 
 def test_remove_model_removes_primary_and_alias_cache_paths(
