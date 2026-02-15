@@ -170,13 +170,13 @@ def default_config_path() -> Path:
                 _config_logger.info(
                     "Migrated config from %s to %s", old_path, new_path
                 )
-            except Exception as exc:
-                _config_logger.error(
-                    "Failed to migrate config from %s to %s: %s",
+            except Exception:
+                _config_logger.exception(
+                    "Failed to migrate config from %s to %s",
                     old_path,
                     new_path,
-                    exc,
                 )
+                return old_path
     return new_path
 
 

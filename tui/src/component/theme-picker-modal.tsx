@@ -216,7 +216,7 @@ export function ThemePickerModal(): JSX.Element {
               const badgeText = () => badgeTextFor(themeOption.id, isCurrent());
               return (
                 <box
-                  role="button"
+                  role="option"
                   aria-selected={isActive()}
                   flexDirection="row"
                   paddingRight={1}
@@ -240,19 +240,19 @@ export function ThemePickerModal(): JSX.Element {
                     </text>
                     <box flexDirection="row" gap={2}>
                       <text>
-                        <span style={{ fg: themeOption.colors.primary }}>■■</span>
+                        <span style={{ fg: themeOption.colors?.primary ?? colors().primary }}>■■</span>
                       </text>
                       <text>
-                        <span style={{ fg: themeOption.colors.secondary }}>■■</span>
+                        <span style={{ fg: themeOption.colors?.secondary ?? colors().secondary }}>■■</span>
                       </text>
                       <text>
-                        <span style={{ fg: themeOption.colors.accent }}>■■</span>
+                        <span style={{ fg: themeOption.colors?.accent ?? colors().accent }}>■■</span>
                       </text>
                       <text>
-                        <span style={{ fg: themeOption.colors.text }}>text</span>
+                        <span style={{ fg: themeOption.colors?.text ?? colors().text }}>text</span>
                       </text>
                       <text>
-                        <span style={{ fg: themeOption.colors.warning }}>warn</span>
+                        <span style={{ fg: themeOption.colors?.warning ?? colors().warning }}>warn</span>
                       </text>
                     </box>
                   </box>
