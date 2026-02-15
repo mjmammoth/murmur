@@ -58,7 +58,7 @@ def read_init_version(path: Path) -> str:
     Retrieve the package version declared in the given __init__.py file.
     
     Parameters:
-        path (Path): Path to the __init__.py file to read. The file is expected to contain an assignment of the form `__version__ = "x.y.z"`.
+        path (Path): Path to the __init__.py file to read. The file is expected to contain an assignment of the form `__version__ = "x.y.z"` or `__version__ = 'x.y.z'`.
     
     Returns:
         version (str): The string value assigned to `__version__` (without surrounding quotes).
@@ -67,10 +67,10 @@ def read_init_version(path: Path) -> str:
         ValueError: If no `__version__` assignment in the expected format is found in the file.
     """
     text = path.read_text(encoding="utf-8")
-    match = re.search(r'^__version__\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
+    match = re.search(r"^\s*__version__\s*=\s*(['\"])([^'\"]+)\1\s*$", text, re.MULTILINE)
     if match is None:
         raise ValueError(f"Unable to find __version__ assignment in {path}")
-    return match.group(1)
+    return match.group(2)
 
 
 def main() -> int:

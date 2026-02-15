@@ -209,11 +209,11 @@ def _rnnoise_library_candidates() -> list[str]:
     # Keep order but remove duplicates.
     deduped: list[str] = []
     seen = set()
-    for candidate_name in candidates:
-        if candidate_name in seen:
+    for candidate_entry in candidates:
+        if candidate_entry in seen:
             continue
-        seen.add(candidate_name)
-        deduped.append(candidate_name)
+        seen.add(candidate_entry)
+        deduped.append(candidate_entry)
     return deduped
 
 

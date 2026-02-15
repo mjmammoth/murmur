@@ -1114,7 +1114,13 @@ class BridgeServer:
                 await self._broadcast(
                     {"type": "download_progress", "model": name, "percent": 100}
                 )
-                await self._broadcast({"type": "toast", "message": f"Downloaded {name}"})
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Downloaded {name}",
+                        "action": "download_complete",
+                    }
+                )
                 # After a successful pull, make the downloaded model active.
                 await self._set_selected_model(name)
                 await self._broadcast_models()
@@ -1124,6 +1130,7 @@ class BridgeServer:
                         {
                             "type": "toast",
                             "message": f"Download cancelled: {name}",
+                            "action": "download_cancelled",
                         }
                     )
                     await self._broadcast_models()
@@ -1133,7 +1140,12 @@ class BridgeServer:
             except Exception as exc:
                 if not self._shutdown_requested.is_set():
                     await self._broadcast(
-                        {"type": "toast", "message": f"Download failed: {exc}", "level": "error"}
+                        {
+                            "type": "toast",
+                            "message": f"Download failed: {exc}",
+                            "level": "error",
+                            "action": "download_failed",
+                        }
                     )
                     await self._broadcast_models()
             finally:
@@ -1145,7 +1157,8 @@ class BridgeServer:
         Request cancellation of an in-progress model download.
         
         If `name` is empty and exactly one download is active, that download will be cancelled.
-        If no active download matches `name`, an error toast is broadcast to clients.
+        If no active download matches `name`, an error toast with message
+        "No active download matches request" is broadcast to clients.
         If a cancellation is already in progress for the named model, this is a no-op.
         Otherwise the method signals cancellation for the model and broadcasts a toast indicating the cancellation.
         
@@ -1153,20 +1166,27 @@ class BridgeServer:
             name (str): The model name to cancel; may be an empty string to infer a single active download.
         """
         model_name = str(name or "").strip()
+        no_active_download_message = "No active download matches request"
         if not model_name:
             active = [model for model, event in self._download_cancel_events.items() if not event.is_set()]
             if len(active) == 1:
                 model_name = active[0]
-
-        if not model_name:
-            return
+            else:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": no_active_download_message,
+                        "level": "error",
+                    }
+                )
+                return
 
         cancel_event = self._download_cancel_events.get(model_name)
         if cancel_event is None:
             await self._broadcast(
                 {
                     "type": "toast",
-                    "message": f"No active download for {model_name}",
+                    "message": no_active_download_message,
                     "level": "error",
                 }
             )
@@ -1194,7 +1214,13 @@ class BridgeServer:
                 await asyncio.get_event_loop().run_in_executor(
                     None, lambda: remove_model(name)
                 )
-                await self._broadcast({"type": "toast", "message": f"Removed {name}"})
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Removed {name}",
+                        "action": "remove_complete",
+                    }
+                )
                 installed_model_names = self._installed_model_names()
 
                 if not installed_model_names:
@@ -1212,7 +1238,12 @@ class BridgeServer:
                 await self._broadcast_models()
             except Exception as exc:
                 await self._broadcast(
-                    {"type": "toast", "message": f"Remove failed: {exc}", "level": "error"}
+                    {
+                        "type": "toast",
+                        "message": f"Remove failed: {exc}",
+                        "level": "error",
+                        "action": "remove_failed",
+                    }
                 )
 
     async def _enter_first_run_setup(self) -> None:

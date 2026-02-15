@@ -155,7 +155,17 @@ export type ServerMessage =
   | { type: "hotkey_release" }
   | { type: "error"; message: string }
   | { type: "config_file"; content: string; path: string }
-  | { type: "toast"; message: string; level?: "info" | "error" }
+  | {
+      type: "toast";
+      message: string;
+      level?: "info" | "error";
+      action?:
+        | "download_cancelled"
+        | "download_failed"
+        | "download_complete"
+        | "remove_complete"
+        | "remove_failed";
+    }
   | { type: "log"; level: string; message: string; timestamp: string; source: string }
   | { type: "suppress_paste_input"; duration_ms?: number }
   | { type: "download_progress"; model: string; percent: number };

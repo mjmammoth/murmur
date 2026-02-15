@@ -2,6 +2,8 @@ import { type JSX, For } from "solid-js";
 import { useTheme } from "../context/theme";
 import { useConfig } from "../context/config";
 
+const TITLE = "whisper.local";
+
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
   return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
@@ -68,10 +70,10 @@ function ToggleHint(props: ToggleHintProps): JSX.Element {
 export function Header(): JSX.Element {
   const { colors } = useTheme();
   const config = useConfig();
-  const titleChars = "whisper.local".split("");
+  const titleChars = TITLE.split("");
   const titleStripChars = [" ", ...titleChars, " "];
   const titleLastIndex = Math.max(1, titleStripChars.length - 1);
-  const peakIndex = Math.max(0, "whisper.local".indexOf(".")) + 1;
+  const peakIndex = Math.max(0, TITLE.indexOf(".")) + 1;
   const maxDistanceFromPeak = Math.max(1, Math.max(peakIndex, titleLastIndex - peakIndex));
 
   return (

@@ -48,6 +48,11 @@ function main(): void {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to read/parse package.json at ${packageJsonPath}: ${msg}`);
   }
+  if (typeof packageJson.version !== "string" || packageJson.version.trim().length === 0) {
+    throw new Error(
+      `package.json at ${packageJsonPath} is missing a valid "version" field`,
+    );
+  }
 
   const arch = "darwin-arm64";
   const distRoot = resolve(repoRoot, "dist", "tui");

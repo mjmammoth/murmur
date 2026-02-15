@@ -181,7 +181,7 @@ export function BackendContextProvider(props: {
         }
         break;
 
-      case "models":
+      case "models": {
         setModels(message.models);
 
         const modelOp = activeModelOp();
@@ -199,6 +199,7 @@ export function BackendContextProvider(props: {
           }
         }
         break;
+      }
 
       case "config":
         setConfig(message.config);
@@ -237,20 +238,20 @@ export function BackendContextProvider(props: {
         }
         break;
 
-      case "toast":
-        if (activeModelOp()?.type === "pulling") {
-          if (
-            message.message.startsWith("Download cancelled:") ||
-            message.message.startsWith("Download failed:") ||
-            message.message.startsWith("Downloaded ")
-          ) {
-            setActiveModelOp(null);
-            setDownloadProgress(null);
-          }
+      case "toast": {
+        const modelOp = activeModelOp();
+        if (
+          modelOp?.type === "pulling" &&
+          (message.action === "download_cancelled" ||
+            message.action === "download_failed" ||
+            message.action === "download_complete")
+        ) {
+          setActiveModelOp(null);
+          setDownloadProgress(null);
         }
         if (
-          activeModelOp()?.type === "removing" &&
-          (message.message.startsWith("Removed ") || message.message.startsWith("Remove failed:"))
+          modelOp?.type === "removing" &&
+          (message.action === "remove_complete" || message.action === "remove_failed")
         ) {
           setActiveModelOp(null);
           setDownloadProgress(null);
@@ -259,6 +260,7 @@ export function BackendContextProvider(props: {
           handler(message.message, message.level ?? "info");
         }
         break;
+      }
 
       case "download_progress":
         setDownloadProgress({ model: message.model, percent: message.percent });

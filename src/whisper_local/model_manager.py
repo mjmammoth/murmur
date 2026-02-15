@@ -675,6 +675,7 @@ def _download_model_in_subprocess(
     env = os.environ.copy()
     env["HF_HUB_DISABLE_XET"] = "1"
     env["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+    env["HF_HUB_DISABLE_TQDM"] = "1"
     script = (
         "from huggingface_hub import snapshot_download; "
         f"print(snapshot_download(repo_id={repo_id!r}))"
@@ -682,7 +683,7 @@ def _download_model_in_subprocess(
     process = subprocess.Popen(
         [sys.executable, "-c", script],
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
         text=True,
         env=env,
     )
@@ -737,10 +738,10 @@ def _download_model_in_subprocess(
         emit_progress()
         time.sleep(0.2)
 
-    stdout, stderr = process.communicate()
+    stdout, _ = process.communicate()
     if process.returncode:
         _prune_cache_path(cache_path)
-        details = (stderr or stdout).strip()
+        details = (stdout or "").strip()
         raise RuntimeError(
             f"Model download subprocess failed for {repo_id}" + (f": {details}" if details else "")
         )
