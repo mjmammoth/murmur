@@ -20,6 +20,19 @@ logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """
+    Constructs and returns the command-line argument parser for the application.
+    
+    Configures top-level subcommands and their options:
+    - run: start the combined bridge + TypeScript TUI (options: --host, --port, --legacy, --no-status-indicator)
+    - bridge: start only the WebSocket bridge server (options: --host, --port)
+    - tui: start only the TypeScript TUI (options: --host, --port)
+    - models: manage models with subcommands `list`, `pull <name>`, `remove <name>`, and `select|set-default <name>`
+    - config: show configuration (option: --path)
+    
+    Returns:
+        argparse.ArgumentParser: A parser configured with the described subcommands and options.
+    """
     parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
     subparsers = parser.add_subparsers(dest="command")
 
@@ -65,7 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _ensure_runtime_dependencies() -> None:
-    """Fail fast with actionable message when required runtime deps are missing."""
+    """
+    Ensure required native runtime dependencies are installed and exit the process with status 1 if installation fails.
+    
+    Calls the internal installer for whisper_cpp and, on any exception, prints the error message to stdout and terminates the process with exit code 1.
+    """
     try:
         from whisper_local.transcribe import ensure_whisper_cpp_installed
 
@@ -84,7 +101,14 @@ def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
 
 
 def _run_tui(host: str, port: int) -> subprocess.Popen:
-    """Start the TUI runtime (packaged binary or explicit dev Bun mode)."""
+    """
+    Start the TypeScript-based TUI process using the resolved runtime.
+    
+    The TUI is launched with the resolved runtime command and given --host and --port arguments.
+    
+    Returns:
+        process (subprocess.Popen): The spawned TUI process.
+    """
     runtime = resolve_tui_runtime(cli_file=__file__)
     logger.info("Starting TUI runtime mode=%s", runtime.mode)
     cmd = [*runtime.command, "--host", host, "--port", str(port)]
@@ -92,7 +116,17 @@ def _run_tui(host: str, port: int) -> subprocess.Popen:
 
 
 def _start_status_indicator(host: str, port: int) -> subprocess.Popen | None:
-    """Start the macOS menu bar status indicator sidecar."""
+    """
+    Start the macOS menu bar status indicator sidecar.
+    
+    Parameters:
+        host (str): Host address to pass to the status indicator.
+        port (int): Port number to pass to the status indicator.
+    
+    Returns:
+        subprocess.Popen: The started process if launched successfully.
+        None: If the platform is not macOS or the process could not be started.
+    """
     if sys.platform != "darwin":
         return None
 
@@ -134,7 +168,14 @@ def _restore_terminal_state() -> None:
 
 
 def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
-    """Run both bridge and TUI together."""
+    """
+    Start the bridge server and TypeScript TUI together, managing processes, signals, and terminal restoration.
+    
+    Starts the bridge in a background thread with its output suppressed, launches the TUI process (and optionally the macOS status indicator), waits for the TUI to exit, and ensures graceful shutdown of the bridge, status indicator, and TUI. Restores stderr, terminal state, and previous SIGINT handling on exit. Exits the process on configuration load failure or if the bridge fails to start.
+    
+    Parameters:
+        status_indicator (bool): If True, attempt to start the macOS status indicator sidecar; ignored on non-macOS platforms.
+    """
     _ensure_runtime_dependencies()
 
     # Validate config early, before we suppress stderr
@@ -244,6 +285,18 @@ def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
 
 
 def main() -> None:
+    """
+    Entry point for the command-line interface that parses arguments and dispatches to the selected subcommand.
+    
+    Supported subcommands:
+    - run (default): starts either the legacy Textual TUI or the combined bridge + TypeScript TUI, controlled by the `--legacy` and `--no-status-indicator` flags.
+    - bridge: starts only the bridge server on the given host and port.
+    - tui: launches only the TypeScript TUI process and restores terminal state on exit.
+    - models: manages models with `list`, `pull <name>`, `remove <name>`, and `select`/`set-default <name>` actions.
+    - config: loads and prints configuration sections and values from the provided config path.
+    
+    The function prints usage help when no valid subcommand is provided and exits the process on fatal errors encountered while handling commands.
+    """
     parser = build_parser()
     args = parser.parse_args()
 

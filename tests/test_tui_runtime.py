@@ -8,6 +8,14 @@ from whisper_local import tui_runtime
 
 
 def _touch_executable(path: Path) -> None:
+    """
+    Create a minimal executable shell script at the given path for use in tests.
+    
+    Creates parent directories if necessary, writes a small script that exits with status 0, and sets the file's permissions to be executable.
+    
+    Parameters:
+        path (Path): Destination path where the executable stub will be created.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     path.chmod(0o755)

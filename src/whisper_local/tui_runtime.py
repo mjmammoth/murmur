@@ -27,6 +27,24 @@ def resolve_tui_runtime(
     cli_file: str | Path | None = None,
     current_dir: str | Path | None = None,
 ) -> TuiRuntime:
+    """
+    Resolve how to run the Whisper Local TUI and return an execution descriptor.
+    
+    Parameters:
+        env (Mapping[str, str] | None): Optional environment mapping to use instead of os.environ.
+        sys_executable (str | None): Optional path to the Python interpreter used to derive packaged candidates.
+        cli_file (str | Path | None): Optional path to the calling CLI file used to locate packaged or local TUI assets.
+        current_dir (str | Path | None): Optional current working directory used when searching for a local development TUI.
+    
+    Returns:
+        TuiRuntime: Descriptor with `mode` ("env-override", "packaged", or "dev-bun"), `command` to execute, and `cwd` for the process.
+    
+    Raises:
+        FileNotFoundError: If ENV_TUI_BIN is set but not an executable file.
+        FileNotFoundError: If ENV_DEV_USE_BUN=1 but a local TUI source directory is not found.
+        FileNotFoundError: If ENV_DEV_USE_BUN=1 but `bun` is not available on PATH.
+        FileNotFoundError: If no packaged executable is found and no valid override or dev configuration applies.
+    """
     resolved_env = dict(os.environ if env is None else env)
     resolved_sys_executable = Path(sys_executable or sys.executable).resolve()
     resolved_cli_file = Path(cli_file or __file__).resolve()
@@ -87,6 +105,12 @@ def _packaged_tui_candidates(
     sys_executable_path: Path,
     cli_file_path: Path,
 ) -> list[Path]:
+    """
+    Assemble ordered candidate filesystem paths where a packaged TUI executable may be located.
+    
+    Returns:
+        list[Path]: Unique, user-expanded candidate paths in search order to check for the packaged TUI executable; duplicates are removed while preserving the first-seen order.
+    """
     exe_dir = sys_executable_path.parent
     candidates = [
         exe_dir / TUI_EXECUTABLE,
@@ -111,6 +135,16 @@ def _packaged_tui_candidates(
 
 
 def _find_local_tui_directory(*, cli_file_path: Path, current_dir: Path) -> Path | None:
+    """
+    Locate a local TUI project directory that contains a TUI source entry at `src/index.tsx`.
+    
+    Parameters:
+        cli_file_path (Path): Path of the calling CLI file used to search its parent directories.
+        current_dir (Path): Current working directory to check first for a local `tui` directory.
+    
+    Returns:
+        Path | None: The path to the first matching `tui` directory that contains `src/index.tsx`, or `None` if no such directory is found.
+    """
     candidate_dirs = [current_dir / "tui"]
     for parent in cli_file_path.parents:
         candidate_dirs.append(parent / "tui")
@@ -122,6 +156,12 @@ def _find_local_tui_directory(*, cli_file_path: Path, current_dir: Path) -> Path
 
 
 def _is_executable_file(path: Path) -> bool:
+    """
+    Check whether the given path points to an executable file.
+    
+    Returns:
+        True if the path exists as a file and is executable, False otherwise.
+    """
     try:
         return path.is_file() and os.access(path, os.X_OK)
     except OSError:

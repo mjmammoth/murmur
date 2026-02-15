@@ -5,6 +5,13 @@ from pathlib import Path
 
 
 def test_project_versions_are_synchronized() -> None:
+    """
+    Verify that the project version in pyproject.toml matches the package __init__.py version.
+    
+    This test dynamically loads scripts/check_version_sync.py to read the version from
+    pyproject.toml and from src/whisper_local/__init__.py, and asserts the two values are equal.
+    An AssertionError is raised if the helper module cannot be loaded or if the versions differ.
+    """
     repo_root = Path(__file__).resolve().parents[1]
     module_path = repo_root / "scripts" / "check_version_sync.py"
     spec = importlib.util.spec_from_file_location("check_version_sync", module_path)

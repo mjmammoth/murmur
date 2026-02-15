@@ -7,6 +7,15 @@ type PackageJson = {
   version: string;
 };
 
+/**
+ * Execute a command synchronously and return its trimmed standard output.
+ *
+ * @param command - The executable to run
+ * @param args - Arguments to pass to the command
+ * @param cwd - Working directory in which to run the command
+ * @returns The command's stdout, trimmed of leading and trailing whitespace
+ * @throws Error if the process exits with a non-zero status; the error message contains the command, arguments, and captured stderr or stdout
+ */
 function run(command: string, args: string[], cwd: string): string {
   const result = spawnSync(command, args, {
     cwd,
@@ -21,6 +30,14 @@ function run(command: string, args: string[], cwd: string): string {
   return result.stdout.trim();
 }
 
+/**
+ * Builds and packages the TUI binary for macOS ARM64 and writes a release manifest.
+ *
+ * Performs a production build of the TUI, ensures the resulting binary is executable,
+ * creates a tar.gz archive of the binary under dist/tui, writes a manifest.json
+ * containing name, version, arch, build timestamp, git SHA, binary and tarball names,
+ * and emits a short success message with the created tarball path.
+ */
 function main(): void {
   const scriptDir = dirname(fileURLToPath(import.meta.url));
   const tuiRoot = resolve(scriptDir, "..");
