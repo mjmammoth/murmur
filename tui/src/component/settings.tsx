@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
 import { useKeyHandler, useTerminalDimensions } from "@opentui/solid";
 import { type KeyEvent, type ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -38,6 +38,7 @@ interface SettingItem {
 
 interface SettingsDialogData {
   selectedSettingId?: string;
+  filterQuery?: string;
 }
 
 const SECTION_ORDER: SettingSection[] = ["Capture", "Model", "Output", "Appearance", "Advanced"];
@@ -80,11 +81,15 @@ export function Settings(): JSX.Element {
   const backend = useBackend();
   const dialog = useDialog();
   const terminal = useTerminalDimensions();
+  const initialDialogData = (dialog.currentDialog()?.data as SettingsDialogData | undefined) ?? undefined;
 
   const [selectedIndex, setSelectedIndex] = createSignal(0);
-  const [filterQuery, setFilterQuery] = createSignal("");
+  const [filterQuery, setFilterQuery] = createSignal(initialDialogData?.filterQuery ?? "");
   const [filterMode, setFilterMode] = createSignal(false);
   const [consumedRestoreSettingId, setConsumedRestoreSettingId] = createSignal<string | null>(null);
+  const [settingsScrollVersion, setSettingsScrollVersion] = createSignal(0);
+  const [scrollRetryCount, setScrollRetryCount] = createSignal(0);
+  let scrollRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let settingsScroll: ScrollBoxRenderable | undefined;
 
   const dialogData = createMemo(
@@ -109,11 +114,17 @@ export function Settings(): JSX.Element {
     return match?.installed ? selected : "none";
   });
 
+  function returnFilterQuery() {
+    const query = filterQuery();
+    return query.length > 0 ? query : undefined;
+  }
+
   function openSelector(settingId: SelectSettingId, returnSettingId?: string) {
     dialog.openDialog("settings-select", {
       settingId,
       returnToSettings: true,
       returnSettingId: returnSettingId ?? settingId,
+      returnFilterQuery: returnFilterQuery(),
     });
   }
 
@@ -122,6 +133,7 @@ export function Settings(): JSX.Element {
       settingId,
       returnToSettings: true,
       returnSettingId: returnSettingId ?? settingId,
+      returnFilterQuery: returnFilterQuery(),
     });
   }
 
@@ -158,7 +170,12 @@ export function Settings(): JSX.Element {
         affordance: "open",
         interactive: true,
         value: () => withFallback(cfg?.hotkey.key),
-        activate: () => dialog.openDialog("hotkey", { returnToSettings: true, returnSettingId: "hotkey.key" }),
+        activate: () =>
+          dialog.openDialog("hotkey", {
+            returnToSettings: true,
+            returnSettingId: "hotkey.key",
+            returnFilterQuery: returnFilterQuery(),
+          }),
       },
       {
         id: "recording.noise",
@@ -231,7 +248,11 @@ export function Settings(): JSX.Element {
         interactive: true,
         value: () => selectedInstalledModelName(),
         activate: () =>
-          dialog.openDialog("model-manager", { returnToSettings: true, returnSettingId: "model.name" }),
+          dialog.openDialog("model-manager", {
+            returnToSettings: true,
+            returnSettingId: "model.name",
+            returnFilterQuery: returnFilterQuery(),
+          }),
       },
       {
         id: "model.backend",
@@ -388,7 +409,12 @@ export function Settings(): JSX.Element {
         affordance: "open",
         interactive: true,
         value: () => withFallback(theme().label),
-        activate: () => dialog.openDialog("theme-picker", { returnToSettings: true, returnSettingId: "ui.theme" }),
+        activate: () =>
+          dialog.openDialog("theme-picker", {
+            returnToSettings: true,
+            returnSettingId: "ui.theme",
+            returnFilterQuery: returnFilterQuery(),
+          }),
       },
       {
         id: "audio.noise.level",
@@ -501,19 +527,32 @@ export function Settings(): JSX.Element {
   });
 
   const flatItems = createMemo(() => groupedItems().flatMap((group) => group.items));
+  const requestedRestoreSettingId = createMemo(
+    () => dialogData()?.selectedSettingId?.trim() || null,
+  );
 
   const selectedItem = createMemo(() => {
     const list = flatItems();
     if (list.length === 0) return null;
+    const requested = requestedRestoreSettingId();
+    if (requested && consumedRestoreSettingId() !== requested) {
+      const requestedItem = list.find((item) => item.id === requested);
+      if (requestedItem) return requestedItem;
+    }
     return list[selectedIndex()] ?? list[0] ?? null;
   });
 
   createEffect(() => {
     if (dialog.currentDialog()?.type !== "settings") {
       setConsumedRestoreSettingId(null);
+      setScrollRetryCount(0);
+      if (scrollRetryTimer) {
+        clearTimeout(scrollRetryTimer);
+        scrollRetryTimer = null;
+      }
       return;
     }
-    const requested = dialogData()?.selectedSettingId?.trim();
+    const requested = requestedRestoreSettingId();
     if (!requested) return;
     if (consumedRestoreSettingId() === requested) return;
 
@@ -551,6 +590,7 @@ export function Settings(): JSX.Element {
   });
 
   createEffect(() => {
+    settingsScrollVersion();
     const active = selectedItem();
     if (!active) return;
     if (dialog.currentDialog()?.type !== "settings") return;
@@ -562,7 +602,17 @@ export function Settings(): JSX.Element {
     const rowTop = offset;
     const rowBottom = rowTop + 1;
     const viewportHeight = settingsScroll.viewport.height;
-    if (viewportHeight <= 0) return;
+    if (viewportHeight <= 0) {
+      if (scrollRetryCount() < 30 && !scrollRetryTimer) {
+        setScrollRetryCount((count) => count + 1);
+        scrollRetryTimer = setTimeout(() => {
+          scrollRetryTimer = null;
+          setSettingsScrollVersion((version) => version + 1);
+        }, 16);
+      }
+      return;
+    }
+    if (scrollRetryCount() !== 0) setScrollRetryCount(0);
 
     const currentTop = settingsScroll.scrollTop;
     const topMargin = 1;
@@ -579,6 +629,12 @@ export function Settings(): JSX.Element {
       const nextTop = rowBottom - (viewportHeight - 1 - bottomMargin);
       settingsScroll.scrollTo(Math.max(0, nextTop));
     }
+  });
+
+  onCleanup(() => {
+    if (!scrollRetryTimer) return;
+    clearTimeout(scrollRetryTimer);
+    scrollRetryTimer = null;
   });
 
   function moveSelection(delta: number) {
@@ -608,7 +664,18 @@ export function Settings(): JSX.Element {
 
     if (filterMode()) {
       switch (key.name) {
+        case "up":
+          key.preventDefault();
+          setFilterMode(false);
+          moveSelection(-1);
+          return;
+        case "down":
+          key.preventDefault();
+          setFilterMode(false);
+          moveSelection(1);
+          return;
         case "escape":
+        case "q":
           key.preventDefault();
           setFilterMode(false);
           if (filterQuery().length > 0) {
@@ -619,6 +686,7 @@ export function Settings(): JSX.Element {
         case "enter":
           key.preventDefault();
           setFilterMode(false);
+          activateItem(selectedItem());
           return;
         case "backspace":
           key.preventDefault();
@@ -642,6 +710,7 @@ export function Settings(): JSX.Element {
         setFilterMode(true);
         return;
       case "escape":
+      case "q":
         key.preventDefault();
         if (filterQuery().length > 0) {
           setFilterQuery("");
@@ -725,7 +794,7 @@ export function Settings(): JSX.Element {
             </text>
             <box backgroundColor={colors().secondary} paddingX={1}>
               <text>
-                <span style={{ fg: colors().selectedText }}>esc</span>
+                <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
             </box>
           </box>
@@ -752,6 +821,7 @@ export function Settings(): JSX.Element {
         paddingTop={1}
         ref={(r: ScrollBoxRenderable) => {
           settingsScroll = r;
+          setSettingsScrollVersion((version) => version + 1);
         }}
       >
         <Show
@@ -834,7 +904,7 @@ export function Settings(): JSX.Element {
           <LegendHint keys="←/→" label="toggle off/on" />
           <LegendHint keys="/" label="filter" />
           <Show when={filterQuery().length > 0}>
-            <LegendHint keys="esc" label="clear filter" />
+            <LegendHint keys="esc/q" label="clear filter" />
           </Show>
         </box>
       </box>

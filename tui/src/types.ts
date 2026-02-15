@@ -190,6 +190,7 @@ export type DialogType =
 export interface ModelManagerDialogData {
   returnToSettings?: boolean;
   returnSettingId?: string;
+  returnFilterQuery?: string;
   firstRunSetup?: boolean;
 }
 

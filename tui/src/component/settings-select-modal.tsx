@@ -18,6 +18,7 @@ interface SettingsSelectDialogData {
   settingId: SelectSettingId;
   returnToSettings?: boolean;
   returnSettingId?: string;
+  returnFilterQuery?: string;
 }
 
 interface SelectOption {
@@ -108,6 +109,7 @@ export function SettingsSelectModal(): JSX.Element {
   const settingId = createMemo<SelectSettingId | null>(() => dialogData()?.settingId ?? null);
   const returnToSettings = createMemo(() => Boolean(dialogData()?.returnToSettings));
   const returnSettingId = createMemo(() => dialogData()?.returnSettingId ?? null);
+  const returnFilterQuery = createMemo(() => dialogData()?.returnFilterQuery ?? null);
   const isLanguagePicker = createMemo(() => settingId() === "model.language");
   const runtimeModel = createMemo(() => config.config()?.runtime?.model);
 
@@ -332,9 +334,12 @@ export function SettingsSelectModal(): JSX.Element {
   function closeModal() {
     if (returnToSettings()) {
       const selectedSettingId = returnSettingId();
+      const filterQuery = returnFilterQuery();
       dialog.openDialog(
         "settings",
-        selectedSettingId ? { selectedSettingId } : undefined,
+        selectedSettingId || filterQuery
+          ? { selectedSettingId: selectedSettingId ?? undefined, filterQuery: filterQuery ?? undefined }
+          : undefined,
       );
       return;
     }
@@ -461,6 +466,7 @@ export function SettingsSelectModal(): JSX.Element {
 
     switch (key.name) {
       case "escape":
+      case "q":
         key.preventDefault();
         closeModal();
         return;
@@ -527,7 +533,7 @@ export function SettingsSelectModal(): JSX.Element {
             </text>
             <box backgroundColor={colors().secondary} paddingX={1}>
               <text>
-                <span style={{ fg: colors().selectedText }}>esc</span>
+                <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
             </box>
           </box>

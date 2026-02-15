@@ -7,6 +7,7 @@ import { useDialog } from "../context/dialog";
 interface ThemePickerDialogData {
   returnToSettings?: boolean;
   returnSettingId?: string;
+  returnFilterQuery?: string;
 }
 
 export function ThemePickerModal(): JSX.Element {
@@ -24,6 +25,7 @@ export function ThemePickerModal(): JSX.Element {
   );
   const returnToSettings = createMemo(() => Boolean(dialogData()?.returnToSettings));
   const returnSettingId = createMemo(() => dialogData()?.returnSettingId ?? null);
+  const returnFilterQuery = createMemo(() => dialogData()?.returnFilterQuery ?? null);
 
   const selectedTheme = createMemo(() => availableThemes[selectedIndex()] ?? null);
 
@@ -63,9 +65,12 @@ export function ThemePickerModal(): JSX.Element {
   function closeModal() {
     if (returnToSettings()) {
       const selectedSettingId = returnSettingId();
+      const filterQuery = returnFilterQuery();
       dialog.openDialog(
         "settings",
-        selectedSettingId ? { selectedSettingId } : undefined,
+        selectedSettingId || filterQuery
+          ? { selectedSettingId: selectedSettingId ?? undefined, filterQuery: filterQuery ?? undefined }
+          : undefined,
       );
       return;
     }
@@ -131,6 +136,7 @@ export function ThemePickerModal(): JSX.Element {
 
     switch (key.name) {
       case "escape":
+      case "q":
         key.preventDefault();
         cancelSelection();
         return;
@@ -185,7 +191,7 @@ export function ThemePickerModal(): JSX.Element {
             </text>
             <box backgroundColor={colors().secondary} paddingX={1}>
               <text>
-                <span style={{ fg: colors().selectedText }}>esc</span>
+                <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
             </box>
           </box>
@@ -284,7 +290,7 @@ export function ThemePickerModal(): JSX.Element {
             <span style={{ fg: colors().textMuted }}>enter apply</span>
           </text>
           <text>
-            <span style={{ fg: colors().textMuted }}>esc cancel</span>
+            <span style={{ fg: colors().textMuted }}>esc/q cancel</span>
           </text>
         </box>
       </box>

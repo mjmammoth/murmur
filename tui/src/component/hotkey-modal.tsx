@@ -76,18 +76,26 @@ export function HotkeyModal(): JSX.Element {
 
   const dialogData = createMemo(
     () =>
-      (dialog.currentDialog()?.data as { returnToSettings?: boolean; returnSettingId?: string } | undefined) ??
+      (dialog.currentDialog()?.data as {
+        returnToSettings?: boolean;
+        returnSettingId?: string;
+        returnFilterQuery?: string;
+      } | undefined) ??
       undefined,
   );
   const returnToSettings = createMemo(() => Boolean(dialogData()?.returnToSettings));
   const returnSettingId = createMemo(() => dialogData()?.returnSettingId ?? null);
+  const returnFilterQuery = createMemo(() => dialogData()?.returnFilterQuery ?? null);
 
   function closeModal() {
     if (returnToSettings()) {
       const selectedSettingId = returnSettingId();
+      const filterQuery = returnFilterQuery();
       dialog.openDialog(
         "settings",
-        selectedSettingId ? { selectedSettingId } : undefined,
+        selectedSettingId || filterQuery
+          ? { selectedSettingId: selectedSettingId ?? undefined, filterQuery: filterQuery ?? undefined }
+          : undefined,
       );
       return;
     }
@@ -100,7 +108,7 @@ export function HotkeyModal(): JSX.Element {
 
     key.preventDefault();
 
-    if (key.name === "escape") {
+    if (key.name === "escape" || key.name === "q") {
       closeModal();
       return;
     }
@@ -140,7 +148,7 @@ export function HotkeyModal(): JSX.Element {
             </text>
             <box backgroundColor={colors().secondary} paddingX={1}>
               <text>
-                <span style={{ fg: colors().selectedText }}>esc</span>
+                <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
             </box>
           </box>
@@ -168,7 +176,7 @@ export function HotkeyModal(): JSX.Element {
       <box paddingX={3}>
         <text>
           <span style={{ fg: captureError() ? colors().error : colors().textDim }}>
-            {captureError() || (lastSetHotkey() ? `set to ${lastSetHotkey()}` : "esc cancel")}
+            {captureError() || (lastSetHotkey() ? `set to ${lastSetHotkey()}` : "esc/q cancel")}
           </span>
         </text>
       </box>

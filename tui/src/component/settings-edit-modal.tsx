@@ -11,6 +11,7 @@ interface SettingsEditDialogData {
   settingId: EditSettingId;
   returnToSettings?: boolean;
   returnSettingId?: string;
+  returnFilterQuery?: string;
 }
 
 function isPrintableKey(key: KeyEvent): boolean {
@@ -32,6 +33,7 @@ export function SettingsEditModal(): JSX.Element {
   const settingId = createMemo<EditSettingId | null>(() => dialogData()?.settingId ?? null);
   const returnToSettings = createMemo(() => Boolean(dialogData()?.returnToSettings));
   const returnSettingId = createMemo(() => dialogData()?.returnSettingId ?? null);
+  const returnFilterQuery = createMemo(() => dialogData()?.returnFilterQuery ?? null);
 
   const title = createMemo(() => {
     switch (settingId()) {
@@ -84,9 +86,12 @@ export function SettingsEditModal(): JSX.Element {
   function closeModal() {
     if (returnToSettings()) {
       const selectedSettingId = returnSettingId();
+      const filterQuery = returnFilterQuery();
       dialog.openDialog(
         "settings",
-        selectedSettingId ? { selectedSettingId } : undefined,
+        selectedSettingId || filterQuery
+          ? { selectedSettingId: selectedSettingId ?? undefined, filterQuery: filterQuery ?? undefined }
+          : undefined,
       );
       return;
     }
@@ -121,6 +126,7 @@ export function SettingsEditModal(): JSX.Element {
 
     switch (key.name) {
       case "escape":
+      case "q":
         key.preventDefault();
         closeModal();
         return;
@@ -165,7 +171,7 @@ export function SettingsEditModal(): JSX.Element {
             </text>
             <box backgroundColor={colors().secondary} paddingX={1}>
               <text>
-                <span style={{ fg: colors().selectedText }}>esc</span>
+                <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
             </box>
           </box>
@@ -197,7 +203,7 @@ export function SettingsEditModal(): JSX.Element {
       <box paddingX={3} paddingTop={1}>
         <text>
           <span style={{ fg: error() ? colors().error : colors().textDim }}>
-            {error() || "Type value, enter to apply, esc to cancel"}
+            {error() || "Type value, enter to apply, esc/q to cancel"}
           </span>
         </text>
       </box>

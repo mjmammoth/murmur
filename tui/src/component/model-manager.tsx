@@ -7,7 +7,7 @@ import {
   Show,
   type JSX,
 } from "solid-js";
-import { useKeyHandler, useRenderer, useTerminalDimensions } from "@opentui/solid";
+import { useKeyHandler, useTerminalDimensions } from "@opentui/solid";
 import type { KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
@@ -15,7 +15,6 @@ import { useDialog } from "../context/dialog";
 import { useConfig } from "../context/config";
 import { ModelItem } from "./model-item";
 import { useSpinnerFrame } from "./spinner";
-import { exitApp } from "../util/exit";
 import type { ModelManagerDialogData } from "../types";
 
 function CommandHint(props: { keys: string; label: string }): JSX.Element {
@@ -40,7 +39,6 @@ export function ModelManager(): JSX.Element {
   const backend = useBackend();
   const config = useConfig();
   const dialog = useDialog();
-  const renderer = useRenderer();
   const terminal = useTerminalDimensions();
 
   const [selectedIndex, setSelectedIndex] = createSignal(0);
@@ -51,6 +49,7 @@ export function ModelManager(): JSX.Element {
   );
   const returnToSettings = createMemo(() => Boolean(dialogData().returnToSettings));
   const returnSettingId = createMemo(() => dialogData().returnSettingId ?? null);
+  const returnFilterQuery = createMemo(() => dialogData().returnFilterQuery ?? null);
   const firstRunSetup = createMemo(() => Boolean(dialogData().firstRunSetup));
   const setupRequired = createMemo(() => Boolean(backend.config()?.first_run_setup_required));
   const setupLocked = createMemo(() => firstRunSetup() && setupRequired());
@@ -62,9 +61,12 @@ export function ModelManager(): JSX.Element {
     }
     if (returnToSettings()) {
       const selectedSettingId = returnSettingId();
+      const filterQuery = returnFilterQuery();
       dialog.openDialog(
         "settings",
-        selectedSettingId ? { selectedSettingId } : undefined,
+        selectedSettingId || filterQuery
+          ? { selectedSettingId: selectedSettingId ?? undefined, filterQuery: filterQuery ?? undefined }
+          : undefined,
       );
       return;
     }
@@ -117,6 +119,7 @@ export function ModelManager(): JSX.Element {
 
     switch (keyName) {
       case "escape":
+      case "q":
         closeManager();
         break;
       case "up":
@@ -137,12 +140,6 @@ export function ModelManager(): JSX.Element {
       case "r":
       case "backspace":
         handleRemove();
-        break;
-      case "q":
-        if (setupLocked()) {
-          key.preventDefault();
-          exitApp(renderer);
-        }
         break;
     }
   });
@@ -226,7 +223,7 @@ export function ModelManager(): JSX.Element {
             >
               <box backgroundColor={colors().secondary} paddingX={1}>
                 <text>
-                  <span style={{ fg: colors().selectedText }}>esc</span>
+                  <span style={{ fg: colors().selectedText }}>esc/q</span>
                 </text>
               </box>
             </Show>
@@ -276,9 +273,6 @@ export function ModelManager(): JSX.Element {
           <CommandHint keys="enter" label={primaryActionLabel()} />
           <CommandHint keys="p" label="pull" />
           <CommandHint keys="r/backspace" label="remove" />
-          <Show when={setupLocked()}>
-            <CommandHint keys="q" label="quit app" />
-          </Show>
         </box>
       </box>
     </box>
