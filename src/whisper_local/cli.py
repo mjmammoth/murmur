@@ -20,6 +20,19 @@ logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """
+    Builds the top-level command-line argument parser for the application.
+    
+    The parser includes these subcommands:
+    - run: start the combined bridge and TypeScript TUI (with options for host, port, legacy Textual TUI, and disabling the macOS status indicator).
+    - bridge: start only the WebSocket bridge (host and port options).
+    - tui: start only the TypeScript TUI (host and port options).
+    - models: manage models with subcommands `list`, `pull <name>`, `remove <name>`, and `select|set-default <name>`.
+    - config: show configuration (optional --path).
+    
+    Returns:
+        argparse.ArgumentParser: A configured parser ready to parse the application's CLI.
+    """
     parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
     subparsers = parser.add_subparsers(dest="command")
 
@@ -65,7 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _ensure_runtime_dependencies() -> None:
-    """Fail fast with actionable message when required runtime deps are missing."""
+    """
+    Ensure required runtime dependencies for local speech transcription are installed.
+    
+    If verification fails, prints the error message and exits the process with status code 1.
+    """
     try:
         from whisper_local.transcribe import ensure_whisper_cpp_installed
 
@@ -84,7 +101,12 @@ def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
 
 
 def _run_tui(host: str, port: int) -> subprocess.Popen:
-    """Start the TUI runtime (packaged binary or explicit dev Bun mode)."""
+    """
+    Start the external TUI process bound to the given host and port.
+    
+    Returns:
+        subprocess.Popen: The subprocess object for the started TUI process.
+    """
     runtime = resolve_tui_runtime(cli_file=__file__)
     logger.info("Starting TUI runtime mode=%s", runtime.mode)
     cmd = [*runtime.command, "--host", host, "--port", str(port)]
@@ -92,7 +114,12 @@ def _run_tui(host: str, port: int) -> subprocess.Popen:
 
 
 def _start_status_indicator(host: str, port: int) -> subprocess.Popen | None:
-    """Start the macOS menu bar status indicator sidecar."""
+    """
+    Start the macOS menu bar status indicator sidecar.
+    
+    Returns:
+        subprocess.Popen | None: The started subprocess for the status indicator, or `None` if not started (for example, when not running on macOS or if the process failed to launch).
+    """
     if sys.platform != "darwin":
         return None
 
@@ -134,7 +161,14 @@ def _restore_terminal_state() -> None:
 
 
 def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
-    """Run both bridge and TUI together."""
+    """
+    Run the bridge server and the terminal UI (TUI) together, coordinating their startup and shutdown.
+    
+    Parameters:
+        host (str): Network interface or hostname for the bridge and TUI to bind to.
+        port (int): TCP port for the bridge and TUI to use.
+        status_indicator (bool): If True, attempt to start the platform status indicator (macOS only).
+    """
     _ensure_runtime_dependencies()
 
     # Validate config early, before we suppress stderr
@@ -244,6 +278,22 @@ def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
 
 
 def main() -> None:
+    """
+    Parse command-line arguments and dispatch subcommands to run the application components.
+    
+    Supported subcommands:
+    - run (default): start either the legacy Textual TUI or the new TypeScript TUI with an optional status indicator; accepts host, port, legacy, and no-status-indicator flags.
+    - bridge: start the bridge server on the given host and port.
+    - tui: start only the TUI subprocess and wait for it, restoring terminal state on exit.
+    - models: manage models with subcommands:
+        - list: print installed and available models.
+        - pull <name>: download the specified model.
+        - remove <name>: remove the specified model.
+        - select|set-default <name>: set the selected model.
+    - config: load and print configuration sections and values from an optional path.
+    
+    Exits or prints errors for fatal runtime failures and ensures terminal state is restored where applicable.
+    """
     parser = build_parser()
     args = parser.parse_args()
 

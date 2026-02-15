@@ -26,6 +26,13 @@ from whisper_local.model_manager import (
 
 
 def _write_complete_snapshot(snapshot_path: Path, vocabulary_file: str = "vocabulary.json") -> None:
+    """
+    Create a minimal, complete model snapshot directory containing the files required by tests.
+    
+    Parameters:
+        snapshot_path (Path): Directory to create for the snapshot; will be created if it does not exist.
+        vocabulary_file (str): Filename to use for the vocabulary file (created with minimal placeholder content).
+    """
     snapshot_path.mkdir(parents=True, exist_ok=True)
     (snapshot_path / "model.bin").write_bytes(b"00")
     (snapshot_path / "config.json").write_text("{}", encoding="utf-8")

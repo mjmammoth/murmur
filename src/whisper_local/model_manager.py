@@ -85,25 +85,70 @@ def get_hf_cache_dir() -> Path:
 
 
 def _model_cache_path(model_name: str) -> Path:
+    """
+    Return the primary Hugging Face cache directory path for the given model.
+    
+    Returns:
+        Path: The primary cache path for `model_name`.
+    """
     return _model_cache_paths(model_name)[0]
 
 
 def _cache_path_for_repo_id(repo_id: str) -> Path:
+    """
+    Return the local Hugging Face cache path corresponding to a model repository id.
+    
+    Parameters:
+        repo_id (str): Hugging Face repository identifier (e.g., "owner/model").
+    
+    Returns:
+        Path: Filesystem path to the model cache directory inside the Hugging Face hub cache (e.g., ~/.cache/huggingface/hub/models--owner--model).
+    """
     cache_name = f"models--{repo_id.replace('/', '--')}"
     return get_hf_cache_dir() / "hub" / cache_name
 
 
 def _model_repo_ids(model_name: str) -> tuple[str, ...]:
+    """
+    Get repository IDs for a model with the primary repository listed first.
+    
+    Parameters:
+        model_name (str): Supported model name.
+    
+    Returns:
+        repo_ids (tuple[str, ...]): Tuple containing the primary repo ID followed by any alias repo IDs.
+    
+    Raises:
+        ValueError: If `model_name` is not a known/supported model.
+    """
     primary_repo = _model_repo_id(model_name)
     aliases = MODEL_REPO_ALIASES.get(model_name, ())
     return (primary_repo, *aliases)
 
 
 def _model_cache_paths(model_name: str) -> tuple[Path, ...]:
+    """
+    Return all cache directory paths that may contain snapshots for the specified model.
+    
+    Parameters:
+        model_name (str): Supported model name.
+    
+    Returns:
+        tuple[Path, ...]: Tuple of filesystem paths for each repository ID associated with the model, ordered with the primary repository first followed by any aliases.
+    """
     return tuple(_cache_path_for_repo_id(repo_id) for repo_id in _model_repo_ids(model_name))
 
 
 def _model_repo_id(model_name: str) -> str:
+    """
+    Resolve the primary repository identifier for a given model name.
+    
+    Returns:
+        repo_id (str): The primary repository ID associated with the model.
+    
+    Raises:
+        ValueError: If the provided model_name is not recognized.
+    """
     repo_id = MODEL_REPO_IDS.get(model_name)
     if not repo_id:
         raise ValueError(f"Unknown model: {model_name}")
@@ -111,12 +156,29 @@ def _model_repo_id(model_name: str) -> str:
 
 
 def is_model_installed(model_name: str) -> bool:
+    """
+    Check whether a supported model has a complete installed snapshot in the local cache.
+    
+    Returns:
+        `true` if the model is installed and a complete snapshot path exists, `false` otherwise.
+    """
     if model_name not in MODEL_NAMES:
         return False
     return get_installed_model_path(model_name) is not None
 
 
 def get_installed_model_path(model_name: str) -> Path | None:
+    """
+    Locate the most recently installed complete snapshot path for a given model.
+    
+    Scans the model's cache locations and returns the most recently modified snapshot directory that contains all required model files.
+    
+    Parameters:
+        model_name (str): The canonical name of the model to search for.
+    
+    Returns:
+        Path | None: Path to the most recent complete snapshot directory for the model, or `None` if the model name is unknown or no complete snapshot is found.
+    """
     if model_name not in MODEL_NAMES:
         return None
     candidates: list[Path] = []
@@ -131,6 +193,15 @@ def get_installed_model_path(model_name: str) -> Path | None:
 
 
 def _cache_path_size_bytes(cache_path: Path) -> int:
+    """
+    Compute the total size in bytes of all files under a cache directory.
+    
+    Parameters:
+        cache_path (Path): Path to the cache directory to measure.
+    
+    Returns:
+        int: Sum of sizes (in bytes) of all files under `cache_path`. Returns 0 if `cache_path` does not exist.
+    """
     if not cache_path.exists():
         return 0
     total = 0
@@ -141,6 +212,15 @@ def _cache_path_size_bytes(cache_path: Path) -> int:
 
 
 def _iter_snapshot_paths(cache_path: Path) -> list[Path]:
+    """
+    Return a list of snapshot directory paths found under the repository cache's "snapshots" subdirectory.
+    
+    Parameters:
+    	cache_path (Path): Path to the repository cache directory that may contain a "snapshots" folder.
+    
+    Returns:
+    	snapshots (list[Path]): List of Paths for each immediate subdirectory inside `<cache_path>/snapshots`; empty list if no snapshots directory exists.
+    """
     snapshots_path = cache_path / "snapshots"
     if not snapshots_path.exists():
         return []
@@ -148,6 +228,15 @@ def _iter_snapshot_paths(cache_path: Path) -> list[Path]:
 
 
 def _snapshot_is_complete(snapshot_path: Path) -> bool:
+    """
+    Check whether a model snapshot directory contains all required non-empty files and at least one non-empty file from each alternative group.
+    
+    Parameters:
+        snapshot_path (Path): Path to the candidate snapshot directory to validate.
+    
+    Returns:
+        True if every filename listed in MODEL_REQUIRED_FILES exists in the directory and has size greater than zero, and for each group in MODEL_REQUIRED_FILE_ALTERNATIVES at least one file exists and is non-empty; False otherwise.
+    """
     def has_nonempty_file(filename: str) -> bool:
         candidate = snapshot_path / filename
         if not candidate.is_file():
@@ -169,6 +258,11 @@ def _snapshot_is_complete(snapshot_path: Path) -> bool:
 
 
 def _prune_cache_path(cache_path: Path) -> None:
+    """
+    Remove incomplete model snapshot data and orphaned partial blobs from a model cache path.
+    
+    Prunes any snapshot directories under `cache_path` that are not complete, removes `.incomplete` files under `cache_path/blobs`, and if the cache contains no remaining snapshot directories removes the entire `cache_path`. Failures to remove individual files or directories are logged but do not raise.
+    """
     removed_any = False
     for snapshot_path in _iter_snapshot_paths(cache_path):
         if _snapshot_is_complete(snapshot_path):
@@ -208,6 +302,15 @@ def _prune_cache_path(cache_path: Path) -> None:
 
 
 def prune_invalid_model_cache(model_name: str) -> None:
+    """
+    Remove incomplete or invalid cached snapshots and orphaned blobs for a model.
+    
+    For each possible cache path for the given model, removes partial or incomplete snapshot
+    directories and cleans up orphaned blobs; if the model name is not recognized, this is a no-op.
+    
+    Parameters:
+        model_name (str): Supported model identifier to prune. Unknown model names are ignored.
+    """
     if model_name not in MODEL_NAMES:
         return
     for cache_path in _model_cache_paths(model_name):
@@ -216,11 +319,25 @@ def prune_invalid_model_cache(model_name: str) -> None:
 
 
 def prune_invalid_model_caches() -> None:
+    """
+    Prune incomplete or invalid cache snapshots for all configured models.
+    
+    Removes incomplete snapshots, partial blobs, and empty cache directories for every model known to the application.
+    """
     for model_name in MODEL_NAMES:
         prune_invalid_model_cache(model_name)
 
 
 def model_cache_size_bytes(model_name: str) -> int:
+    """
+    Compute the total size of all cache directories for the specified model.
+    
+    Parameters:
+        model_name (str): The model's canonical name.
+    
+    Returns:
+        int: Total size in bytes of all cached snapshots and related files for the model.
+    """
     total = 0
     for cache_path in _model_cache_paths(model_name):
         total += _cache_path_size_bytes(cache_path)
@@ -228,6 +345,12 @@ def model_cache_size_bytes(model_name: str) -> int:
 
 
 def list_available_models() -> list[str]:
+    """
+    List supported model names available for download or selection.
+    
+    Returns:
+        list[str]: A list of supported model name strings.
+    """
     return list(MODEL_NAMES)
 
 
@@ -252,7 +375,14 @@ def list_installed_models() -> list[ModelInfo]:
 
 
 def _resolve_repo_total_bytes(repo_id: str) -> int | None:
-    """Return the total model artifact size in bytes, if available."""
+    """
+    Compute the total size in bytes of all artifact files for a Hugging Face repository.
+    
+    Queries the repository's files metadata and sums the sizes of files that report a positive integer size; returns `None` when metadata cannot be retrieved or yields no positive sizes.
+    
+    Returns:
+        int: Total size in bytes of all files, `None` if unavailable.
+    """
     try:
         info = HfApi().model_info(repo_id=repo_id, files_metadata=True)
     except Exception as exc:
@@ -408,6 +538,21 @@ def download_model(
     progress_callback: Callable[[int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> Path:
+    """
+    Download the given model and return the local snapshot path.
+    
+    Parameters:
+        model_name (str): Name of the model to download; must be one of the supported model names.
+        progress_callback (Callable[[int], None] | None): Optional callback receiving download progress as an integer percentage (0–100).
+        cancel_check (Callable[[], bool] | None): Optional callable that returns True to request cancellation; checked before start and during transfer.
+    
+    Returns:
+        path (Path): Filesystem path to the downloaded model snapshot.
+    
+    Raises:
+        ValueError: If `model_name` is not a known supported model.
+        DownloadCancelledError: If cancellation is requested before or during download.
+    """
     if model_name not in MODEL_NAMES:
         raise ValueError(f"Unknown model: {model_name}")
 
@@ -471,6 +616,15 @@ def download_model(
 
 
 def ensure_model_available(model_name: str) -> Path:
+    """
+    Ensure the specified model is installed and return the local snapshot path.
+    
+    Parameters:
+        model_name (str): Name of the model to ensure is available (one of the supported model names).
+    
+    Returns:
+        Path: Filesystem path to the installed model snapshot.
+    """
     installed_path = get_installed_model_path(model_name)
     if installed_path is not None:
         return installed_path
@@ -483,6 +637,22 @@ def _download_model_in_subprocess(
     expected_total_bytes: int | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> Path:
+    """
+    Downloads the specified Hugging Face repository snapshot in a separate subprocess while optionally reporting progress and honoring cancellation.
+    
+    Parameters:
+        repo_id (str): Hugging Face repository identifier to download.
+        progress_callback (Callable[[int], None] | None): Optional callback receiving integer percentage progress (0–100).
+        expected_total_bytes (int | None): Optional expected total size in bytes used to compute progress percentages when available.
+        cancel_check (Callable[[], bool] | None): Optional callable checked periodically; if it returns True the download is cancelled.
+    
+    Returns:
+        Path: Filesystem path to the downloaded model snapshot.
+    
+    Raises:
+        DownloadCancelledError: If cancellation is requested via `cancel_check` during the download.
+        RuntimeError: If the subprocess fails or does not return a valid path.
+    """
     env = os.environ.copy()
     env["HF_HUB_DISABLE_XET"] = "1"
     env["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
@@ -505,6 +675,11 @@ def _download_model_in_subprocess(
     SIZE_SCAN_INTERVAL = 5.0
 
     def emit_progress() -> None:
+        """
+        Update progress by computing the download percentage from the cache path size and invoking the progress callback when the reported percent changes.
+        
+        If `expected_total_bytes` is missing or zero, reports `0%`. When a total is known, the cache path size is refreshed at most once per `SIZE_SCAN_INTERVAL` and used to compute an integer percentage capped at `99%` until completion. The `progress_callback` is called with the new percent only if it differs from the last emitted value.
+        """
         nonlocal last_percent, last_size, last_scan_time
         if progress_callback is None:
             return
@@ -563,6 +738,15 @@ def _download_model_in_subprocess(
 
 
 def remove_model(model_name: str) -> None:
+    """
+    Remove all cached installations for the given model.
+    
+    This deletes every cache directory associated with the model (including repo aliases)
+    from the Hugging Face cache. If the model name is not recognized, the function does nothing.
+    
+    Parameters:
+        model_name (str): Supported model name whose cached files should be removed.
+    """
     if model_name not in MODEL_NAMES:
         return
     for cache_path in _model_cache_paths(model_name):
@@ -571,6 +755,16 @@ def remove_model(model_name: str) -> None:
 
 
 def set_selected_model(model_name: str, path: Path | None = None) -> None:
+    """
+    Set the selected model name in the configuration and clear any stored model path.
+    
+    Parameters:
+        model_name (str): Name of the model to select; must be one of the supported model names.
+        path (Path | None): Optional path to the configuration file or directory. If None, the default config location is used.
+    
+    Raises:
+        ValueError: If `model_name` is not a supported model.
+    """
     if model_name not in MODEL_NAMES:
         raise ValueError(f"Unknown model: {model_name}")
     config = config_module.load_config(path)
