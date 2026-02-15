@@ -36,19 +36,10 @@ interface SettingItem {
   activate?: () => void;
 }
 
-<<<<<<< ours
-=======
-<<<<<<< ours
-=======
->>>>>>> theirs
 interface SettingsDialogData {
   selectedSettingId?: string;
 }
 
-<<<<<<< ours
-=======
->>>>>>> theirs
->>>>>>> theirs
 const SECTION_ORDER: SettingSection[] = ["Capture", "Model", "Output", "Appearance", "Advanced"];
 
 function boolLabel(value: boolean): string {
@@ -93,14 +84,7 @@ export function Settings(): JSX.Element {
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [filterQuery, setFilterQuery] = createSignal("");
   const [filterMode, setFilterMode] = createSignal(false);
-<<<<<<< ours
   const [consumedRestoreSettingId, setConsumedRestoreSettingId] = createSignal<string | null>(null);
-=======
-<<<<<<< ours
-=======
-  const [consumedRestoreSettingId, setConsumedRestoreSettingId] = createSignal<string | null>(null);
->>>>>>> theirs
->>>>>>> theirs
   let settingsScroll: ScrollBoxRenderable | undefined;
 
   const dialogData = createMemo(
@@ -125,17 +109,6 @@ export function Settings(): JSX.Element {
     return match?.installed ? selected : "none";
   });
 
-<<<<<<< ours
-=======
-<<<<<<< ours
-  function openSelector(settingId: SelectSettingId) {
-    dialog.openDialog("settings-select", { settingId, returnToSettings: true });
-  }
-
-  function openEditor(settingId: EditSettingId) {
-    dialog.openDialog("settings-edit", { settingId, returnToSettings: true });
-=======
->>>>>>> theirs
   function openSelector(settingId: SelectSettingId, returnSettingId?: string) {
     dialog.openDialog("settings-select", {
       settingId,
@@ -150,10 +123,6 @@ export function Settings(): JSX.Element {
       returnToSettings: true,
       returnSettingId: returnSettingId ?? settingId,
     });
-<<<<<<< ours
-=======
->>>>>>> theirs
->>>>>>> theirs
   }
 
   const items = createMemo<SettingItem[]>(() => {
@@ -189,15 +158,7 @@ export function Settings(): JSX.Element {
         affordance: "open",
         interactive: true,
         value: () => withFallback(cfg?.hotkey.key),
-<<<<<<< ours
         activate: () => dialog.openDialog("hotkey", { returnToSettings: true, returnSettingId: "hotkey.key" }),
-=======
-<<<<<<< ours
-        activate: () => dialog.openDialog("hotkey", { returnToSettings: true }),
-=======
-        activate: () => dialog.openDialog("hotkey", { returnToSettings: true, returnSettingId: "hotkey.key" }),
->>>>>>> theirs
->>>>>>> theirs
       },
       {
         id: "recording.noise",
@@ -269,17 +230,8 @@ export function Settings(): JSX.Element {
         affordance: "open",
         interactive: true,
         value: () => selectedInstalledModelName(),
-<<<<<<< ours
         activate: () =>
           dialog.openDialog("model-manager", { returnToSettings: true, returnSettingId: "model.name" }),
-=======
-<<<<<<< ours
-        activate: () => dialog.openDialog("model-manager", { returnToSettings: true }),
-=======
-        activate: () =>
-          dialog.openDialog("model-manager", { returnToSettings: true, returnSettingId: "model.name" }),
->>>>>>> theirs
->>>>>>> theirs
       },
       {
         id: "model.backend",
@@ -436,15 +388,7 @@ export function Settings(): JSX.Element {
         affordance: "open",
         interactive: true,
         value: () => withFallback(theme().label),
-<<<<<<< ours
         activate: () => dialog.openDialog("theme-picker", { returnToSettings: true, returnSettingId: "ui.theme" }),
-=======
-<<<<<<< ours
-        activate: () => dialog.openDialog("theme-picker", { returnToSettings: true }),
-=======
-        activate: () => dialog.openDialog("theme-picker", { returnToSettings: true, returnSettingId: "ui.theme" }),
->>>>>>> theirs
->>>>>>> theirs
       },
       {
         id: "audio.noise.level",
@@ -564,11 +508,6 @@ export function Settings(): JSX.Element {
     return list[selectedIndex()] ?? list[0] ?? null;
   });
 
-<<<<<<< ours
-=======
-<<<<<<< ours
-=======
->>>>>>> theirs
   createEffect(() => {
     if (dialog.currentDialog()?.type !== "settings") {
       setConsumedRestoreSettingId(null);
@@ -584,8 +523,6 @@ export function Settings(): JSX.Element {
       setConsumedRestoreSettingId(requested);
     }
   });
-
->>>>>>> theirs
   createEffect(() => {
     const list = flatItems();
     if (list.length === 0) {

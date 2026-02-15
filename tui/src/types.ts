@@ -186,17 +186,12 @@ export type DialogType =
   | "settings-edit"
   | "hotkey"
   | "theme-picker";
-<<<<<<< ours
-=======
-<<<<<<< ours
 
 export interface ModelManagerDialogData {
   returnToSettings?: boolean;
+  returnSettingId?: string;
   firstRunSetup?: boolean;
 }
-=======
->>>>>>> theirs
->>>>>>> theirs
 
 export interface DialogState {
   type: DialogType;

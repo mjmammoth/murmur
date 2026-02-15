@@ -16,16 +16,7 @@ import { useConfig } from "../context/config";
 import { ModelItem } from "./model-item";
 import { useSpinnerFrame } from "./spinner";
 import { exitApp } from "../util/exit";
-<<<<<<< ours
 import type { ModelManagerDialogData } from "../types";
-=======
-
-interface ModelManagerDialogData {
-  returnToSettings?: boolean;
-  returnSettingId?: string;
-  firstRunSetup?: boolean;
-}
->>>>>>> theirs
 
 function CommandHint(props: { keys: string; label: string }): JSX.Element {
   const { colors } = useTheme();

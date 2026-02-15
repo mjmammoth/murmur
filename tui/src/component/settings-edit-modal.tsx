@@ -10,14 +10,7 @@ type EditSettingId = "model.path" | "output.file.path";
 interface SettingsEditDialogData {
   settingId: EditSettingId;
   returnToSettings?: boolean;
-<<<<<<< ours
   returnSettingId?: string;
-=======
-<<<<<<< ours
-=======
-  returnSettingId?: string;
->>>>>>> theirs
->>>>>>> theirs
 }
 
 function isPrintableKey(key: KeyEvent): boolean {
@@ -38,14 +31,7 @@ export function SettingsEditModal(): JSX.Element {
   );
   const settingId = createMemo<EditSettingId | null>(() => dialogData()?.settingId ?? null);
   const returnToSettings = createMemo(() => Boolean(dialogData()?.returnToSettings));
-<<<<<<< ours
   const returnSettingId = createMemo(() => dialogData()?.returnSettingId ?? null);
-=======
-<<<<<<< ours
-=======
-  const returnSettingId = createMemo(() => dialogData()?.returnSettingId ?? null);
->>>>>>> theirs
->>>>>>> theirs
 
   const title = createMemo(() => {
     switch (settingId()) {
@@ -97,21 +83,11 @@ export function SettingsEditModal(): JSX.Element {
 
   function closeModal() {
     if (returnToSettings()) {
-<<<<<<< ours
-=======
-<<<<<<< ours
-      dialog.openDialog("settings");
-=======
->>>>>>> theirs
       const selectedSettingId = returnSettingId();
       dialog.openDialog(
         "settings",
         selectedSettingId ? { selectedSettingId } : undefined,
       );
-<<<<<<< ours
-=======
->>>>>>> theirs
->>>>>>> theirs
       return;
     }
     dialog.closeDialog();
