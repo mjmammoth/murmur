@@ -122,11 +122,6 @@ export function LogPanel(props: LogPanelProps): JSX.Element {
                 <span style={{ fg: colors().textMuted }}>level </span>
                 <span style={{ fg: levelColor(props.minLevel, colors()) }}>{props.minLevel}</span>
               </text>
-              <text>
-                <span style={{ fg: props.active ? colors().secondary : colors().textDim }}>
-                  {props.active ? "active" : "inactive"}
-                </span>
-              </text>
             </box>
           </box>
           <box flexDirection="row" width="100%" marginTop={0}>
