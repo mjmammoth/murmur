@@ -22,7 +22,7 @@ from whisper_local import config as config_module
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAMES = ["tiny", "base", "small", "medium", "large-v2", "large-v3"]
+MODEL_NAMES = ["tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo"]
 MODEL_REPO_PREFIX = "Systran/faster-whisper-"
 # Fallback display sizes when remote metadata is unavailable.
 # Values are approximate and may vary slightly by repository revision.

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-import shutil
 from dataclasses import asdict, dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -23,15 +21,9 @@ class ModelConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ModelConfig:
-        backend = str(data.get("backend", "faster-whisper")).strip().lower()
-        if backend in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
-            backend = "whisper.cpp"
-        if backend not in {"faster-whisper", "whisper.cpp"}:
-            backend = "faster-whisper"
-
         return cls(
             name=data.get("name", "small"),
-            backend=backend,
+            backend=normalize_backend_name(str(data.get("backend", "faster-whisper"))),
             device=data.get("device", "cpu"),
             compute_type=data.get("compute_type", "int8"),
             auto_download=data.get("auto_download", True),
@@ -153,31 +145,21 @@ class AppConfig:
         return data
 
 
-_config_logger = logging.getLogger(__name__)
+SUPPORTED_BACKENDS = ("faster-whisper", "whisper.cpp")
 
-_OLD_CONFIG_DIR = "whisper-local"
-_NEW_CONFIG_DIR = "whisper.local"
+
+def normalize_backend_name(name: str) -> str:
+    """Normalize a backend name to a canonical form."""
+    normalized = (name or "").strip().lower()
+    if normalized in SUPPORTED_BACKENDS:
+        return normalized
+    if normalized in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
+        return "whisper.cpp"
+    return "faster-whisper"
 
 
 def default_config_path() -> Path:
-    new_path = Path("~/.config", _NEW_CONFIG_DIR, "config.toml").expanduser()
-    if not new_path.exists():
-        old_path = Path("~/.config", _OLD_CONFIG_DIR, "config.toml").expanduser()
-        if old_path.exists():
-            try:
-                new_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(old_path), str(new_path))
-                _config_logger.info(
-                    "Migrated config from %s to %s", old_path, new_path
-                )
-            except Exception:
-                _config_logger.exception(
-                    "Failed to migrate config from %s to %s",
-                    old_path,
-                    new_path,
-                )
-                return old_path
-    return new_path
+    return Path("~/.config/whisper.local/config.toml").expanduser()
 
 
 def _load_default_config() -> dict[str, Any]:

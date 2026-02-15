@@ -18,7 +18,14 @@ from websockets.server import WebSocketServerProtocol
 
 from whisper_local.audio import AudioRecorder
 from whisper_local.audio_file import DEFAULT_DECODE_SAMPLE_RATE, load_audio_file
-from whisper_local.config import AppConfig, default_config_path, load_config, save_config
+from whisper_local.config import (
+    AppConfig,
+    SUPPORTED_BACKENDS,
+    default_config_path,
+    load_config,
+    normalize_backend_name,
+    save_config,
+)
 from whisper_local.hotkey import HotkeyListener, parse_hotkey
 from whisper_local.model_manager import (
     DownloadCancelledError,
@@ -807,8 +814,12 @@ class BridgeServer:
         path = Path(candidate).expanduser()
         try:
             if path.is_absolute():
-                return path.resolve(strict=False)
-            return (Path.cwd() / path).resolve(strict=False)
+                resolved = path.resolve(strict=False)
+            else:
+                resolved = (Path.cwd() / path).resolve(strict=False)
+            if not resolved.is_relative_to(Path.home()) and not resolved.is_relative_to(Path.cwd()):
+                return None
+            return resolved
         except Exception:
             return None
 
@@ -1107,7 +1118,12 @@ class BridgeServer:
         return None
 
     async def _reload_transcriber(self) -> None:
-        """Load a fresh transcriber from current model config and swap it in."""
+        """Load a fresh transcriber from current model config and swap it in.
+
+        In-flight transcriptions capture their transcriber reference before
+        this swap occurs, so they complete with the previous model. New
+        recordings will use the updated transcriber.
+        """
         async with self._model_reload_lock:
             next_transcriber = Transcriber(
                 model_name=self.config.model.name,
@@ -1128,12 +1144,8 @@ class BridgeServer:
                 await self._set_status("ready", "Ready")
 
     async def _set_model_backend(self, backend_name: str) -> None:
-        normalized = str(backend_name).strip().lower()
-        if normalized in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
-            normalized = "whisper.cpp"
-
-        supported = {"faster-whisper", "whisper.cpp"}
-        if normalized not in supported:
+        normalized = normalize_backend_name(backend_name)
+        if normalized not in SUPPORTED_BACKENDS:
             await self._broadcast(
                 {
                     "type": "toast",

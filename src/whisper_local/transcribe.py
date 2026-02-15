@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import wave
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ try:  # pragma: no cover - optional runtime import
 except Exception:  # pragma: no cover - optional runtime import
     ctranslate2 = None  # type: ignore[assignment]
 
+from whisper_local.config import normalize_backend_name
 from whisper_local.model_manager import (
     MODEL_NAMES,
     ensure_model_available,
@@ -37,8 +39,6 @@ from whisper_local.model_manager import (
 
 
 logger = logging.getLogger(__name__)
-
-SUPPORTED_BACKENDS = ("faster-whisper", "whisper.cpp")
 WHISPER_CPP_REPO_ID = "ggerganov/whisper.cpp"
 WHISPER_CPP_BINARIES = ("whisper-cli", "whisper-cpp", "main")
 WHISPER_CPP_MODEL_FILES: dict[str, str] = {
@@ -48,6 +48,7 @@ WHISPER_CPP_MODEL_FILES: dict[str, str] = {
     "medium": "ggml-medium.bin",
     "large-v2": "ggml-large-v2.bin",
     "large-v3": "ggml-large-v3.bin",
+    "large-v3-turbo": "ggml-large-v3-turbo.bin",
 }
 
 
@@ -57,15 +58,17 @@ class TranscriptionResult:
     language: str | None
 
 
-class _BackendBase:
+class _BackendBase(ABC):
     backend_name = "unknown"
 
-    def load(self) -> None:  # pragma: no cover - interface contract
+    @abstractmethod
+    def load(self) -> None:
         raise NotImplementedError
 
+    @abstractmethod
     def transcribe(
         self, audio: np.ndarray, sample_rate: int, language: str | None = None
-    ) -> TranscriptionResult:  # pragma: no cover - interface contract
+    ) -> TranscriptionResult:
         raise NotImplementedError
 
     def runtime_info(self) -> dict[str, str]:
@@ -98,6 +101,19 @@ class FasterWhisperBackend(_BackendBase):
         self._effective_compute_type = "int8"
         self._model_source: str | None = None
 
+    def _resolve_model_source(self) -> str:
+        """Resolve the model source path from config, cache, or download."""
+        if self.model_path:
+            return self.model_path
+        if self.auto_download:
+            return str(ensure_model_available(self.model_name))
+        local_path = get_installed_model_path(self.model_name)
+        if local_path is None:
+            raise RuntimeError(
+                f"Model {self.model_name} is not installed and auto_download is disabled"
+            )
+        return str(local_path)
+
     def load(self) -> None:
         if self._model is not None:
             return
@@ -106,18 +122,7 @@ class FasterWhisperBackend(_BackendBase):
                 "faster-whisper backend unavailable. Install with: python -m pip install faster-whisper"
             )
 
-        if self.model_path:
-            model_source = self.model_path
-        elif self.auto_download:
-            model_source = str(ensure_model_available(self.model_name))
-        else:
-            local_path = get_installed_model_path(self.model_name)
-            if local_path is None:
-                raise RuntimeError(
-                    f"Model {self.model_name} is not installed and auto_download is disabled"
-                )
-            model_source = str(local_path)
-
+        model_source = self._resolve_model_source()
         self.model_path = model_source
         device, compute_type = _resolve_faster_runtime(self.device, self.compute_type)
         self._effective_device = device
@@ -165,37 +170,14 @@ class FasterWhisperBackend(_BackendBase):
         return TranscriptionResult(text=text, language=info.language)
 
     def _reload_model_from_local(self) -> None:
-        if self.model_path:
-            local_path = self.model_path
-        elif self.auto_download:
-            local_path = str(ensure_model_available(self.model_name))
-        else:
-            installed_path = get_installed_model_path(self.model_name)
-            if installed_path is None:
-                raise RuntimeError(
-                    f"Model {self.model_name} is not installed and auto_download is disabled"
-                )
-            local_path = str(installed_path)
-
-        self.model_path = local_path
+        self.model_path = self._resolve_model_source()
         self._model = None
         self.load()
 
     def _transcribe_in_subprocess(
         self, audio: np.ndarray, language: str | None
     ) -> TranscriptionResult:
-        if self.model_path:
-            model_source = self.model_path
-        elif self.auto_download:
-            model_source = str(ensure_model_available(self.model_name))
-        else:
-            installed_path = get_installed_model_path(self.model_name)
-            if installed_path is None:
-                raise RuntimeError(
-                    f"Model {self.model_name} is not installed and auto_download is disabled"
-                )
-            model_source = str(installed_path)
-
+        model_source = self._resolve_model_source()
         device, compute_type = _resolve_faster_runtime(self.device, self.compute_type)
 
         with tempfile.NamedTemporaryFile(suffix=".npy", delete=True) as handle:
@@ -369,7 +351,7 @@ class Transcriber:
         auto_download: bool = True,
     ) -> None:
         self.model_name = model_name
-        self.backend = _normalize_backend_name(backend)
+        self.backend = normalize_backend_name(backend)
         self.device = device
         self.compute_type = compute_type
         self.model_path = model_path
@@ -398,7 +380,7 @@ class Transcriber:
 
 
 def detect_runtime_capabilities(selected_backend: str | None = None) -> dict[str, Any]:
-    backend_name = _normalize_backend_name(selected_backend or "faster-whisper")
+    backend_name = normalize_backend_name(selected_backend or "faster-whisper")
 
     faster_backend_enabled = WhisperModel is not None
     faster_backend_reason = (
@@ -515,15 +497,6 @@ def ensure_whisper_cpp_installed() -> None:
     raise RuntimeError(
         "whisper.cpp is required but not installed. Install with: brew install whisper-cpp"
     )
-
-
-def _normalize_backend_name(name: str) -> str:
-    normalized = (name or "").strip().lower()
-    if normalized in SUPPORTED_BACKENDS:
-        return normalized
-    if normalized in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
-        return "whisper.cpp"
-    return "faster-whisper"
 
 
 def _create_backend(
