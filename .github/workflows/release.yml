@@ -211,6 +211,11 @@ jobs:
             --repository "${GITHUB_REPOSITORY}" \
             --tap-repo-path homebrew-tap
 
+      - name: Ensure tap alias exists
+        run: |
+          mkdir -p homebrew-tap/Aliases
+          ln -sfn ../Formula/whisper-local.rb homebrew-tap/Aliases/whisper.local
+
       - name: Commit and push formula update
         env:
           VERSION: ${{ github.ref_name }}
@@ -218,7 +223,7 @@ jobs:
           VERSION="${VERSION#v}"
           git -C homebrew-tap config user.name "github-actions[bot]"
           git -C homebrew-tap config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C homebrew-tap add Formula/whisper-local.rb
+          git -C homebrew-tap add Formula/whisper-local.rb Aliases/
           if git -C homebrew-tap diff --cached --quiet; then
             echo "No formula changes to commit."
             exit 0
