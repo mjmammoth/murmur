@@ -110,6 +110,7 @@ Defaults live in `configs/default.toml`. The app reads overrides from:
 Planned for first release. The formula will install from wheels and provide a soft RNNoise hint.
 
 Packaging note for optional dependencies:
+
 - Python optional extras (e.g. `whisper-local[rnnoise]`) are **not** auto-installed unless requested.
 - Homebrew formula dependencies are installed by brew; for this project, `whisper-cpp` should be a required
   formula dependency (hard dependency).
