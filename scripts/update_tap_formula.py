@@ -13,6 +13,14 @@ VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments for rendering and writing a Homebrew formula for whisper-local.
+    
+    The returned namespace contains the following attributes: version, wheel_url, wheel_sha256, tui_url, tui_sha256, repository, tap_repo_path, formula_path, and template. The `--repository` value defaults to the GITHUB_REPOSITORY environment variable when present.
+     
+    Returns:
+        args (argparse.Namespace): Parsed command-line arguments with attributes used to render and write the formula.
+    """
     parser = argparse.ArgumentParser(description="Render Homebrew formula for whisper-local.")
     parser.add_argument("--version", required=True, help="Release version without v prefix")
     parser.add_argument("--wheel-url", required=True, help="URL to Python wheel")
@@ -43,6 +51,23 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    """
+    Validate parsed CLI arguments for expected formats and required values.
+    
+    Checks that:
+    - `args.version` matches the module-level VERSION_PATTERN.
+    - `args.repository` is non-empty and contains a forward slash.
+    - `args.wheel_url` ends with ".whl".
+    - `args.tui_url` ends with ".tar.gz".
+    - `args.wheel_sha256` and `args.tui_sha256` are 64-character hexadecimal strings.
+    
+    Parameters:
+        args (argparse.Namespace): Parsed command-line arguments produced by parse_args().
+    
+    Raises:
+        ValueError: If any argument fails its validation check (invalid version, repository,
+        wheel/tui URL suffix, or SHA256 format).
+    """
     if not VERSION_PATTERN.match(args.version):
         raise ValueError(f"Invalid version: {args.version}")
     if not args.repository or "/" not in args.repository:
@@ -60,6 +85,22 @@ def validate_args(args: argparse.Namespace) -> None:
 
 
 def render_formula(args: argparse.Namespace) -> str:
+    """
+    Render a Homebrew formula by substituting template placeholders with values from the parsed arguments.
+    
+    Parameters:
+        args (argparse.Namespace): Parsed arguments containing the following attributes used for substitution:
+            - version: version string to insert for `VERSION`
+            - repository: repository identifier to insert for `REPOSITORY`
+            - wheel_url: URL to the wheel file for `WHEEL_URL`
+            - wheel_sha256: 64-character SHA256 for `WHEEL_SHA256`
+            - tui_url: URL to the TUI tarball for `TUI_URL`
+            - tui_sha256: 64-character SHA256 for `TUI_SHA256`
+            - template: filesystem path to the template file
+    
+    Returns:
+        str: The rendered formula content with all placeholders substituted.
+    """
     template_path = Path(args.template)
     template = Template(template_path.read_text(encoding="utf-8"))
     return template.substitute(
@@ -73,6 +114,17 @@ def render_formula(args: argparse.Namespace) -> str:
 
 
 def write_formula(rendered_formula: str, tap_repo_path: Path, formula_path: Path) -> Path:
+    """
+    Write the rendered Homebrew formula into the tap repository and return the written file path.
+    
+    Parameters:
+        rendered_formula (str): The templated formula content to write.
+        tap_repo_path (Path): Filesystem path to the root of the tap repository.
+        formula_path (Path): Path to the formula file relative to `tap_repo_path`.
+    
+    Returns:
+        output_path (Path): The full path to the written formula file inside the tap repository.
+    """
     output_path = tap_repo_path / formula_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered_formula, encoding="utf-8")
@@ -80,6 +132,15 @@ def write_formula(rendered_formula: str, tap_repo_path: Path, formula_path: Path
 
 
 def main() -> int:
+    """
+    Run the script workflow: parse and validate arguments, render the Homebrew formula from the template, and write it into the specified tap repository.
+    
+    Raises:
+        FileNotFoundError: If the resolved tap repository path does not exist.
+    
+    Returns:
+        int: Exit code 0 on success.
+    """
     args = parse_args()
     validate_args(args)
 

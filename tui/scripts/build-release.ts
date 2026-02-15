@@ -7,6 +7,15 @@ type PackageJson = {
   version: string;
 };
 
+/**
+ * Execute a command synchronously in a specified working directory and return its trimmed stdout.
+ *
+ * @param command - The executable or program to run (e.g., "git", "tar", "bun")
+ * @param args - Array of command-line arguments passed to `command`
+ * @param cwd - Working directory in which to run the command
+ * @returns The command's standard output with leading and trailing whitespace removed
+ * @throws Error if the process exits with a non-zero status; the error message includes the command and its stderr or stdout output
+ */
 function run(command: string, args: string[], cwd: string): string {
   const result = spawnSync(command, args, {
     cwd,
@@ -21,6 +30,11 @@ function run(command: string, args: string[], cwd: string): string {
   return result.stdout.trim();
 }
 
+/**
+ * Builds the TUI for macOS ARM64, packages the resulting binary into a tar.gz under dist/tui, and writes a release manifest.
+ *
+ * The manifest contains the package version (from tui/package.json), target architecture, ISO build timestamp, git commit SHA, binary name, and tarball filename.
+ */
 function main(): void {
   const scriptDir = dirname(fileURLToPath(import.meta.url));
   const tuiRoot = resolve(scriptDir, "..");

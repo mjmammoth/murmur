@@ -7,6 +7,14 @@ import { useBackend } from "../context/backend";
 import { exitApp } from "../util/exit";
 import type { ExitConfirmDialogData } from "../types";
 
+/**
+ * Render a modal prompting the user to confirm exiting while a model download is in progress.
+ *
+ * The modal shows the current model name and download progress (when available) and
+ * binds keyboard shortcuts to either cancel (Esc / N) or confirm exit (Enter / Y / Q / Ctrl+C).
+ *
+ * @returns A JSX element representing the exit confirmation modal
+ */
 export function ExitConfirmModal(): JSX.Element {
   const { colors } = useTheme();
   const dialog = useDialog();

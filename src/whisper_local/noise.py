@@ -186,6 +186,14 @@ def _resolve_rnnoise_library_path() -> str | None:
 
 
 def _rnnoise_library_candidates() -> list[str]:
+    """
+    Gather candidate filesystem or linker names for the RNNoise shared library in search order.
+    
+    The list includes: the RNNOISE_LIB environment variable (if set), the result of ctypes.util.find_library("rnnoise") (if any), and platform-specific candidate paths returned by _candidate_rnnoise_paths(); duplicate entries are removed while preserving their original order.
+    
+    Returns:
+        list[str]: Ordered, deduplicated candidate paths or library names to try when locating the RNNoise library.
+    """
     candidates: list[str] = []
     env_path = os.environ.get("RNNOISE_LIB")
     if env_path:

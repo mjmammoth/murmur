@@ -22,6 +22,13 @@ import { ExitConfirmModal } from "../component/exit-confirm-modal";
 import { exitApp } from "../util/exit";
 import type { ModelManagerDialogData } from "../types";
 
+/**
+ * Renders the main application Home screen, coordinating the primary transcript pane, optional logs panel, keyboard shortcuts, paste handling, backend interactions, and modal dialogs.
+ *
+ * The component manages UI state (logs visibility, active pane, log level), subscribes to backend and terminal dimension changes, handles global hotkeys and paste events, and conditionally renders modal overlays such as model manager, settings, hotkey/help, theme picker, and exit confirmation.
+ *
+ * @returns The root JSX element for the Home screen layout containing the header, transcript list, footer, optional logs panel, toast container, and modal overlays. 
+ */
 export function Home(): JSX.Element {
   const LOGS_PANEL_WIDTH_COLS = 48;
   const LOGS_PANEL_MIN_TERMINAL_WIDTH = 115;

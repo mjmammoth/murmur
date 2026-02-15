@@ -47,6 +47,16 @@ function ToggleHint(props: ToggleHintProps): JSX.Element {
   );
 }
 
+/**
+ * Render the application header with an animated brand color strip and configuration toggles.
+ *
+ * The left side displays " whisper.local " as a sequence of colored tiles whose background
+ * interpolates between the theme's brandStart and brandEnd based on distance from a peak
+ * near the dot. The right side shows toggle hints for noise suppression (`n`), VAD (`v`),
+ * auto copy (`a`), and auto paste (`p`) reflecting the current configuration signals.
+ *
+ * @returns A JSX element containing the header UI: the animated brand strip on the left and the toggle hints on the right.
+ */
 export function Header(): JSX.Element {
   const { colors } = useTheme();
   const config = useConfig();

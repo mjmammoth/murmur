@@ -34,6 +34,14 @@ function CommandHint(props: { keys: string; label: string }): JSX.Element {
   );
 }
 
+/**
+ * Renders the Models management dialog that lets users browse, download (pull), select, and remove models.
+ *
+ * The UI shows available models, the currently selected model, active operations (download/remove), and status messages.
+ * It also handles keyboard shortcuts for navigation and actions when the dialog is active.
+ *
+ * @returns The JSX element for the Models management dialog
+ */
 export function ModelManager(): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();
