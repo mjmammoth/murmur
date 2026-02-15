@@ -218,6 +218,14 @@ def _rnnoise_library_candidates() -> list[str]:
 
 
 def _candidate_rnnoise_paths() -> list[Path]:
+    """
+    Return candidate filesystem paths where an RNNoise dynamic library may be installed on macOS.
+    
+    The list includes the user's Audio Plug-Ins Components path, the system Audio Plug-Ins Components path, and any Homebrew Caskroom rnnoise installs (each resolved to the macOS RNNoise component path) appended in descending version order.
+    
+    Returns:
+        list[Path]: Ordered list of filesystem Paths to probe for an RNNoise library; earlier entries are preferred.
+    """
     candidates = [
         Path.home() / "Library/Audio/Plug-Ins/Components/rnnoise.component/Contents/MacOS/rnnoise",
         Path("/Library/Audio/Plug-Ins/Components/rnnoise.component/Contents/MacOS/rnnoise"),

@@ -23,11 +23,11 @@ import { exitApp } from "../util/exit";
 import type { ModelManagerDialogData } from "../types";
 
 /**
- * Renders the main application Home screen, coordinating the primary transcript pane, optional logs panel, keyboard shortcuts, paste handling, backend interactions, and modal dialogs.
+ * Render the application's Home screen and manage its UI state, global input handlers, backend interactions, and modal overlays.
  *
- * The component manages UI state (logs visibility, active pane, log level), subscribes to backend and terminal dimension changes, handles global hotkeys and paste events, and conditionally renders modal overlays such as model manager, settings, hotkey/help, theme picker, and exit confirmation.
+ * Renders the header, transcript list, footer, optional logs panel, toast container, and any active modal dialogs while coordinating keyboard shortcuts, paste handling, and backend requests.
  *
- * @returns The root JSX element for the Home screen layout containing the header, transcript list, footer, optional logs panel, toast container, and modal overlays. 
+ * @returns The root JSX element for the Home screen layout
  */
 export function Home(): JSX.Element {
   const LOGS_PANEL_WIDTH_COLS = 48;
@@ -92,6 +92,11 @@ export function Home(): JSX.Element {
     backend.send({ type: "set_hotkey_blocked", enabled: dialog.isOpen() });
   });
 
+  /**
+   * Prompt for confirmation when a model is actively being pulled, otherwise exit the application.
+   *
+   * If a model pull operation is in progress and the exit-confirm dialog is not already open, opens the exit-confirm dialog for that model; in all other cases, exits the app immediately.
+   */
   function requestExit() {
     const activeOp = backend.activeModelOp();
     const currentDialog = dialog.currentDialog();

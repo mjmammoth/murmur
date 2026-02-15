@@ -102,10 +102,10 @@ def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
 
 def _run_tui(host: str, port: int) -> subprocess.Popen:
     """
-    Start the external TUI process bound to the given host and port.
+    Start the external TUI process using the resolved TUI runtime and bind it to the given host and port.
     
     Returns:
-        subprocess.Popen: The subprocess object for the started TUI process.
+        subprocess.Popen: The subprocess running the TUI.
     """
     runtime = resolve_tui_runtime(cli_file=__file__)
     logger.info("Starting TUI runtime mode=%s", runtime.mode)
@@ -117,8 +117,11 @@ def _start_status_indicator(host: str, port: int) -> subprocess.Popen | None:
     """
     Start the macOS menu bar status indicator sidecar.
     
+    Attempts to launch the status indicator as a subprocess and returns the process handle. If the current platform is not macOS or the process fails to start, returns `None`.
+     
     Returns:
-        subprocess.Popen | None: The started subprocess for the status indicator, or `None` if not started (for example, when not running on macOS or if the process failed to launch).
+        subprocess.Popen: The started status indicator process.
+        `None` if the indicator was not started (for example, not running on macOS or process launch failed).
     """
     if sys.platform != "darwin":
         return None
@@ -162,12 +165,12 @@ def _restore_terminal_state() -> None:
 
 def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
     """
-    Run the bridge server and the terminal UI (TUI) together, coordinating their startup and shutdown.
+    Run the bridge server and the terminal user interface (TUI) together and coordinate their startup and shutdown.
     
     Parameters:
-        host (str): Network interface or hostname for the bridge and TUI to bind to.
-        port (int): TCP port for the bridge and TUI to use.
-        status_indicator (bool): If True, attempt to start the platform status indicator (macOS only).
+        host: Network interface or hostname used by both the bridge server and the TUI.
+        port: TCP port used by both the bridge server and the TUI.
+        status_indicator: If True, attempt to start the platform status indicator (macOS only); may be ignored on other platforms.
     """
     _ensure_runtime_dependencies()
 
@@ -279,20 +282,16 @@ def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
 
 def main() -> None:
     """
-    Parse command-line arguments and dispatch subcommands to run the application components.
+    Parse CLI arguments and dispatch the selected subcommand to run the application's components.
     
-    Supported subcommands:
-    - run (default): start either the legacy Textual TUI or the new TypeScript TUI with an optional status indicator; accepts host, port, legacy, and no-status-indicator flags.
-    - bridge: start the bridge server on the given host and port.
-    - tui: start only the TUI subprocess and wait for it, restoring terminal state on exit.
-    - models: manage models with subcommands:
-        - list: print installed and available models.
-        - pull <name>: download the specified model.
-        - remove <name>: remove the specified model.
-        - select|set-default <name>: set the selected model.
+    Recognizes these subcommands:
+    - run (default): start the legacy Textual TUI or the new TypeScript TUI (supports host, port, legacy flag, and status-indicator toggle).
+    - bridge: start the bridge server on a given host and port.
+    - tui: start the TUI subprocess and wait for it; restores terminal state on exit.
+    - models: manage models with subcommands `list`, `pull <name>`, `remove <name>`, and `select|set-default <name>`.
     - config: load and print configuration sections and values from an optional path.
     
-    Exits or prints errors for fatal runtime failures and ensures terminal state is restored where applicable.
+    Performs terminal restoration where applicable and prints or exits on fatal runtime errors.
     """
     parser = build_parser()
     args = parser.parse_args()

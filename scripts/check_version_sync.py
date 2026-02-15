@@ -10,12 +10,12 @@ from pathlib import Path
 
 def parse_args() -> argparse.Namespace:
     """
-    Parse command-line arguments for verifying package version synchronization.
+    Parse command-line options for locating pyproject.toml and the package __init__.py.
     
     Returns:
         argparse.Namespace: Parsed arguments with attributes:
-            - pyproject: path to pyproject.toml (default: "pyproject.toml")
-            - init_file: path to the package __init__.py (default: "src/whisper_local/__init__.py")
+            pyproject (str): Path to pyproject.toml (default: "pyproject.toml")
+            init_file (str): Path to the package __init__.py (default: "src/whisper_local/__init__.py")
     """
     parser = argparse.ArgumentParser(description="Ensure package versions stay synchronized.")
     parser.add_argument(
@@ -55,22 +55,22 @@ def read_pyproject_version(path: Path) -> str:
 
 def read_init_version(path: Path) -> str:
     """
-    Extract the package version string from an __init__.py file.
+    Retrieve the package version declared in the given __init__.py file.
     
     Parameters:
-        path (Path): Path to the __init__.py file to read.
+        path (Path): Path to the __init__.py file to read. The file is expected to contain an assignment of the form `__version__ = "x.y.z"`.
     
     Returns:
-        str: The version string assigned to `__version__`.
+        version (str): The string value assigned to `__version__` (without surrounding quotes).
     
     Raises:
-        ValueError: If no `__version__` assignment is found in the file.
+        ValueError: If no `__version__` assignment in the expected format is found in the file.
     """
     text = path.read_text(encoding="utf-8")
-    match = re.search(r'^__version__\s*=\s*(["\'])([^"\']+)\1\s*$', text, re.MULTILINE)
+    match = re.search(r'^__version__\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
     if match is None:
         raise ValueError(f"Unable to find __version__ assignment in {path}")
-    return match.group(2)
+    return match.group(1)
 
 
 def main() -> int:

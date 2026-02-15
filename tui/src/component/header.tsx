@@ -27,6 +27,14 @@ interface ToggleHintProps {
   active: boolean;
 }
 
+/**
+ * Render a compact keyboard hint showing a label with one character highlighted and its enabled state.
+ *
+ * @param props.keyChar - Single character to highlight within `label` (match is case-insensitive). If not found, `keyChar` is shown after the label.
+ * @param props.label - Text label containing the key to highlight.
+ * @param props.active - Feature state; determines whether the indicator displays "on" (active) or "off" (inactive).
+ * @returns A JSX element that displays the label with the highlighted key followed by ": on" or ": off".
+ */
 function ToggleHint(props: ToggleHintProps): JSX.Element {
   const { colors } = useTheme();
   const idx = Math.max(0, props.label.toLowerCase().indexOf(props.keyChar.toLowerCase()));
