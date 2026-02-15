@@ -45,7 +45,7 @@ export function Home(): JSX.Element {
     if (!logsVisible()) return fullWidth;
     return Math.max(0, Math.floor(fullWidth * (1 - LOGS_PANEL_WIDTH_RATIO)));
   };
-  const logsTooNarrowMessage = () => "UI too narrow for logs. Please expand.";
+  const logsTooNarrowMessage = () => "UI too narrow for logs.";
   const firstRunSetupRequired = () => Boolean(backend.config()?.first_run_setup_required);
 
   createEffect(() => {
