@@ -108,6 +108,8 @@ class BridgeServer:
         self._model_op_lock = asyncio.Lock()
         self._file_transcription_lock = asyncio.Lock()
         self._runtime_capabilities = self._detect_runtime_capabilities()
+        self._runtime_capabilities_updated_at = monotonic()
+        self._runtime_capabilities_dirty = False
         self._shutdown_requested = threading.Event()
 
         self._background_tasks: set[asyncio.Task] = set()
@@ -234,8 +236,24 @@ class BridgeServer:
     def _detect_runtime_capabilities(self) -> dict[str, Any]:
         return detect_runtime_capabilities(self.config.model.backend)
 
-    def _refresh_runtime_capabilities(self) -> None:
+    _RUNTIME_CAPS_TTL = 30.0
+
+    def _refresh_runtime_capabilities(self, *, force: bool = False) -> None:
+        now = monotonic()
+        if not force and not self._runtime_capabilities_dirty:
+            if (now - self._runtime_capabilities_updated_at) < self._RUNTIME_CAPS_TTL:
+                return
         self._runtime_capabilities = self._detect_runtime_capabilities()
+        self._runtime_capabilities_updated_at = now
+        self._runtime_capabilities_dirty = False
+
+    def _invalidate_runtime_capabilities(self) -> None:
+        self._runtime_capabilities_dirty = True
+
+    def _set_runtime_capabilities(self, capabilities: dict[str, Any]) -> None:
+        self._runtime_capabilities = capabilities
+        self._runtime_capabilities_updated_at = monotonic()
+        self._runtime_capabilities_dirty = False
 
     async def _load_model_async(self) -> None:
         """Load the transcription model asynchronously."""
@@ -677,7 +695,7 @@ class BridgeServer:
                 continue
             seen.add(normalized)
 
-            if not path.exists():
+            if not await asyncio.to_thread(path.exists):
                 await self._broadcast(
                     {
                         "type": "toast",
@@ -686,7 +704,7 @@ class BridgeServer:
                     }
                 )
                 continue
-            if not path.is_file():
+            if not await asyncio.to_thread(path.is_file):
                 await self._broadcast(
                     {
                         "type": "toast",
@@ -1082,7 +1100,7 @@ class BridgeServer:
             self.transcriber = next_transcriber
             self._model_loaded = True
             self._first_run_setup_required = False
-            self._refresh_runtime_capabilities()
+            self._refresh_runtime_capabilities(force=True)
             if self._has_active_clients():
                 self._start_hotkey()
             if not self._recording and self._transcribing_jobs <= 0:
@@ -1119,12 +1137,12 @@ class BridgeServer:
                     "level": "error",
                 }
             )
-            self._runtime_capabilities = capabilities
+            self._set_runtime_capabilities(capabilities)
             await self._broadcast_config()
             return
 
         if self.config.model.backend == normalized:
-            self._runtime_capabilities = capabilities
+            self._set_runtime_capabilities(capabilities)
             await self._broadcast_config()
             return
 
@@ -1132,7 +1150,7 @@ class BridgeServer:
         previous_device = self.config.model.device
         previous_compute_type = self.config.model.compute_type
         self.config.model.backend = normalized
-        self._runtime_capabilities = capabilities
+        self._set_runtime_capabilities(capabilities)
 
         runtime_model = capabilities.get("model", {})
         runtime_devices = runtime_model.get("devices", {})
@@ -1174,7 +1192,7 @@ class BridgeServer:
             self.config.model.backend = previous_backend
             self.config.model.device = previous_device
             self.config.model.compute_type = previous_compute_type
-            self._runtime_capabilities = detect_runtime_capabilities(previous_backend)
+            self._set_runtime_capabilities(detect_runtime_capabilities(previous_backend))
             rollback_error = self._persist_config("model backend rollback")
             await self._broadcast_config()
             await self._broadcast(
@@ -1206,7 +1224,7 @@ class BridgeServer:
             )
 
     async def _set_model_device(self, device: str) -> None:
-        self._refresh_runtime_capabilities()
+        self._refresh_runtime_capabilities(force=True)
         normalized = str(device).strip().lower()
         if normalized not in {"cpu", "cuda", "mps"}:
             await self._broadcast(
@@ -1276,7 +1294,7 @@ class BridgeServer:
             )
 
     async def _set_model_compute_type(self, compute_type: str) -> None:
-        self._refresh_runtime_capabilities()
+        self._refresh_runtime_capabilities(force=True)
         normalized = str(compute_type).strip().lower()
         allowed = {"default", "int8", "float16", "float32", "int8_float16", "int8_float32"}
         if normalized not in allowed:
@@ -1573,8 +1591,9 @@ class BridgeServer:
             try:
                 self.recorder.stop()
             except Exception:
-                pass
-            self._recording = False
+                logger.debug("Error stopping recorder during shutdown", exc_info=True)
+            finally:
+                self._recording = False
         if self._hotkey_started and self.hotkey:
             self.hotkey.stop()
         if self.noise:
