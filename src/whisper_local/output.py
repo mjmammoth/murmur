@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import subprocess
+import sys
 from pathlib import Path
 
 import pyperclip
@@ -9,11 +11,41 @@ import pyperclip
 logger = logging.getLogger(__name__)
 
 
-def copy_to_clipboard(text: str) -> None:
+def copy_to_clipboard(text: str) -> bool:
     try:
         pyperclip.copy(text)
+        return True
     except pyperclip.PyperclipException as exc:
         logger.warning("Clipboard copy failed: %s", exc)
+        return False
+
+
+def paste_from_clipboard() -> bool:
+    """Paste current clipboard contents into the focused macOS app."""
+    if sys.platform != "darwin":
+        logger.warning("Auto paste is currently supported only on macOS")
+        return False
+
+    try:
+        subprocess.run(
+            [
+                "osascript",
+                "-e",
+                'tell application "System Events" to keystroke "v" using command down',
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return True
+    except FileNotFoundError:
+        logger.warning("Auto paste failed: osascript is not available")
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        logger.warning("Auto paste failed: %s", detail)
+    except Exception as exc:  # pragma: no cover - runtime dependent
+        logger.warning("Auto paste failed: %s", exc)
+    return False
 
 
 def append_to_file(path: Path, text: str) -> None:

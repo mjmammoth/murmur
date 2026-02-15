@@ -23,7 +23,7 @@ from whisper_local.model_manager import (
     set_selected_model,
 )
 from whisper_local.noise import RNNoiseSuppressor
-from whisper_local.output import append_to_file, copy_to_clipboard
+from whisper_local.output import append_to_file, copy_to_clipboard, paste_from_clipboard
 from whisper_local.transcribe import Transcriber
 from whisper_local.vad import VadProcessor
 
@@ -172,6 +172,7 @@ class WhisperApp(App):
         ("c", "copy_latest", "Copy latest"),
         ("enter", "copy_selected", "Copy selected"),
         ("a", "toggle_auto_copy", "Auto copy"),
+        ("p", "toggle_auto_paste", "Auto paste"),
         ("n", "toggle_noise", "Noise"),
         ("v", "toggle_vad", "VAD"),
         ("m", "models", "Models"),
@@ -196,7 +197,8 @@ class WhisperApp(App):
             on_release=self._handle_hotkey_release,
         )
         self._recording = False
-        self._auto_copy = False
+        self._auto_copy = bool(config.auto_copy)
+        self._auto_paste = bool(config.auto_paste)
         self._entries: list[TranscriptEntry] = []
         self._status_message = "Initializing..."
         self._busy_operation = False
@@ -232,8 +234,17 @@ class WhisperApp(App):
 
     def action_toggle_auto_copy(self) -> None:
         self._auto_copy = not self._auto_copy
+        self.config.auto_copy = self._auto_copy
+        save_config(self.config)
         state = "on" if self._auto_copy else "off"
         self._set_status(f"Auto copy {state}")
+
+    def action_toggle_auto_paste(self) -> None:
+        self._auto_paste = not self._auto_paste
+        self.config.auto_paste = self._auto_paste
+        save_config(self.config)
+        state = "on" if self._auto_paste else "off"
+        self._set_status(f"Auto paste {state}")
 
     def action_toggle_noise(self) -> None:
         self.config.audio.noise_suppression.enabled = not self.config.audio.noise_suppression.enabled
@@ -254,15 +265,19 @@ class WhisperApp(App):
             self._set_status("No transcripts yet")
             return
         latest = self._entries[-1]
-        copy_to_clipboard(latest.text)
-        self._set_status("Copied latest transcript")
+        if copy_to_clipboard(latest.text):
+            self._set_status("Copied latest transcript")
+        else:
+            self._set_status("Clipboard copy failed")
 
     def action_copy_selected(self) -> None:
         list_view = self.query_one("#history", ListView)
         item = list_view.get_highlighted() if hasattr(list_view, "get_highlighted") else list_view.highlighted_child
         if isinstance(item, TranscriptItem):
-            copy_to_clipboard(item.entry.text)
-            self._set_status("Copied selected transcript")
+            if copy_to_clipboard(item.entry.text):
+                self._set_status("Copied selected transcript")
+            else:
+                self._set_status("Clipboard copy failed")
 
     def _handle_hotkey_press(self) -> None:
         self.call_from_thread(self._on_hotkey_press)
@@ -329,8 +344,11 @@ class WhisperApp(App):
         list_view.append(TranscriptItem(entry))
         list_view.index = len(list_view.children) - 1
 
-        if self.config.output.clipboard or self._auto_copy:
-            copy_to_clipboard(text)
+        copied_to_clipboard = True
+        if self.config.output.clipboard or self._auto_copy or self._auto_paste:
+            copied_to_clipboard = copy_to_clipboard(text)
+        if self._auto_paste and copied_to_clipboard:
+            paste_from_clipboard()
         if self.config.output.file.enabled:
             append_to_file(self.config.output.file.path, text)
         self._set_ready_status("Ready")

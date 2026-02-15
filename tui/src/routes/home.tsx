@@ -156,6 +156,9 @@ export function Home(): JSX.Element {
       case "a":
         config.toggleAutoCopy();
         break;
+      case "p":
+        config.toggleAutoPaste();
+        break;
       case "n":
         config.toggleNoise();
         break;

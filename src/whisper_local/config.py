@@ -135,6 +135,7 @@ class AppConfig:
     output: OutputConfig = field(default_factory=OutputConfig)
     ui: UiConfig = field(default_factory=UiConfig)
     auto_copy: bool = False
+    auto_paste: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -195,6 +196,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         output=OutputConfig.from_dict(merged.get("output", {})),
         ui=UiConfig.from_dict(merged.get("ui", {})),
         auto_copy=bool(merged.get("auto_copy", False)),
+        auto_paste=bool(merged.get("auto_paste", False)),
     )
 
     if config.model.path:

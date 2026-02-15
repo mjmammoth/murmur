@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import shlex
 import threading
 from datetime import datetime
@@ -36,7 +37,7 @@ from whisper_local.model_manager import (
     remove_model,
 )
 from whisper_local.noise import RNNoiseSuppressor
-from whisper_local.output import append_to_file, copy_to_clipboard
+from whisper_local.output import append_to_file, copy_to_clipboard, paste_from_clipboard
 from whisper_local.transcribe import (
     Transcriber,
     detect_runtime_capabilities,
@@ -102,6 +103,7 @@ class BridgeServer:
         self._passive_clients: set[WebSocketServerProtocol] = set()
         self._recording = False
         self._auto_copy = bool(config.auto_copy)
+        self._auto_paste = bool(config.auto_paste)
         self._busy_started_at = 0.0
         self._transcribing_jobs = 0
         self._hotkey_blocked = False
@@ -481,8 +483,11 @@ class BridgeServer:
             )
 
             # Handle output
-            if self.config.output.clipboard or self._auto_copy:
-                copy_to_clipboard(result.text)
+            copied_to_clipboard = True
+            if self.config.output.clipboard or self._auto_copy or self._auto_paste:
+                copied_to_clipboard = copy_to_clipboard(result.text)
+            if self._auto_paste and copied_to_clipboard:
+                paste_from_clipboard()
             if self.config.output.file.enabled:
                 append_to_file(self.config.output.file.path, result.text)
             final_status = "ready"
@@ -646,6 +651,27 @@ class BridgeServer:
                         }
                     )
                 await self._broadcast_config()
+            elif msg_type == "toggle_auto_paste":
+                self._auto_paste = bool(data.get("enabled", not self._auto_paste))
+                self.config.auto_paste = self._auto_paste
+                persist_error: str | None = None
+                try:
+                    save_config(self.config)
+                except Exception as exc:
+                    logger.exception("Failed to persist auto paste config")
+                    persist_error = str(exc)
+                await self._broadcast(
+                    {"type": "toast", "message": f"Auto paste {'on' if self._auto_paste else 'off'}"}
+                )
+                if persist_error:
+                    await self._broadcast(
+                        {
+                            "type": "toast",
+                            "message": f"Auto paste updated for this session, but failed to save: {persist_error}",
+                            "level": "error",
+                        }
+                    )
+                await self._broadcast_config()
             elif msg_type == "set_hotkey_blocked":
                 self._hotkey_blocked = bool(data.get("enabled", False))
             elif msg_type == "set_hotkey_mode":
@@ -678,8 +704,16 @@ class BridgeServer:
             elif msg_type == "copy_text":
                 text = data.get("text", "")
                 if text:
-                    copy_to_clipboard(text)
-                    await self._broadcast({"type": "toast", "message": "Copied to clipboard"})
+                    if copy_to_clipboard(text):
+                        await self._broadcast({"type": "toast", "message": "Copied to clipboard"})
+                    else:
+                        await self._broadcast(
+                            {
+                                "type": "toast",
+                                "message": "Clipboard copy failed",
+                                "level": "error",
+                            }
+                        )
             elif msg_type == "get_config_file":
                 await self._send_config_file(websocket)
             elif msg_type == "transcribe_paste":
@@ -741,6 +775,15 @@ class BridgeServer:
                     }
                 )
                 continue
+            if not await asyncio.to_thread(os.access, path, os.R_OK):
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Cannot read file: {path}",
+                        "level": "error",
+                    }
+                )
+                continue
 
             valid_paths.append(path)
 
@@ -794,6 +837,11 @@ class BridgeServer:
         return paths
 
     def _normalize_paste_path(self, token: str) -> Path | None:
+        """Normalize pasted file paths without sandboxing to home/cwd.
+
+        We resolve symlinks and relative segments for safety, but keep this
+        permissive so mounted volumes and network shares are accepted.
+        """
         candidate = token.strip()
         if not candidate:
             return None
@@ -813,11 +861,9 @@ class BridgeServer:
 
         path = Path(candidate).expanduser()
         try:
-            if path.is_absolute():
-                resolved = path.resolve(strict=False)
-            else:
-                resolved = (Path.cwd() / path).resolve(strict=False)
-            if not resolved.is_relative_to(Path.home()) and not resolved.is_relative_to(Path.cwd()):
+            base_path = path if path.is_absolute() else Path.cwd() / path
+            resolved = base_path.resolve(strict=False)
+            if not resolved.is_absolute():
                 return None
             return resolved
         except Exception:
@@ -1638,6 +1684,7 @@ class BridgeServer:
         config_dict = self.config.to_dict()
         config_dict["bridge"] = {"host": "localhost", "port": 7878}
         config_dict["auto_copy"] = self._auto_copy
+        config_dict["auto_paste"] = self._auto_paste
         config_dict["first_run_setup_required"] = self._first_run_setup_required
         config_dict["runtime"] = self._runtime_capabilities
         return config_dict

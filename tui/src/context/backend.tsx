@@ -34,6 +34,7 @@ export interface BackendContextValue {
   config: Accessor<AppConfig | null>;
   models: Accessor<ModelInfo[]>;
   autoCopy: Accessor<boolean>;
+  autoPaste: Accessor<boolean>;
   logs: Accessor<LogEntry[]>;
   configFileContent: Accessor<string>;
   configFilePath: Accessor<string>;
@@ -69,6 +70,7 @@ export function BackendContextProvider(props: {
   const [config, setConfig] = createSignal<AppConfig | null>(null);
   const [models, setModels] = createSignal<ModelInfo[]>([]);
   const [autoCopy, setAutoCopy] = createSignal(false);
+  const [autoPaste, setAutoPaste] = createSignal(false);
   const [logs, setLogs] = createSignal<LogEntry[]>([]);
   const [configFileContent, setConfigFileContent] = createSignal("");
   const [configFilePath, setConfigFilePath] = createSignal("");
@@ -171,6 +173,9 @@ export function BackendContextProvider(props: {
         setConfig(message.config);
         if ("auto_copy" in (message.config as any)) {
           setAutoCopy((message.config as any).auto_copy ?? false);
+        }
+        if ("auto_paste" in (message.config as any)) {
+          setAutoPaste((message.config as any).auto_paste ?? false);
         }
         break;
 
@@ -343,6 +348,7 @@ export function BackendContextProvider(props: {
     config,
     models,
     autoCopy,
+    autoPaste,
     logs,
     configFileContent,
     configFilePath,

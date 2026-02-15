@@ -188,6 +188,16 @@ export function Settings(): JSX.Element {
         toggle: config.toggleAutoCopy,
       },
       {
+        id: "recording.autopaste",
+        section: "Recording",
+        kind: "toggle",
+        title: "Auto Paste",
+        description: "Paste transcript text into focused app",
+        keywords: ["clipboard", "paste", "automatic"],
+        enabled: config.autoPaste,
+        toggle: config.toggleAutoPaste,
+      },
+      {
         id: "model.name",
         section: "Model",
         kind: "text",
@@ -513,6 +523,10 @@ export function Settings(): JSX.Element {
       dialog.openDialog("settings-select", { settingId: id, returnToSettings: true });
       return true;
     }
+    if (isThemeSetting(id)) {
+      dialog.openDialog("theme-picker", { returnToSettings: true });
+      return true;
+    }
     return false;
   }
 
@@ -521,11 +535,6 @@ export function Settings(): JSX.Element {
     if (!item) return;
 
     if (openSettingDialog(item.id)) return;
-
-    if (isThemeSetting(item.id)) {
-      dialog.openDialog("theme-picker", { returnToSettings: true });
-      return;
-    }
 
     if (item.kind === "toggle") {
       item.toggle();
@@ -722,7 +731,8 @@ export function Settings(): JSX.Element {
                                 when={
                                   item.kind === "text" &&
                                   !isModelManagerSetting(item.id) &&
-                                  !isSelectorSetting(item.id)
+                                  !isSelectorSetting(item.id) &&
+                                  !isThemeSetting(item.id)
                                 }
                               >
                                 <text>
@@ -742,6 +752,13 @@ export function Settings(): JSX.Element {
                                 <text>
                                   <span style={{ fg: colors().textDim }}>
                                     open selector
+                                  </span>
+                                </text>
+                              </Show>
+                              <Show when={isThemeSetting(item.id)}>
+                                <text>
+                                  <span style={{ fg: colors().textDim }}>
+                                    open picker
                                   </span>
                                 </text>
                               </Show>

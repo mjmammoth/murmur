@@ -77,6 +77,7 @@ export interface AppConfig {
   bridge: BridgeConfig;
   ui?: UiConfig;
   auto_copy?: boolean;
+  auto_paste?: boolean;
   first_run_setup_required?: boolean;
   runtime?: RuntimeCapabilities;
 }
@@ -118,6 +119,7 @@ export type ClientMessage =
   | { type: "toggle_noise"; enabled: boolean }
   | { type: "toggle_vad"; enabled: boolean }
   | { type: "toggle_auto_copy"; enabled: boolean }
+  | { type: "toggle_auto_paste"; enabled: boolean }
   | { type: "set_hotkey_blocked"; enabled: boolean }
   | { type: "set_hotkey_mode"; mode: "ptt" | "toggle" }
   | { type: "set_hotkey"; hotkey: string }

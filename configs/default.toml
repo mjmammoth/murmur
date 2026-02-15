@@ -1,3 +1,6 @@
+auto_copy = false
+auto_paste = false
+
 [model]
 name = "small"
 device = "cpu"

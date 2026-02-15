@@ -25,6 +25,15 @@ export function ThemePickerModal(): JSX.Element {
 
   const selectedTheme = createMemo(() => availableThemes[selectedIndex()] ?? null);
 
+  function getThemeById(id: string | null): string | null {
+    if (!id) return null;
+    return availableThemes.some((themeOption) => themeOption.id === id) ? id : null;
+  }
+
+  function defaultThemeId(): string | null {
+    return getThemeById("dark") ?? availableThemes[0]?.id ?? null;
+  }
+
   createEffect(() => {
     const isOpen = dialog.currentDialog()?.type === "theme-picker";
     if (!isOpen) {
@@ -67,8 +76,13 @@ export function ThemePickerModal(): JSX.Element {
   }
 
   function cancelSelection() {
-    const initial = initialThemeId();
-    if (initial) setTheme(initial);
+    const initial = getThemeById(initialThemeId());
+    if (initial) {
+      setTheme(initial);
+    } else {
+      const fallback = getThemeById(defaultThemeId());
+      if (fallback) setTheme(fallback);
+    }
     closeModal();
   }
 

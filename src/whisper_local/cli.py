@@ -94,7 +94,7 @@ def _ensure_runtime_dependencies() -> None:
     """Fail fast with actionable message when required runtime deps are missing."""
     try:
         ensure_whisper_cpp_installed()
-    except RuntimeError as exc:
+    except Exception as exc:
         print(f"Error: {exc}")
         sys.exit(1)
 

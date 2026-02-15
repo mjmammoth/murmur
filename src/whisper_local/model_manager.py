@@ -33,6 +33,7 @@ MODEL_ESTIMATED_SIZE_BYTES: dict[str, int] = {
     "medium": 1600 * 1024 * 1024,
     "large-v2": 3200 * 1024 * 1024,
     "large-v3": 3200 * 1024 * 1024,
+    "large-v3-turbo": 1600 * 1024 * 1024,
 }
 _MODEL_SIZE_CACHE: dict[str, int] = {}
 _MODEL_SIZE_CACHE_LOCK = threading.Lock()

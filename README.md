@@ -55,6 +55,7 @@ Use `whisper.local run --no-status-indicator` to disable the macOS menu bar indi
 ## macOS permissions
 
 Global hotkeys require Input Monitoring permission for your terminal or app host.
+Auto-paste uses System Events and may require Accessibility permission for Terminal (or your host app).
 
 ## Hotkey
 
@@ -93,12 +94,14 @@ Defaults live in `configs/default.toml`. The app reads overrides from:
 - `c`: copy latest transcript
 - `enter`: copy selected transcript
 - `a`: toggle auto-copy
+- `p`: toggle auto-paste
 - `n`: toggle noise suppression
 - `v`: toggle VAD
 - `o`: toggle hotkey mode (ptt/toggle)
 - `h`: hotkey modal
 - `m`: model manager
 - `s`: interactive settings menu
+- `t`: theme picker
 - drag/drop (paste path): transcribe audio file(s)
 - `q`: quit
 

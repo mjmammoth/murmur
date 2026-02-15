@@ -8,10 +8,12 @@ export interface ConfigContextValue {
   noiseEnabled: Accessor<boolean>;
   vadEnabled: Accessor<boolean>;
   autoCopy: Accessor<boolean>;
+  autoPaste: Accessor<boolean>;
   hotkeyMode: Accessor<"ptt" | "toggle">;
   toggleNoise: () => void;
   toggleVad: () => void;
   toggleAutoCopy: () => void;
+  toggleAutoPaste: () => void;
   toggleHotkeyMode: () => void;
 }
 
@@ -24,6 +26,7 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
   const [noiseEnabled, setNoiseEnabled] = createSignal(true);
   const [vadEnabled, setVadEnabled] = createSignal(false);
   const [autoCopy, setAutoCopy] = createSignal(false);
+  const [autoPaste, setAutoPaste] = createSignal(false);
   const [hotkeyMode, setHotkeyMode] = createSignal<"ptt" | "toggle">("ptt");
 
   // Sync with backend config
@@ -38,6 +41,10 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
 
   createEffect(() => {
     setAutoCopy(backend.autoCopy());
+  });
+
+  createEffect(() => {
+    setAutoPaste(backend.autoPaste());
   });
 
   function toggleNoise() {
@@ -58,6 +65,12 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     backend.send({ type: "toggle_auto_copy", enabled: newValue });
   }
 
+  function toggleAutoPaste() {
+    const newValue = !autoPaste();
+    setAutoPaste(newValue);
+    backend.send({ type: "toggle_auto_paste", enabled: newValue });
+  }
+
   function toggleHotkeyMode() {
     const nextMode = hotkeyMode() === "ptt" ? "toggle" : "ptt";
     setHotkeyMode(nextMode);
@@ -69,10 +82,12 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     noiseEnabled,
     vadEnabled,
     autoCopy,
+    autoPaste,
     hotkeyMode,
     toggleNoise,
     toggleVad,
     toggleAutoCopy,
+    toggleAutoPaste,
     toggleHotkeyMode,
   };
 
