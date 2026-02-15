@@ -18,6 +18,10 @@ interface PairHintProps {
   highlightColor?: string;
 }
 
+interface FooterProps {
+  availableWidth?: number;
+}
+
 function KeyHint(props: KeyHintProps): JSX.Element {
   const { colors } = useTheme();
   const idx = Math.max(0, props.word.toLowerCase().indexOf(props.keyChar.toLowerCase()));
@@ -43,7 +47,7 @@ function PairHint(props: PairHintProps): JSX.Element {
 
   if (idx < 0) {
     return (
-      <text>
+      <text wrapMode="none" truncate>
         <span style={{ fg: colors().textDim }}>{props.label}</span>
         <span style={{ fg: colors().textMuted }}>:</span>
         <span style={{ fg: colors().text }}> {props.value}</span>
@@ -56,7 +60,7 @@ function PairHint(props: PairHintProps): JSX.Element {
   const after = props.label.slice(idx + 1);
 
   return (
-    <text>
+    <text wrapMode="none" truncate>
       <span style={{ fg: colors().textDim }}>{before}</span>
       <span style={{ fg: highlightColor(), bold: true }}>{key}</span>
       <span style={{ fg: colors().textDim }}>{after}</span>
@@ -72,12 +76,14 @@ function truncateLabel(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 3)}...`;
 }
 
-export function Footer(): JSX.Element {
+export function Footer(props: FooterProps): JSX.Element {
+  const COMPACT_FOOTER_THRESHOLD = 118;
   const { colors } = useTheme();
   const config = useConfig();
   const backend = useBackend();
   const transcriber = useTranscriber();
   const terminal = useTerminalDimensions();
+  const availableWidth = () => Math.max(0, Math.floor(props.availableWidth ?? terminal().width));
 
   const modelName = () => {
     const selected = config.config()?.model.name;
@@ -87,9 +93,13 @@ export function Footer(): JSX.Element {
   };
   const hotkeyMode = () => config.config()?.hotkey.mode ?? "-";
   const hotkeyKey = () => config.config()?.hotkey.key ?? "-";
+  const compactFooterLayout = () => availableWidth() < COMPACT_FOOTER_THRESHOLD;
 
-  const compactModel = () => truncateLabel(modelName(), 14);
-  const compactHotkey = () => truncateLabel(hotkeyKey(), 14);
+  const compactModel = () => truncateLabel(modelName(), compactFooterLayout() ? 10 : 14);
+  const compactHotkey = () => truncateLabel(hotkeyKey(), compactFooterLayout() ? 10 : 14);
+  const leftSectionWidth = () => Math.floor(availableWidth() * 0.33);
+  const shouldWrapLeftSection = () => compactFooterLayout();
+  const shouldWrapRightSection = () => compactFooterLayout();
 
   const statusColor = () => {
     const status = transcriber.status();
@@ -109,10 +119,13 @@ export function Footer(): JSX.Element {
   };
 
   const statusMaxChars = () => {
-    const leftSectionWidth = Math.floor(terminal().width * 0.33);
+    const sectionWidth = leftSectionWidth();
+    if (shouldWrapLeftSection()) {
+      return Math.max(8, sectionWidth - 2);
+    }
     const scannerSectionWidth = 8;
     const statusGap = 2;
-    return Math.max(8, leftSectionWidth - scannerSectionWidth - statusGap - 2);
+    return Math.max(8, sectionWidth - scannerSectionWidth - statusGap - 2);
   };
 
   const statusDisplay = () => {
@@ -128,8 +141,14 @@ export function Footer(): JSX.Element {
       backgroundColor={colors().backgroundPanel}
       flexShrink={0}
     >
-      <box flexDirection="row" alignItems="center" width="100%">
-        <box width="33%" flexDirection="row" alignItems="center" gap={2} flexShrink={1}>
+      <box flexDirection="row" alignItems={compactFooterLayout() ? "flex-start" : "center"} width="100%">
+        <box
+          width="33%"
+          flexDirection={shouldWrapLeftSection() ? "column" : "row"}
+          alignItems={shouldWrapLeftSection() ? "flex-start" : "center"}
+          gap={shouldWrapLeftSection() ? 0 : 2}
+          flexShrink={1}
+        >
           <box width={8} justifyContent="flex-start" alignItems="flex-start" flexShrink={0}>
             <Scanner active={transcriber.isBusy()} />
           </box>
@@ -138,16 +157,60 @@ export function Footer(): JSX.Element {
           </text>
         </box>
 
-        <box width="34%" justifyContent="center" flexDirection="row" gap={3} alignItems="center" flexShrink={0}>
-          <PairHint label="model" keyChar="m" value={compactModel()} highlightColor={colors().secondary} />
-          <PairHint label="hotkey" keyChar="h" value={compactHotkey()} highlightColor={colors().secondary} />
-          <PairHint label="mode" keyChar="o" value={hotkeyMode()} highlightColor={colors().secondary} />
+        <box
+          width="34%"
+          justifyContent="center"
+          flexDirection={compactFooterLayout() ? "column" : "row"}
+          gap={compactFooterLayout() ? 0 : 3}
+          alignItems="center"
+          flexShrink={0}
+        >
+          {compactFooterLayout() ? (
+            <>
+              <box width="100%" flexDirection="row" justifyContent="center" gap={3}>
+                <PairHint label="model" keyChar="m" value={compactModel()} highlightColor={colors().secondary} />
+                <PairHint label="hotkey" keyChar="h" value={compactHotkey()} highlightColor={colors().secondary} />
+              </box>
+              <box width="100%" flexDirection="row" justifyContent="center" gap={3}>
+                <PairHint label="mode" keyChar="o" value={hotkeyMode()} highlightColor={colors().secondary} />
+              </box>
+            </>
+          ) : (
+            <>
+              <PairHint label="model" keyChar="m" value={compactModel()} highlightColor={colors().secondary} />
+              <PairHint label="hotkey" keyChar="h" value={compactHotkey()} highlightColor={colors().secondary} />
+              <PairHint label="mode" keyChar="o" value={hotkeyMode()} highlightColor={colors().secondary} />
+            </>
+          )}
         </box>
 
-        <box width="33%" justifyContent="flex-end" flexDirection="row" gap={2} alignItems="center" flexShrink={0}>
-          <KeyHint keyChar="q" word="quit" />
-          <KeyHint keyChar="l" word="logs" />
-          <KeyHint keyChar="s" word="settings" />
+        <box
+          width="33%"
+          justifyContent={shouldWrapRightSection() ? "flex-start" : "flex-end"}
+          flexDirection={shouldWrapRightSection() ? "column" : "row"}
+          gap={shouldWrapRightSection() ? 0 : 2}
+          alignItems="flex-end"
+          flexShrink={0}
+        >
+          {shouldWrapRightSection() ? (
+            <>
+              <box width="100%" flexDirection="row" justifyContent="flex-end" gap={2}>
+                <KeyHint keyChar="q" word="quit" />
+                <KeyHint keyChar="l" word="logs" />
+              </box>
+              <box width="100%" flexDirection="row" justifyContent="flex-end" gap={2}>
+                <KeyHint keyChar="s" word="settings" />
+                <KeyHint keyChar="t" word="theme" />
+              </box>
+            </>
+          ) : (
+            <>
+              <KeyHint keyChar="q" word="quit" />
+              <KeyHint keyChar="l" word="logs" />
+              <KeyHint keyChar="s" word="settings" />
+              <KeyHint keyChar="t" word="theme" />
+            </>
+          )}
         </box>
       </box>
     </box>

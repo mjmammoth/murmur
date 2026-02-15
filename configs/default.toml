@@ -1,3 +1,6 @@
+auto_copy = false
+auto_paste = false
+
 [model]
 name = "small"
 device = "cpu"
@@ -27,3 +30,6 @@ clipboard = true
 [output.file]
 enabled = false
 path = "~/transcripts.txt"
+
+[ui]
+theme = "dark"

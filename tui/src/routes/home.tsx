@@ -1,5 +1,5 @@
 import { createEffect, createSignal, Show, type JSX } from "solid-js";
-import { useKeyHandler, usePaste, useRenderer } from "@opentui/solid";
+import { useKeyHandler, usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid";
 import { BorderChars, RGBA, type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
@@ -16,15 +16,17 @@ import { Settings } from "../component/settings";
 import { LOG_LEVELS, LogPanel } from "../component/log-panel";
 import { HotkeyModal } from "../component/hotkey-modal";
 import { SettingsSelectModal } from "../component/settings-select-modal";
+import { ThemePickerModal } from "../component/theme-picker-modal";
+import { SettingsEditModal } from "../component/settings-edit-modal";
 import { exitApp } from "../util/exit";
-
-interface ModelManagerDialogData {
-  firstRunSetup?: boolean;
-}
+import type { ModelManagerDialogData } from "../types";
 
 export function Home(): JSX.Element {
+  const LOGS_PANEL_WIDTH_COLS = 48;
+  const LOGS_PANEL_MIN_TERMINAL_WIDTH = 115;
   const { colors } = useTheme();
   const renderer = useRenderer();
+  const terminal = useTerminalDimensions();
   const backend = useBackend();
   const config = useConfig();
   const transcriber = useTranscriber();
@@ -33,7 +35,31 @@ export function Home(): JSX.Element {
   const [showLogs, setShowLogs] = createSignal(false);
   const [activePane, setActivePane] = createSignal<"main" | "logs">("main");
   const [logLevelIndex, setLogLevelIndex] = createSignal(1);
+  const canShowLogs = () => terminal().width >= LOGS_PANEL_MIN_TERMINAL_WIDTH;
+  const logsVisible = () => showLogs() && canShowLogs();
+  const shouldSuppressPasteInput = () => Date.now() < backend.suppressPasteInputUntil();
+  const homePaneWidth = () => {
+    const fullWidth = terminal().width;
+    if (!logsVisible()) return fullWidth;
+    return Math.max(0, fullWidth - LOGS_PANEL_WIDTH_COLS);
+  };
+  const logsTooNarrowMessage = () => "UI too narrow for logs.";
   const firstRunSetupRequired = () => Boolean(backend.config()?.first_run_setup_required);
+
+  createEffect(() => {
+    if (!logsVisible() && activePane() === "logs") {
+      setActivePane("main");
+    }
+  });
+
+  let previousLogsVisible = false;
+  createEffect(() => {
+    const currentlyVisible = logsVisible();
+    if (previousLogsVisible && !currentlyVisible && showLogs() && !canShowLogs()) {
+      toast.showToast(logsTooNarrowMessage());
+    }
+    previousLogsVisible = currentlyVisible;
+  });
 
   createEffect(() => {
     if (!backend.connected()) return;
@@ -65,30 +91,38 @@ export function Home(): JSX.Element {
       return;
     }
 
+    if (shouldSuppressPasteInput()) {
+      key.preventDefault();
+      return;
+    }
+
     // Log panel toggle works even with dialogs open
     if (key.name === "l" && !dialog.isOpen()) {
       setShowLogs((prev) => {
         const next = !prev;
-        setActivePane(next ? "logs" : "main");
+        if (next && !canShowLogs()) {
+          toast.showToast(logsTooNarrowMessage());
+        }
+        setActivePane(next && canShowLogs() ? "logs" : "main");
         return next;
       });
       return;
     }
 
-    if (key.name === "escape" && showLogs() && !dialog.isOpen()) {
+    if (key.name === "escape" && logsVisible() && !dialog.isOpen()) {
       setShowLogs(false);
       setActivePane("main");
       return;
     }
 
-    if (key.name === "tab" && showLogs() && !dialog.isOpen()) {
+    if (key.name === "tab" && logsVisible() && !dialog.isOpen()) {
       key.preventDefault();
       setActivePane((pane) => (pane === "main" ? "logs" : "main"));
       return;
     }
 
     if (
-      showLogs() &&
+      logsVisible() &&
       activePane() === "logs" &&
       !dialog.isOpen() &&
       (key.name === "left" || key.name === "right")
@@ -104,7 +138,7 @@ export function Home(): JSX.Element {
 
     if (dialog.isOpen()) return;
 
-    if (showLogs() && activePane() === "logs") {
+    if (logsVisible() && activePane() === "logs") {
       if (key.name === "up" || key.name === "down" || key.name === "j" || key.name === "k") {
         return;
       }
@@ -126,6 +160,9 @@ export function Home(): JSX.Element {
       case "a":
         config.toggleAutoCopy();
         break;
+      case "p":
+        config.toggleAutoPaste();
+        break;
       case "n":
         config.toggleNoise();
         break;
@@ -144,6 +181,9 @@ export function Home(): JSX.Element {
       case "h":
         dialog.openDialog("hotkey");
         break;
+      case "t":
+        dialog.openDialog("theme-picker");
+        break;
       case "up":
       case "k":
         transcriber.selectPrev();
@@ -156,11 +196,15 @@ export function Home(): JSX.Element {
   });
 
   usePaste((event) => {
+    if (shouldSuppressPasteInput()) {
+      event.preventDefault();
+      return;
+    }
     if (dialog.isOpen()) return;
     const pasted = event.text.trim();
     if (!pasted) return;
     event.preventDefault();
-    backend.send({ type: "transcribe_paste", text: event.text });
+    backend.send({ type: "transcribe_paste", text: pasted });
     toast.showToast("Paste received. Queueing transcription...");
   });
 
@@ -181,6 +225,11 @@ export function Home(): JSX.Element {
     }
     transcriber.copyText(selected.text);
   }
+
+  const modalOverlayColor = () => {
+    const overlay = RGBA.fromHex(colors().backgroundOverlay);
+    return RGBA.fromValues(overlay.r, overlay.g, overlay.b, colors().overlayAlpha);
+  };
 
   return (
     <box
@@ -222,15 +271,15 @@ export function Home(): JSX.Element {
             <TranscriptList />
           </box>
           <box flexShrink={0}>
-            <Footer />
+            <Footer availableWidth={homePaneWidth()} />
           </box>
           <ToastContainer />
         </box>
       </box>
 
-      <Show when={showLogs()}>
+      <Show when={logsVisible()}>
         <box
-          width="42%"
+          width={LOGS_PANEL_WIDTH_COLS}
           height="100%"
           paddingLeft={2}
         >
@@ -266,7 +315,7 @@ export function Home(): JSX.Element {
           height="100%"
           justifyContent="center"
           alignItems="center"
-          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
+          backgroundColor={modalOverlayColor()}
         >
           <ModelManager />
         </box>
@@ -279,7 +328,7 @@ export function Home(): JSX.Element {
           height="100%"
           justifyContent="center"
           alignItems="center"
-          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
+          backgroundColor={modalOverlayColor()}
         >
           <Settings />
         </box>
@@ -292,7 +341,7 @@ export function Home(): JSX.Element {
           height="100%"
           justifyContent="center"
           alignItems="center"
-          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
+          backgroundColor={modalOverlayColor()}
         >
           <HotkeyModal />
         </box>
@@ -305,9 +354,35 @@ export function Home(): JSX.Element {
           height="100%"
           justifyContent="center"
           alignItems="center"
-          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
+          backgroundColor={modalOverlayColor()}
         >
           <SettingsSelectModal />
+        </box>
+      </Show>
+
+      <Show when={dialog.currentDialog()?.type === "settings-edit"}>
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={modalOverlayColor()}
+        >
+          <SettingsEditModal />
+        </box>
+      </Show>
+
+      <Show when={dialog.currentDialog()?.type === "theme-picker"}>
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={modalOverlayColor()}
+        >
+          <ThemePickerModal />
         </box>
       </Show>
     </box>

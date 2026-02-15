@@ -64,6 +64,10 @@ export interface BridgeConfig {
   port: number;
 }
 
+export interface UiConfig {
+  theme: string;
+}
+
 export interface AppConfig {
   model: ModelConfig;
   hotkey: HotkeyConfig;
@@ -71,7 +75,9 @@ export interface AppConfig {
   vad: VadConfig;
   output: OutputConfig;
   bridge: BridgeConfig;
+  ui?: UiConfig;
   auto_copy?: boolean;
+  auto_paste?: boolean;
   first_run_setup_required?: boolean;
   runtime?: RuntimeCapabilities;
 }
@@ -113,15 +119,24 @@ export type ClientMessage =
   | { type: "toggle_noise"; enabled: boolean }
   | { type: "toggle_vad"; enabled: boolean }
   | { type: "toggle_auto_copy"; enabled: boolean }
+  | { type: "toggle_auto_paste"; enabled: boolean }
   | { type: "set_hotkey_blocked"; enabled: boolean }
   | { type: "set_hotkey_mode"; mode: "ptt" | "toggle" }
   | { type: "set_hotkey"; hotkey: string }
+  | { type: "set_audio_sample_rate"; sample_rate: number }
+  | { type: "set_vad_aggressiveness"; aggressiveness: number }
+  | { type: "set_output_clipboard"; enabled: boolean }
+  | { type: "set_output_file_enabled"; enabled: boolean }
+  | { type: "set_output_file_path"; path: string }
+  | { type: "set_model_path"; path: string | null }
   | { type: "set_selected_model"; name: string }
+  // Backward-compatible alias for set_selected_model
   | { type: "set_default_model"; name: string }
   | { type: "set_model_backend"; backend: string }
   | { type: "set_model_device"; device: string }
   | { type: "set_model_compute_type"; compute_type: string }
   | { type: "set_model_language"; language: string | null }
+  | { type: "set_theme"; theme: string }
   | { type: "download_model"; name: string }
   | { type: "remove_model"; name: string }
   | { type: "list_models" }
@@ -141,6 +156,7 @@ export type ServerMessage =
   | { type: "config_file"; content: string; path: string }
   | { type: "toast"; message: string; level?: "info" | "error" }
   | { type: "log"; level: string; message: string; timestamp: string; source: string }
+  | { type: "suppress_paste_input"; duration_ms?: number }
   | { type: "download_progress"; model: string; percent: number };
 
 // Log types
@@ -163,7 +179,20 @@ export interface Toast {
 
 // Dialog types
 
-export type DialogType = "model-manager" | "settings" | "settings-select" | "hotkey";
+export type DialogType =
+  | "model-manager"
+  | "settings"
+  | "settings-select"
+  | "settings-edit"
+  | "hotkey"
+  | "theme-picker";
+
+export interface ModelManagerDialogData {
+  returnToSettings?: boolean;
+  returnSettingId?: string;
+  returnFilterQuery?: string;
+  firstRunSetup?: boolean;
+}
 
 export interface DialogState {
   type: DialogType;

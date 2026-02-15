@@ -22,7 +22,7 @@ from whisper_local import config as config_module
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAMES = ["tiny", "base", "small", "medium", "large-v2", "large-v3"]
+MODEL_NAMES = ["tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo"]
 MODEL_REPO_PREFIX = "Systran/faster-whisper-"
 # Fallback display sizes when remote metadata is unavailable.
 # Values are approximate and may vary slightly by repository revision.
@@ -33,6 +33,7 @@ MODEL_ESTIMATED_SIZE_BYTES: dict[str, int] = {
     "medium": 1600 * 1024 * 1024,
     "large-v2": 3200 * 1024 * 1024,
     "large-v3": 3200 * 1024 * 1024,
+    "large-v3-turbo": 1600 * 1024 * 1024,
 }
 _MODEL_SIZE_CACHE: dict[str, int] = {}
 _MODEL_SIZE_CACHE_LOCK = threading.Lock()
@@ -40,6 +41,9 @@ _MODEL_SIZE_CACHE_LOCK = threading.Lock()
 
 class DownloadCancelledError(RuntimeError):
     """Raised when a model download is cancelled by shutdown."""
+
+    def __init__(self, message: str = "Download cancelled") -> None:
+        super().__init__(message)
 
 
 @dataclass(frozen=True)

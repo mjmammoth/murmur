@@ -5,8 +5,13 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+import logging
+
 import tomllib
 import tomli_w
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,16 +25,10 @@ class ModelConfig:
     language: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ModelConfig":
-        backend = str(data.get("backend", "faster-whisper")).strip().lower()
-        if backend in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
-            backend = "whisper.cpp"
-        if backend not in {"faster-whisper", "whisper.cpp"}:
-            backend = "faster-whisper"
-
+    def from_dict(cls, data: dict[str, Any]) -> ModelConfig:
         return cls(
             name=data.get("name", "small"),
-            backend=backend,
+            backend=normalize_backend_name(str(data.get("backend", "faster-whisper"))),
             device=data.get("device", "cpu"),
             compute_type=data.get("compute_type", "int8"),
             auto_download=data.get("auto_download", True),
@@ -44,7 +43,7 @@ class HotkeyConfig:
     key: str = "f3"
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "HotkeyConfig":
+    def from_dict(cls, data: dict[str, Any]) -> HotkeyConfig:
         return cls(
             mode=data.get("mode", "ptt"),
             key=data.get("key", "f3"),
@@ -57,7 +56,7 @@ class NoiseSuppressionConfig:
     level: int = 2
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "NoiseSuppressionConfig":
+    def from_dict(cls, data: dict[str, Any]) -> NoiseSuppressionConfig:
         return cls(
             enabled=data.get("enabled", True),
             level=data.get("level", 2),
@@ -70,7 +69,7 @@ class AudioConfig:
     noise_suppression: NoiseSuppressionConfig = field(default_factory=NoiseSuppressionConfig)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AudioConfig":
+    def from_dict(cls, data: dict[str, Any]) -> AudioConfig:
         return cls(
             sample_rate=data.get("sample_rate", 48000),
             noise_suppression=NoiseSuppressionConfig.from_dict(
@@ -87,7 +86,7 @@ class VadConfig:
     max_silence_ms: int = 600
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "VadConfig":
+    def from_dict(cls, data: dict[str, Any]) -> VadConfig:
         return cls(
             enabled=data.get("enabled", False),
             aggressiveness=data.get("aggressiveness", 1),
@@ -102,7 +101,7 @@ class FileOutputConfig:
     path: Path = Path("~/transcripts.txt")
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "FileOutputConfig":
+    def from_dict(cls, data: dict[str, Any]) -> FileOutputConfig:
         return cls(
             enabled=data.get("enabled", False),
             path=Path(data.get("path", "~/transcripts.txt")),
@@ -115,11 +114,21 @@ class OutputConfig:
     file: FileOutputConfig = field(default_factory=FileOutputConfig)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OutputConfig":
+    def from_dict(cls, data: dict[str, Any]) -> OutputConfig:
         return cls(
             clipboard=data.get("clipboard", True),
             file=FileOutputConfig.from_dict(data.get("file", {})),
         )
+
+
+@dataclass
+class UiConfig:
+    theme: str = "dark"
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> UiConfig:
+        theme = str(data.get("theme", "dark")).strip() or "dark"
+        return cls(theme=theme)
 
 
 @dataclass
@@ -129,7 +138,9 @@ class AppConfig:
     audio: AudioConfig = field(default_factory=AudioConfig)
     vad: VadConfig = field(default_factory=VadConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    ui: UiConfig = field(default_factory=UiConfig)
     auto_copy: bool = False
+    auto_paste: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -138,6 +149,20 @@ class AppConfig:
         data["model"]["path"] = self.model.path
         data["model"]["language"] = self.model.language
         return data
+
+
+SUPPORTED_BACKENDS = ("faster-whisper", "whisper.cpp")
+
+
+def normalize_backend_name(name: str) -> str:
+    """Normalize a backend name to a canonical form."""
+    normalized = (name or "").strip().lower()
+    if normalized in SUPPORTED_BACKENDS:
+        return normalized
+    if normalized in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
+        return "whisper.cpp"
+    logger.warning("Unknown backend '%s', falling back to 'faster-whisper'", name)
+    return "faster-whisper"
 
 
 def default_config_path() -> Path:
@@ -175,7 +200,9 @@ def load_config(path: Path | None = None) -> AppConfig:
         audio=AudioConfig.from_dict(merged.get("audio", {})),
         vad=VadConfig.from_dict(merged.get("vad", {})),
         output=OutputConfig.from_dict(merged.get("output", {})),
+        ui=UiConfig.from_dict(merged.get("ui", {})),
         auto_copy=bool(merged.get("auto_copy", False)),
+        auto_paste=bool(merged.get("auto_paste", False)),
     )
 
     if config.model.path:

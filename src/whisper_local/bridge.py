@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import shlex
 import threading
 from datetime import datetime
@@ -18,7 +19,14 @@ from websockets.server import WebSocketServerProtocol
 
 from whisper_local.audio import AudioRecorder
 from whisper_local.audio_file import DEFAULT_DECODE_SAMPLE_RATE, load_audio_file
-from whisper_local.config import AppConfig, default_config_path, load_config, save_config
+from whisper_local.config import (
+    AppConfig,
+    SUPPORTED_BACKENDS,
+    default_config_path,
+    load_config,
+    normalize_backend_name,
+    save_config,
+)
 from whisper_local.hotkey import HotkeyListener, parse_hotkey
 from whisper_local.model_manager import (
     DownloadCancelledError,
@@ -29,7 +37,7 @@ from whisper_local.model_manager import (
     remove_model,
 )
 from whisper_local.noise import RNNoiseSuppressor
-from whisper_local.output import append_to_file, copy_to_clipboard
+from whisper_local.output import append_to_file, copy_to_clipboard, paste_from_clipboard
 from whisper_local.transcribe import (
     Transcriber,
     detect_runtime_capabilities,
@@ -42,6 +50,7 @@ logger = logging.getLogger(__name__)
 MAX_DROP_FILES = 32
 MAX_DROP_FILE_BYTES = 512 * 1024 * 1024
 MAX_DROP_AUDIO_SECONDS = 4 * 60 * 60
+AUTO_PASTE_INPUT_SUPPRESS_MS = 1000
 
 
 class WebSocketLogHandler(logging.Handler):
@@ -95,6 +104,7 @@ class BridgeServer:
         self._passive_clients: set[WebSocketServerProtocol] = set()
         self._recording = False
         self._auto_copy = bool(config.auto_copy)
+        self._auto_paste = bool(config.auto_paste)
         self._busy_started_at = 0.0
         self._transcribing_jobs = 0
         self._hotkey_blocked = False
@@ -113,6 +123,7 @@ class BridgeServer:
         self._shutdown_requested = threading.Event()
 
         self._background_tasks: set[asyncio.Task] = set()
+        self._model_tasks: dict[str, asyncio.Task] = {}
 
         # Audio/transcription components (initialized lazily)
         self.recorder: AudioRecorder | None = None
@@ -125,7 +136,25 @@ class BridgeServer:
         """Create a background task and prevent it from being garbage-collected."""
         task = asyncio.create_task(coro)
         self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        task.add_done_callback(self._on_task_done)
+        return task
+
+    def _on_task_done(self, task: asyncio.Task) -> None:
+        """Clean up a finished background task and surface any unhandled exception."""
+        self._background_tasks.discard(task)
+        if not task.cancelled():
+            exc = task.exception()
+            if exc is not None:
+                logger.error("Background task failed: %s", exc)
+
+    def _spawn_model_task(self, name: str, coro) -> asyncio.Task:
+        """Spawn a model operation task, cancelling any existing task for that model."""
+        existing = self._model_tasks.get(name)
+        if existing is not None and not existing.done():
+            existing.cancel()
+        task = self._spawn_task(coro)
+        self._model_tasks[name] = task
+        task.add_done_callback(lambda _t, _name=name: self._model_tasks.pop(_name, None))
         return task
 
     def _client_path(self, websocket: WebSocketServerProtocol) -> str:
@@ -455,8 +484,14 @@ class BridgeServer:
             )
 
             # Handle output
-            if self.config.output.clipboard or self._auto_copy:
-                copy_to_clipboard(result.text)
+            copied_to_clipboard = True
+            if self.config.output.clipboard or self._auto_copy or self._auto_paste:
+                copied_to_clipboard = copy_to_clipboard(result.text)
+            if self._auto_paste and copied_to_clipboard:
+                await self._broadcast(
+                    {"type": "suppress_paste_input", "duration_ms": AUTO_PASTE_INPUT_SUPPRESS_MS}
+                )
+                await asyncio.to_thread(paste_from_clipboard)
             if self.config.output.file.enabled:
                 append_to_file(self.config.output.file.path, result.text)
             final_status = "ready"
@@ -620,10 +655,45 @@ class BridgeServer:
                         }
                     )
                 await self._broadcast_config()
+            elif msg_type == "toggle_auto_paste":
+                self._auto_paste = bool(data.get("enabled", not self._auto_paste))
+                self.config.auto_paste = self._auto_paste
+                persist_error = None
+                try:
+                    save_config(self.config)
+                except Exception as exc:
+                    logger.exception("Failed to persist auto paste config")
+                    persist_error = str(exc)
+                await self._broadcast(
+                    {"type": "toast", "message": f"Auto paste {'on' if self._auto_paste else 'off'}"}
+                )
+                if persist_error:
+                    await self._broadcast(
+                        {
+                            "type": "toast",
+                            "message": f"Auto paste updated for this session, but failed to save: {persist_error}",
+                            "level": "error",
+                        }
+                    )
+                await self._broadcast_config()
             elif msg_type == "set_hotkey_blocked":
                 self._hotkey_blocked = bool(data.get("enabled", False))
             elif msg_type == "set_hotkey_mode":
                 await self._set_hotkey_mode(data.get("mode", ""))
+            elif msg_type == "set_theme":
+                await self._set_theme(data.get("theme", ""))
+            elif msg_type == "set_audio_sample_rate":
+                await self._set_audio_sample_rate(data.get("sample_rate"))
+            elif msg_type == "set_vad_aggressiveness":
+                await self._set_vad_aggressiveness(data.get("aggressiveness"))
+            elif msg_type == "set_output_clipboard":
+                await self._set_output_clipboard(data.get("enabled"))
+            elif msg_type == "set_output_file_enabled":
+                await self._set_output_file_enabled(data.get("enabled"))
+            elif msg_type == "set_output_file_path":
+                await self._set_output_file_path(data.get("path", ""))
+            elif msg_type == "set_model_path":
+                await self._set_model_path(data.get("path"))
             elif msg_type == "set_model_backend":
                 await self._set_model_backend(data.get("backend", ""))
             elif msg_type == "set_model_device":
@@ -633,9 +703,9 @@ class BridgeServer:
             elif msg_type == "set_model_language":
                 await self._set_model_language(data.get("language"))
             elif msg_type == "download_model":
-                self._spawn_task(self._download_model(data.get("name", "")))
+                self._spawn_model_task(data.get("name", ""), self._download_model(data.get("name", "")))
             elif msg_type == "remove_model":
-                self._spawn_task(self._remove_model(data.get("name", "")))
+                self._spawn_model_task(data.get("name", ""), self._remove_model(data.get("name", "")))
             elif msg_type == "set_selected_model":
                 await self._set_selected_model(data.get("name", ""))
             elif msg_type == "set_default_model":
@@ -650,8 +720,16 @@ class BridgeServer:
             elif msg_type == "copy_text":
                 text = data.get("text", "")
                 if text:
-                    copy_to_clipboard(text)
-                    await self._broadcast({"type": "toast", "message": "Copied to clipboard"})
+                    if copy_to_clipboard(text):
+                        await self._broadcast({"type": "toast", "message": "Copied to clipboard"})
+                    else:
+                        await self._broadcast(
+                            {
+                                "type": "toast",
+                                "message": "Clipboard copy failed",
+                                "level": "error",
+                            }
+                        )
             elif msg_type == "get_config_file":
                 await self._send_config_file(websocket)
             elif msg_type == "transcribe_paste":
@@ -713,6 +791,15 @@ class BridgeServer:
                     }
                 )
                 continue
+            if not await asyncio.to_thread(os.access, path, os.R_OK):
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Cannot read file: {path}",
+                        "level": "error",
+                    }
+                )
+                continue
 
             valid_paths.append(path)
 
@@ -766,6 +853,11 @@ class BridgeServer:
         return paths
 
     def _normalize_paste_path(self, token: str) -> Path | None:
+        """Normalize pasted file paths without sandboxing to home/cwd.
+
+        We resolve symlinks and relative segments for safety, but keep this
+        permissive so mounted volumes and network shares are accepted.
+        """
         candidate = token.strip()
         if not candidate:
             return None
@@ -785,9 +877,11 @@ class BridgeServer:
 
         path = Path(candidate).expanduser()
         try:
-            if path.is_absolute():
-                return path.resolve(strict=False)
-            return (Path.cwd() / path).resolve(strict=False)
+            base_path = path if path.is_absolute() else Path.cwd() / path
+            resolved = base_path.resolve(strict=False)
+            if not resolved.is_absolute():
+                return None
+            return resolved
         except Exception:
             return None
 
@@ -1086,7 +1180,12 @@ class BridgeServer:
         return None
 
     async def _reload_transcriber(self) -> None:
-        """Load a fresh transcriber from current model config and swap it in."""
+        """Load a fresh transcriber from current model config and swap it in.
+
+        In-flight transcriptions capture their transcriber reference before
+        this swap occurs, so they complete with the previous model. New
+        recordings will use the updated transcriber.
+        """
         async with self._model_reload_lock:
             next_transcriber = Transcriber(
                 model_name=self.config.model.name,
@@ -1107,12 +1206,8 @@ class BridgeServer:
                 await self._set_status("ready", "Ready")
 
     async def _set_model_backend(self, backend_name: str) -> None:
-        normalized = str(backend_name).strip().lower()
-        if normalized in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
-            normalized = "whisper.cpp"
-
-        supported = {"faster-whisper", "whisper.cpp"}
-        if normalized not in supported:
+        normalized = normalize_backend_name(backend_name)
+        if normalized not in SUPPORTED_BACKENDS:
             await self._broadcast(
                 {
                     "type": "toast",
@@ -1415,6 +1510,291 @@ class BridgeServer:
                 }
             )
 
+    async def _set_audio_sample_rate(self, sample_rate: Any) -> None:
+        try:
+            normalized = int(sample_rate)
+        except (TypeError, ValueError):
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Invalid sample rate: {sample_rate}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        allowed = {8000, 16000, 32000, 48000}
+        if normalized not in allowed:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Unsupported sample rate: {normalized}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if self._recording:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Cannot change sample rate while recording",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if self.config.audio.sample_rate == normalized:
+            return
+
+        self.config.audio.sample_rate = normalized
+        if self.recorder:
+            self.recorder.sample_rate = normalized
+        persist_error = self._persist_config("audio sample rate")
+
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Sample rate {normalized} Hz"})
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Sample rate applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_vad_aggressiveness(self, aggressiveness: Any) -> None:
+        try:
+            normalized = int(aggressiveness)
+        except (TypeError, ValueError):
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Invalid VAD aggressiveness: {aggressiveness}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if normalized < 0 or normalized > 3:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "VAD aggressiveness must be between 0 and 3",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if self.config.vad.aggressiveness == normalized:
+            return
+
+        previous_aggressiveness = self.config.vad.aggressiveness
+        previous_vad = self.vad
+        self.config.vad.aggressiveness = normalized
+
+        try:
+            self.vad = VadProcessor(
+                enabled=self.config.vad.enabled, aggressiveness=self.config.vad.aggressiveness
+            )
+        except Exception as exc:
+            logger.exception("Failed to apply VAD aggressiveness")
+            self.config.vad.aggressiveness = previous_aggressiveness
+            self.vad = previous_vad
+            rollback_error = self._persist_config("vad aggressiveness rollback")
+            await self._broadcast_config()
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Failed to apply VAD aggressiveness: {exc}",
+                    "level": "error",
+                }
+            )
+            if rollback_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Rollback config save failed: {rollback_error}",
+                        "level": "error",
+                    }
+                )
+            return
+
+        persist_error = self._persist_config("vad aggressiveness")
+        await self._broadcast_config()
+        await self._broadcast(
+            {"type": "toast", "message": f"VAD aggressiveness {self.config.vad.aggressiveness}"}
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"VAD aggressiveness applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_output_clipboard(self, enabled: Any) -> None:
+        normalized = bool(enabled)
+        if self.config.output.clipboard == normalized:
+            return
+
+        self.config.output.clipboard = normalized
+        persist_error = self._persist_config("output clipboard")
+        await self._broadcast_config()
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Clipboard output {'on' if normalized else 'off'}",
+            }
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Clipboard output applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_output_file_enabled(self, enabled: Any) -> None:
+        normalized = bool(enabled)
+        if self.config.output.file.enabled == normalized:
+            return
+
+        self.config.output.file.enabled = normalized
+        persist_error = self._persist_config("output file enabled")
+        await self._broadcast_config()
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"File output {'on' if normalized else 'off'}",
+            }
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"File output applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_output_file_path(self, path: Any) -> None:
+        raw = str(path or "").strip()
+        if not raw:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Output file path cannot be empty",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        normalized = Path(raw).expanduser()
+        if self.config.output.file.path == normalized:
+            return
+
+        self.config.output.file.path = normalized
+        persist_error = self._persist_config("output file path")
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Output file path {normalized}"})
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Output file path applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_model_path(self, path: Any) -> None:
+        raw = "" if path is None else str(path).strip()
+        next_path = str(Path(raw).expanduser()) if raw else None
+
+        if self.config.model.path == next_path:
+            return
+
+        previous_path = self.config.model.path
+        self.config.model.path = next_path
+        persist_error = self._persist_config("model path")
+
+        try:
+            await self._reload_transcriber()
+        except Exception as exc:
+            logger.exception("Failed to apply model path")
+            self.config.model.path = previous_path
+            rollback_error = self._persist_config("model path rollback")
+            await self._broadcast_config()
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Failed to apply model path: {exc}",
+                    "level": "error",
+                }
+            )
+            if rollback_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Rollback config save failed: {rollback_error}",
+                        "level": "error",
+                    }
+                )
+            return
+
+        await self._broadcast_config()
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": (
+                    "Local model path cleared (default cache)"
+                    if next_path is None
+                    else f"Local model path {next_path}"
+                ),
+            }
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Model path applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_theme(self, theme_name: str) -> None:
+        normalized = str(theme_name).strip().lower()
+        if not normalized:
+            await self._broadcast(
+                {"type": "toast", "message": "Theme cannot be empty", "level": "error"}
+            )
+            return
+
+        if self.config.ui.theme == normalized:
+            return
+
+        self.config.ui.theme = normalized
+        persist_error = self._persist_config("theme")
+
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Theme {normalized}"})
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Theme applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
     async def _set_hotkey(self, hotkey: str) -> None:
         """Update and restart the global hotkey listener."""
         if not hotkey:
@@ -1580,6 +1960,7 @@ class BridgeServer:
         config_dict = self.config.to_dict()
         config_dict["bridge"] = {"host": "localhost", "port": 7878}
         config_dict["auto_copy"] = self._auto_copy
+        config_dict["auto_paste"] = self._auto_paste
         config_dict["first_run_setup_required"] = self._first_run_setup_required
         config_dict["runtime"] = self._runtime_capabilities
         return config_dict

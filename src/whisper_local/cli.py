@@ -280,7 +280,6 @@ def main() -> None:
         port = getattr(args, "port", 7878)
         legacy = getattr(args, "legacy", False)
         no_status_indicator = getattr(args, "no_status_indicator", False)
-        _ensure_runtime_dependencies()
 
         if legacy:
             # Use legacy Textual TUI

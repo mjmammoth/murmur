@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import numpy as np
@@ -22,22 +23,29 @@ def load_audio_file(path: Path, target_sample_rate: int) -> np.ndarray:
 
     try:
         from faster_whisper.audio import decode_audio  # type: ignore
-    except Exception as exc:
+    except ImportError as exc:
         raise RuntimeError(
             "Audio file decoding unavailable. Install faster-whisper."
         ) from exc
 
     try:
-        audio = decode_audio(str(resolved), sampling_rate=decode_sample_rate)
-    except TypeError:
-        # Older faster-whisper versions decode at 16kHz only.
-        audio = decode_audio(str(resolved))
-        if decode_sample_rate != DEFAULT_DECODE_SAMPLE_RATE:
-            audio = _resample_audio(
-                np.asarray(audio),
-                original_rate=DEFAULT_DECODE_SAMPLE_RATE,
-                target_rate=decode_sample_rate,
-            )
+        sig = inspect.signature(decode_audio)
+        supports_sampling_rate = "sampling_rate" in sig.parameters
+    except (ValueError, TypeError):
+        supports_sampling_rate = False
+
+    try:
+        if supports_sampling_rate:
+            audio = decode_audio(str(resolved), sampling_rate=decode_sample_rate)
+        else:
+            # Older faster-whisper versions decode at 16kHz only.
+            audio = decode_audio(str(resolved))
+            if decode_sample_rate != DEFAULT_DECODE_SAMPLE_RATE:
+                audio = _resample_audio(
+                    np.asarray(audio),
+                    original_rate=DEFAULT_DECODE_SAMPLE_RATE,
+                    target_rate=decode_sample_rate,
+                )
     except Exception as exc:
         raise RuntimeError(f"Unable to decode audio file {resolved}: {exc}") from exc
 

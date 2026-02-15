@@ -31,9 +31,11 @@ export interface BackendContextValue {
   status: Accessor<AppStatus>;
   statusMessage: Accessor<string>;
   statusElapsed: Accessor<number | undefined>;
+  suppressPasteInputUntil: Accessor<number>;
   config: Accessor<AppConfig | null>;
   models: Accessor<ModelInfo[]>;
   autoCopy: Accessor<boolean>;
+  autoPaste: Accessor<boolean>;
   logs: Accessor<LogEntry[]>;
   configFileContent: Accessor<string>;
   configFilePath: Accessor<string>;
@@ -66,9 +68,11 @@ export function BackendContextProvider(props: {
   const [status, setStatus] = createSignal<AppStatus>("connecting");
   const [statusMessage, setStatusMessage] = createSignal("Connecting...");
   const [statusElapsed, setStatusElapsed] = createSignal<number | undefined>(undefined);
+  const [suppressPasteInputUntil, setSuppressPasteInputUntil] = createSignal(0);
   const [config, setConfig] = createSignal<AppConfig | null>(null);
   const [models, setModels] = createSignal<ModelInfo[]>([]);
   const [autoCopy, setAutoCopy] = createSignal(false);
+  const [autoPaste, setAutoPaste] = createSignal(false);
   const [logs, setLogs] = createSignal<LogEntry[]>([]);
   const [configFileContent, setConfigFileContent] = createSignal("");
   const [configFilePath, setConfigFilePath] = createSignal("");
@@ -169,8 +173,11 @@ export function BackendContextProvider(props: {
 
       case "config":
         setConfig(message.config);
-        if ("auto_copy" in (message.config as any)) {
-          setAutoCopy((message.config as any).auto_copy ?? false);
+        if ("auto_copy" in message.config) {
+          setAutoCopy(message.config.auto_copy ?? false);
+        }
+        if ("auto_paste" in message.config) {
+          setAutoPaste(message.config.auto_paste ?? false);
         }
         break;
 
@@ -211,6 +218,14 @@ export function BackendContextProvider(props: {
         setDownloadProgress({ model: message.model, percent: message.percent });
         break;
 
+      case "suppress_paste_input": {
+        const durationMs = Number(message.duration_ms ?? 0);
+        if (!Number.isFinite(durationMs) || durationMs <= 0) break;
+        const suppressUntil = Date.now() + durationMs;
+        setSuppressPasteInputUntil((prev) => Math.max(prev, suppressUntil));
+        break;
+      }
+
       case "log":
         setLogs((prev) => {
           const entry: LogEntry = {
@@ -242,6 +257,37 @@ export function BackendContextProvider(props: {
     });
   }
 
+  function patchAudioConfig(updater: (audio: AppConfig["audio"]) => AppConfig["audio"]) {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      return { ...prev, audio: updater(prev.audio) };
+    });
+  }
+
+  function patchVadConfig(updater: (vad: AppConfig["vad"]) => AppConfig["vad"]) {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      return { ...prev, vad: updater(prev.vad) };
+    });
+  }
+
+  function patchOutputConfig(updater: (output: AppConfig["output"]) => AppConfig["output"]) {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      return { ...prev, output: updater(prev.output) };
+    });
+  }
+
+  function patchUiConfig(
+    updater: (ui: NonNullable<AppConfig["ui"]>) => NonNullable<AppConfig["ui"]>
+  ) {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      const currentUi = prev.ui ?? { theme: "dark" };
+      return { ...prev, ui: updater(currentUi) };
+    });
+  }
+
   function applyOptimisticConfig(message: ClientMessage) {
     switch (message.type) {
       case "set_selected_model":
@@ -265,6 +311,33 @@ export function BackendContextProvider(props: {
         return;
       case "set_hotkey":
         patchHotkeyConfig((hotkey) => ({ ...hotkey, key: message.hotkey }));
+        return;
+      case "set_audio_sample_rate":
+        patchAudioConfig((audio) => ({ ...audio, sample_rate: message.sample_rate }));
+        return;
+      case "set_vad_aggressiveness":
+        patchVadConfig((vad) => ({ ...vad, aggressiveness: message.aggressiveness }));
+        return;
+      case "set_output_clipboard":
+        patchOutputConfig((output) => ({ ...output, clipboard: message.enabled }));
+        return;
+      case "set_output_file_enabled":
+        patchOutputConfig((output) => ({
+          ...output,
+          file: { ...output.file, enabled: message.enabled },
+        }));
+        return;
+      case "set_output_file_path":
+        patchOutputConfig((output) => ({
+          ...output,
+          file: { ...output.file, path: message.path },
+        }));
+        return;
+      case "set_model_path":
+        patchModelConfig((model) => ({ ...model, path: message.path }));
+        return;
+      case "set_theme":
+        patchUiConfig((ui) => ({ ...ui, theme: message.theme }));
         return;
       default:
         return;
@@ -327,9 +400,11 @@ export function BackendContextProvider(props: {
     status,
     statusMessage,
     statusElapsed,
+    suppressPasteInputUntil,
     config,
     models,
     autoCopy,
+    autoPaste,
     logs,
     configFileContent,
     configFilePath,

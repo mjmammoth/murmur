@@ -6,11 +6,19 @@ import { useDialog } from "../context/dialog";
 import { useBackend } from "../context/backend";
 import { useConfig } from "../context/config";
 
-type SelectSettingId = "model.backend" | "model.device" | "model.compute" | "model.language";
+type SelectSettingId =
+  | "model.backend"
+  | "model.device"
+  | "model.compute"
+  | "model.language"
+  | "audio.sample_rate"
+  | "vad.aggressiveness";
 
 interface SettingsSelectDialogData {
   settingId: SelectSettingId;
   returnToSettings?: boolean;
+  returnSettingId?: string;
+  returnFilterQuery?: string;
 }
 
 interface SelectOption {
@@ -100,6 +108,8 @@ export function SettingsSelectModal(): JSX.Element {
   );
   const settingId = createMemo<SelectSettingId | null>(() => dialogData()?.settingId ?? null);
   const returnToSettings = createMemo(() => Boolean(dialogData()?.returnToSettings));
+  const returnSettingId = createMemo(() => dialogData()?.returnSettingId ?? null);
+  const returnFilterQuery = createMemo(() => dialogData()?.returnFilterQuery ?? null);
   const isLanguagePicker = createMemo(() => settingId() === "model.language");
   const runtimeModel = createMemo(() => config.config()?.runtime?.model);
 
@@ -114,6 +124,10 @@ export function SettingsSelectModal(): JSX.Element {
         return model?.compute_type ?? "int8";
       case "model.language":
         return model?.language ?? null;
+      case "audio.sample_rate":
+        return String(config.config()?.audio.sample_rate ?? 48000);
+      case "vad.aggressiveness":
+        return String(config.config()?.vad.aggressiveness ?? 1);
       default:
         return null;
     }
@@ -129,6 +143,10 @@ export function SettingsSelectModal(): JSX.Element {
         return "Compute Type";
       case "model.language":
         return "Model Language";
+      case "audio.sample_rate":
+        return "Sample Rate";
+      case "vad.aggressiveness":
+        return "VAD Aggressiveness";
       default:
         return "Select Option";
     }
@@ -144,6 +162,10 @@ export function SettingsSelectModal(): JSX.Element {
         return "choose quantization profile";
       case "model.language":
         return "type to filter languages";
+      case "audio.sample_rate":
+        return "choose capture sample rate";
+      case "vad.aggressiveness":
+        return "choose VAD sensitivity";
       default:
         return "choose value";
     }
@@ -259,6 +281,20 @@ export function SettingsSelectModal(): JSX.Element {
     return [{ value: current, label: current, description: "Current" }, ...withState];
   });
 
+  const sampleRateOptions = createMemo<SelectOption[]>(() => [
+    { value: "8000", label: "8000 Hz", description: "Low bandwidth / telephony" },
+    { value: "16000", label: "16000 Hz", description: "Speech-friendly default" },
+    { value: "32000", label: "32000 Hz", description: "Higher quality speech" },
+    { value: "48000", label: "48000 Hz", description: "Required for RNNoise processing" },
+  ]);
+
+  const vadAggressivenessOptions = createMemo<SelectOption[]>(() => [
+    { value: "0", label: "0", description: "Least aggressive (keeps more audio)" },
+    { value: "1", label: "1", description: "Balanced sensitivity" },
+    { value: "2", label: "2", description: "More aggressive trimming" },
+    { value: "3", label: "3", description: "Most aggressive trimming" },
+  ]);
+
   const allOptions = createMemo<SelectOption[]>(() => {
     switch (settingId()) {
       case "model.backend":
@@ -269,6 +305,10 @@ export function SettingsSelectModal(): JSX.Element {
         return computeOptions();
       case "model.language":
         return LANGUAGE_OPTIONS;
+      case "audio.sample_rate":
+        return sampleRateOptions();
+      case "vad.aggressiveness":
+        return vadAggressivenessOptions();
       default:
         return [];
     }
@@ -293,7 +333,14 @@ export function SettingsSelectModal(): JSX.Element {
 
   function closeModal() {
     if (returnToSettings()) {
-      dialog.openDialog("settings");
+      const selectedSettingId = returnSettingId();
+      const filterQuery = returnFilterQuery();
+      dialog.openDialog(
+        "settings",
+        selectedSettingId || filterQuery
+          ? { selectedSettingId: selectedSettingId ?? undefined, filterQuery: filterQuery ?? undefined }
+          : undefined,
+      );
       return;
     }
     dialog.closeDialog();
@@ -361,6 +408,18 @@ export function SettingsSelectModal(): JSX.Element {
       case "model.language":
         backend.send({ type: "set_model_language", language: option.value });
         break;
+      case "audio.sample_rate": {
+        const sampleRate = Number(option.value ?? "0");
+        if (!Number.isFinite(sampleRate) || sampleRate <= 0) return;
+        config.setAudioSampleRate(sampleRate);
+        break;
+      }
+      case "vad.aggressiveness": {
+        const aggressiveness = Number(option.value ?? "-1");
+        if (!Number.isFinite(aggressiveness) || aggressiveness < 0) return;
+        config.setVadAggressiveness(aggressiveness);
+        break;
+      }
       default:
         return;
     }
@@ -407,6 +466,7 @@ export function SettingsSelectModal(): JSX.Element {
 
     switch (key.name) {
       case "escape":
+      case "q":
         key.preventDefault();
         closeModal();
         return;
@@ -473,7 +533,7 @@ export function SettingsSelectModal(): JSX.Element {
             </text>
             <box backgroundColor={colors().secondary} paddingX={1}>
               <text>
-                <span style={{ fg: colors().selectedText }}>esc</span>
+                <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
             </box>
           </box>
@@ -573,7 +633,7 @@ export function SettingsSelectModal(): JSX.Element {
       <box flexShrink={0} paddingX={3} paddingTop={1}>
         <box flexDirection="row" gap={2} alignItems="center">
           <text>
-            <span style={{ fg: colors().textMuted }}>↑/↓ navigate</span>
+            <span style={{ fg: colors().textMuted }}>↑/↓ or j/k navigate</span>
           </text>
           <text>
             <span style={{ fg: colors().textMuted }}>enter apply</span>
