@@ -31,6 +31,7 @@ export interface BackendContextValue {
   status: Accessor<AppStatus>;
   statusMessage: Accessor<string>;
   statusElapsed: Accessor<number | undefined>;
+  suppressPasteInputUntil: Accessor<number>;
   config: Accessor<AppConfig | null>;
   models: Accessor<ModelInfo[]>;
   autoCopy: Accessor<boolean>;
@@ -67,6 +68,7 @@ export function BackendContextProvider(props: {
   const [status, setStatus] = createSignal<AppStatus>("connecting");
   const [statusMessage, setStatusMessage] = createSignal("Connecting...");
   const [statusElapsed, setStatusElapsed] = createSignal<number | undefined>(undefined);
+  const [suppressPasteInputUntil, setSuppressPasteInputUntil] = createSignal(0);
   const [config, setConfig] = createSignal<AppConfig | null>(null);
   const [models, setModels] = createSignal<ModelInfo[]>([]);
   const [autoCopy, setAutoCopy] = createSignal(false);
@@ -216,6 +218,14 @@ export function BackendContextProvider(props: {
         setDownloadProgress({ model: message.model, percent: message.percent });
         break;
 
+      case "suppress_paste_input": {
+        const durationMs = Number(message.duration_ms ?? 0);
+        if (!Number.isFinite(durationMs) || durationMs <= 0) break;
+        const suppressUntil = Date.now() + durationMs;
+        setSuppressPasteInputUntil((prev) => Math.max(prev, suppressUntil));
+        break;
+      }
+
       case "log":
         setLogs((prev) => {
           const entry: LogEntry = {
@@ -345,6 +355,7 @@ export function BackendContextProvider(props: {
     status,
     statusMessage,
     statusElapsed,
+    suppressPasteInputUntil,
     config,
     models,
     autoCopy,

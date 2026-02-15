@@ -29,7 +29,7 @@ def paste_from_clipboard() -> bool:
     try:
         subprocess.run(
             [
-                "osascript",
+                "/usr/bin/osascript",
                 "-e",
                 'tell application "System Events" to keystroke "v" using command down',
             ],
@@ -43,7 +43,7 @@ def paste_from_clipboard() -> bool:
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or str(exc)).strip()
         logger.warning("Auto paste failed: %s", detail)
-    except Exception as exc:  # pragma: no cover - runtime dependent
+    except OSError as exc:
         logger.warning("Auto paste failed: %s", exc)
     return False
 

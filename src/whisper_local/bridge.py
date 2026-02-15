@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 MAX_DROP_FILES = 32
 MAX_DROP_FILE_BYTES = 512 * 1024 * 1024
 MAX_DROP_AUDIO_SECONDS = 4 * 60 * 60
+AUTO_PASTE_INPUT_SUPPRESS_MS = 1000
 
 
 class WebSocketLogHandler(logging.Handler):
@@ -487,6 +488,9 @@ class BridgeServer:
             if self.config.output.clipboard or self._auto_copy or self._auto_paste:
                 copied_to_clipboard = copy_to_clipboard(result.text)
             if self._auto_paste and copied_to_clipboard:
+                await self._broadcast(
+                    {"type": "suppress_paste_input", "duration_ms": AUTO_PASTE_INPUT_SUPPRESS_MS}
+                )
                 paste_from_clipboard()
             if self.config.output.file.enabled:
                 append_to_file(self.config.output.file.path, result.text)
@@ -654,7 +658,7 @@ class BridgeServer:
             elif msg_type == "toggle_auto_paste":
                 self._auto_paste = bool(data.get("enabled", not self._auto_paste))
                 self.config.auto_paste = self._auto_paste
-                persist_error: str | None = None
+                persist_error = None
                 try:
                     save_config(self.config)
                 except Exception as exc:

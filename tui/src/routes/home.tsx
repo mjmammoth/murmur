@@ -39,6 +39,7 @@ export function Home(): JSX.Element {
   const [logLevelIndex, setLogLevelIndex] = createSignal(1);
   const canShowLogs = () => terminal().width >= LOGS_PANEL_MIN_TERMINAL_WIDTH;
   const logsVisible = () => showLogs() && canShowLogs();
+  const shouldSuppressPasteInput = () => Date.now() < backend.suppressPasteInputUntil();
   const homePaneWidth = () => {
     const fullWidth = terminal().width;
     if (!logsVisible()) return fullWidth;
@@ -89,6 +90,11 @@ export function Home(): JSX.Element {
     if (key.ctrl && key.name === "c") {
       key.preventDefault();
       exitApp(renderer);
+      return;
+    }
+
+    if (shouldSuppressPasteInput()) {
+      key.preventDefault();
       return;
     }
 
@@ -192,6 +198,10 @@ export function Home(): JSX.Element {
   });
 
   usePaste((event) => {
+    if (shouldSuppressPasteInput()) {
+      event.preventDefault();
+      return;
+    }
     if (dialog.isOpen()) return;
     const pasted = event.text.trim();
     if (!pasted) return;

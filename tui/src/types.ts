@@ -150,6 +150,7 @@ export type ServerMessage =
   | { type: "config_file"; content: string; path: string }
   | { type: "toast"; message: string; level?: "info" | "error" }
   | { type: "log"; level: string; message: string; timestamp: string; source: string }
+  | { type: "suppress_paste_input"; duration_ms?: number }
   | { type: "download_progress"; model: string; percent: number };
 
 // Log types
