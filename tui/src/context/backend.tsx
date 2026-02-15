@@ -168,8 +168,21 @@ export function BackendContextProvider(props: {
 
       case "models":
         setModels(message.models);
-        setActiveModelOp(null);
-        setDownloadProgress(null);
+
+        const modelOp = activeModelOp();
+        if (modelOp?.type === "pulling") {
+          const pulled = message.models.find((model) => model.name === modelOp.model);
+          if (pulled?.installed) {
+            setActiveModelOp(null);
+            setDownloadProgress(null);
+          }
+        } else if (modelOp?.type === "removing") {
+          const removed = message.models.find((model) => model.name === modelOp.model);
+          if (!removed || !removed.installed) {
+            setActiveModelOp(null);
+            setDownloadProgress(null);
+          }
+        }
         break;
 
       case "config":
@@ -210,6 +223,23 @@ export function BackendContextProvider(props: {
         break;
 
       case "toast":
+        if (activeModelOp()?.type === "pulling") {
+          if (
+            message.message.startsWith("Download cancelled:") ||
+            message.message.startsWith("Download failed:") ||
+            message.message.startsWith("Downloaded ")
+          ) {
+            setActiveModelOp(null);
+            setDownloadProgress(null);
+          }
+        }
+        if (
+          activeModelOp()?.type === "removing" &&
+          (message.message.startsWith("Removed ") || message.message.startsWith("Remove failed:"))
+        ) {
+          setActiveModelOp(null);
+          setDownloadProgress(null);
+        }
         for (const handler of toastHandlers) {
           handler(message.message, message.level ?? "info");
         }
@@ -217,6 +247,11 @@ export function BackendContextProvider(props: {
 
       case "download_progress":
         setDownloadProgress({ model: message.model, percent: message.percent });
+        setActiveModelOp((prev) => {
+          if (prev?.type === "removing") return prev;
+          if (prev?.type === "pulling" && prev.model === message.model) return prev;
+          return { type: "pulling", model: message.model };
+        });
         break;
 
       case "suppress_paste_input": {
