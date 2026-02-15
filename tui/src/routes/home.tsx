@@ -1,5 +1,5 @@
 import { createEffect, createSignal, Show, type JSX } from "solid-js";
-import { useKeyHandler, usePaste, useRenderer } from "@opentui/solid";
+import { useKeyHandler, usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid";
 import { BorderChars, RGBA, type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
@@ -24,8 +24,11 @@ interface ModelManagerDialogData {
 }
 
 export function Home(): JSX.Element {
+  const LOGS_PANEL_WIDTH_RATIO = 0.42;
+  const LOGS_PANEL_MIN_TERMINAL_WIDTH = 115;
   const { colors } = useTheme();
   const renderer = useRenderer();
+  const terminal = useTerminalDimensions();
   const backend = useBackend();
   const config = useConfig();
   const transcriber = useTranscriber();
@@ -34,7 +37,30 @@ export function Home(): JSX.Element {
   const [showLogs, setShowLogs] = createSignal(false);
   const [activePane, setActivePane] = createSignal<"main" | "logs">("main");
   const [logLevelIndex, setLogLevelIndex] = createSignal(1);
+  const canShowLogs = () => terminal().width >= LOGS_PANEL_MIN_TERMINAL_WIDTH;
+  const logsVisible = () => showLogs() && canShowLogs();
+  const homePaneWidth = () => {
+    const fullWidth = terminal().width;
+    if (!logsVisible()) return fullWidth;
+    return Math.max(0, Math.floor(fullWidth * (1 - LOGS_PANEL_WIDTH_RATIO)));
+  };
+  const logsTooNarrowMessage = () => "UI too narrow for logs. Please expand.";
   const firstRunSetupRequired = () => Boolean(backend.config()?.first_run_setup_required);
+
+  createEffect(() => {
+    if (!logsVisible() && activePane() === "logs") {
+      setActivePane("main");
+    }
+  });
+
+  let previousLogsVisible = false;
+  createEffect(() => {
+    const currentlyVisible = logsVisible();
+    if (previousLogsVisible && !currentlyVisible && showLogs() && !canShowLogs()) {
+      toast.showToast(logsTooNarrowMessage());
+    }
+    previousLogsVisible = currentlyVisible;
+  });
 
   createEffect(() => {
     if (!backend.connected()) return;
@@ -70,26 +96,29 @@ export function Home(): JSX.Element {
     if (key.name === "l" && !dialog.isOpen()) {
       setShowLogs((prev) => {
         const next = !prev;
-        setActivePane(next ? "logs" : "main");
+        if (next && !canShowLogs()) {
+          toast.showToast(logsTooNarrowMessage());
+        }
+        setActivePane(next && canShowLogs() ? "logs" : "main");
         return next;
       });
       return;
     }
 
-    if (key.name === "escape" && showLogs() && !dialog.isOpen()) {
+    if (key.name === "escape" && logsVisible() && !dialog.isOpen()) {
       setShowLogs(false);
       setActivePane("main");
       return;
     }
 
-    if (key.name === "tab" && showLogs() && !dialog.isOpen()) {
+    if (key.name === "tab" && logsVisible() && !dialog.isOpen()) {
       key.preventDefault();
       setActivePane((pane) => (pane === "main" ? "logs" : "main"));
       return;
     }
 
     if (
-      showLogs() &&
+      logsVisible() &&
       activePane() === "logs" &&
       !dialog.isOpen() &&
       (key.name === "left" || key.name === "right")
@@ -105,7 +134,7 @@ export function Home(): JSX.Element {
 
     if (dialog.isOpen()) return;
 
-    if (showLogs() && activePane() === "logs") {
+    if (logsVisible() && activePane() === "logs") {
       if (key.name === "up" || key.name === "down" || key.name === "j" || key.name === "k") {
         return;
       }
@@ -231,13 +260,13 @@ export function Home(): JSX.Element {
             <TranscriptList />
           </box>
           <box flexShrink={0}>
-            <Footer />
+            <Footer availableWidth={homePaneWidth()} />
           </box>
           <ToastContainer />
         </box>
       </box>
 
-      <Show when={showLogs()}>
+      <Show when={logsVisible()}>
         <box
           width="42%"
           height="100%"
