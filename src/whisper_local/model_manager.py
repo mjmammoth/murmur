@@ -212,8 +212,11 @@ def _cache_path_size_bytes(cache_path: Path) -> int:
         return 0
     total = 0
     for path in cache_path.rglob("*"):
-        if path.is_file():
-            total += path.stat().st_size
+        try:
+            if path.is_file():
+                total += path.stat().st_size
+        except OSError:
+            continue
     return total
 
 
@@ -354,7 +357,11 @@ def model_cache_size_bytes(model_name: str) -> int:
     
     Returns:
         int: Total size in bytes of all cached snapshots and related files for the model.
+        Returns 0 when `model_name` is unknown.
     """
+    if model_name not in MODEL_NAMES:
+        return 0
+
     total = 0
     for cache_path in _model_cache_paths(model_name):
         total += _cache_path_size_bytes(cache_path)

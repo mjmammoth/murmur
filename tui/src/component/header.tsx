@@ -39,10 +39,11 @@ interface ToggleHintProps {
  */
 function ToggleHint(props: ToggleHintProps): JSX.Element {
   const { colors } = useTheme();
-  const idx = Math.max(0, props.label.toLowerCase().indexOf(props.keyChar.toLowerCase()));
-  const before = props.label.slice(0, idx);
-  const key = props.label[idx] ?? props.keyChar;
-  const after = props.label.slice(idx + 1);
+  const matchIndex = props.label.toLowerCase().indexOf(props.keyChar.toLowerCase());
+  const hasMatch = matchIndex >= 0;
+  const before = hasMatch ? props.label.slice(0, matchIndex) : `${props.label} `;
+  const key = hasMatch ? props.label[matchIndex]! : props.keyChar;
+  const after = hasMatch ? props.label.slice(matchIndex + 1) : "";
 
   return (
     <text>

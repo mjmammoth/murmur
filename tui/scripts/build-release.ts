@@ -22,6 +22,13 @@ function run(command: string, args: string[], cwd: string): string {
     stdio: ["ignore", "pipe", "pipe"],
     encoding: "utf-8",
   });
+  if (result.error) {
+    const errorCode = (result.error as NodeJS.ErrnoException).code;
+    const codeSuffix = errorCode ? ` (${String(errorCode)})` : "";
+    throw new Error(
+      `Command failed to start: ${command} ${args.join(" ")}\n${result.error.message}${codeSuffix}`,
+    );
+  }
   if (result.status !== 0) {
     throw new Error(
       `Command failed: ${command} ${args.join(" ")}\n${result.stderr || result.stdout}`,
@@ -41,6 +48,7 @@ function main(): void {
   const repoRoot = resolve(tuiRoot, "..");
 
   const packageJsonPath = resolve(tuiRoot, "package.json");
+  const tsconfigBuildPath = resolve(tuiRoot, "tsconfig.build.json");
   let packageJson: PackageJson;
   try {
     packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as PackageJson;
@@ -71,6 +79,8 @@ function main(): void {
       "--compile",
       "--production",
       "--target=bun-darwin-arm64",
+      "--tsconfig-override",
+      tsconfigBuildPath,
       "--outfile",
       binPath,
     ],
