@@ -86,23 +86,26 @@ def get_hf_cache_dir() -> Path:
 
 def _model_cache_path(model_name: str) -> Path:
     """
-    Return the primary Hugging Face cache directory path for the given model.
+    Return the primary Hugging Face hub cache directory path for the given model.
+    
+    Parameters:
+        model_name (str): Model identifier as listed in the module's supported models.
     
     Returns:
-        Path: The primary cache path for `model_name`.
+        Path: Path to the primary cache directory for the model.
     """
     return _model_cache_paths(model_name)[0]
 
 
 def _cache_path_for_repo_id(repo_id: str) -> Path:
     """
-    Return the local Hugging Face cache path corresponding to a model repository id.
+    Map a Hugging Face repository id to its local hub cache directory.
     
     Parameters:
-        repo_id (str): Hugging Face repository identifier (e.g., "owner/model").
+        repo_id (str): Repository identifier in the form "owner/model".
     
     Returns:
-        Path: Filesystem path to the model cache directory inside the Hugging Face hub cache (e.g., ~/.cache/huggingface/hub/models--owner--model).
+        Path: Path to the model cache directory inside the Hugging Face hub cache (e.g., ~/.cache/huggingface/hub/models--owner--model).
     """
     cache_name = f"models--{repo_id.replace('/', '--')}"
     return get_hf_cache_dir() / "hub" / cache_name
@@ -128,26 +131,29 @@ def _model_repo_ids(model_name: str) -> tuple[str, ...]:
 
 def _model_cache_paths(model_name: str) -> tuple[Path, ...]:
     """
-    Return all cache directory paths that may contain snapshots for the specified model.
+    Get all cache directory paths that may contain snapshots for the given model.
     
     Parameters:
         model_name (str): Supported model name.
     
     Returns:
-        tuple[Path, ...]: Tuple of filesystem paths for each repository ID associated with the model, ordered with the primary repository first followed by any aliases.
+        tuple[Path, ...]: Paths for each repository ID associated with the model, with the primary repository first followed by any aliases.
     """
     return tuple(_cache_path_for_repo_id(repo_id) for repo_id in _model_repo_ids(model_name))
 
 
 def _model_repo_id(model_name: str) -> str:
     """
-    Resolve the primary repository identifier for a given model name.
+    Resolve the primary Hugging Face repository identifier for a given model name.
+    
+    Parameters:
+        model_name (str): Supported model name (one of the values returned by list_available_models()).
     
     Returns:
-        repo_id (str): The primary repository ID associated with the model.
+        repo_id (str): Primary repository identifier associated with the model.
     
     Raises:
-        ValueError: If the provided model_name is not recognized.
+        ValueError: If `model_name` is not a recognized/Supported model.
     """
     repo_id = MODEL_REPO_IDS.get(model_name)
     if not repo_id:
@@ -157,10 +163,10 @@ def _model_repo_id(model_name: str) -> str:
 
 def is_model_installed(model_name: str) -> bool:
     """
-    Check whether a supported model has a complete installed snapshot in the local cache.
+    Determine whether a supported model has a complete installed snapshot in the local cache.
     
     Returns:
-        `true` if the model is installed and a complete snapshot path exists, `false` otherwise.
+        `True` if a complete installed snapshot exists for the given model, `False` otherwise.
     """
     if model_name not in MODEL_NAMES:
         return False
@@ -213,13 +219,13 @@ def _cache_path_size_bytes(cache_path: Path) -> int:
 
 def _iter_snapshot_paths(cache_path: Path) -> list[Path]:
     """
-    Return a list of snapshot directory paths found under the repository cache's "snapshots" subdirectory.
+    List immediate snapshot subdirectories under a repository cache's "snapshots" folder.
     
     Parameters:
-    	cache_path (Path): Path to the repository cache directory that may contain a "snapshots" folder.
+        cache_path (Path): Path to the repository cache directory that may contain a "snapshots" subdirectory.
     
     Returns:
-    	snapshots (list[Path]): List of Paths for each immediate subdirectory inside `<cache_path>/snapshots`; empty list if no snapshots directory exists.
+        List[Path]: Paths for each immediate subdirectory inside cache_path/"snapshots"; an empty list if the snapshots directory does not exist.
     """
     snapshots_path = cache_path / "snapshots"
     if not snapshots_path.exists():
@@ -229,15 +235,26 @@ def _iter_snapshot_paths(cache_path: Path) -> list[Path]:
 
 def _snapshot_is_complete(snapshot_path: Path) -> bool:
     """
-    Check whether a model snapshot directory contains all required non-empty files and at least one non-empty file from each alternative group.
+    Determine whether a model snapshot directory is complete.
+    
+    A snapshot is complete when every filename listed in MODEL_REQUIRED_FILES exists in the directory and has size greater than zero, and for each tuple in MODEL_REQUIRED_FILE_ALTERNATIVES at least one listed file exists and has size greater than zero.
     
     Parameters:
         snapshot_path (Path): Path to the candidate snapshot directory to validate.
     
     Returns:
-        True if every filename listed in MODEL_REQUIRED_FILES exists in the directory and has size greater than zero, and for each group in MODEL_REQUIRED_FILE_ALTERNATIVES at least one file exists and is non-empty; False otherwise.
+        bool: `True` if the snapshot meets the completeness criteria described above, `False` otherwise.
     """
     def has_nonempty_file(filename: str) -> bool:
+        """
+        Check whether a given file exists under the current snapshot_path and has a size greater than zero.
+        
+        Parameters:
+            filename (str): Name (or relative path) of the file to check within the module's snapshot_path.
+        
+        Returns:
+            bool: `true` if the file exists at snapshot_path/filename and its size is greater than zero, `false` otherwise.
+        """
         candidate = snapshot_path / filename
         if not candidate.is_file():
             return False
@@ -376,12 +393,12 @@ def list_installed_models() -> list[ModelInfo]:
 
 def _resolve_repo_total_bytes(repo_id: str) -> int | None:
     """
-    Compute the total size in bytes of all artifact files for a Hugging Face repository.
+    Estimate total size in bytes of all files in a Hugging Face model repository.
     
-    Queries the repository's files metadata and sums the sizes of files that report a positive integer size; returns `None` when metadata cannot be retrieved or yields no positive sizes.
+    Fetches the repository's file metadata and sums sizes reported as positive integers; returns `None` if metadata cannot be retrieved or contains no positive sizes.
     
     Returns:
-        int: Total size in bytes of all files, `None` if unavailable.
+        int | None: Total size in bytes, or `None` if unavailable.
     """
     try:
         info = HfApi().model_info(repo_id=repo_id, files_metadata=True)
@@ -539,15 +556,15 @@ def download_model(
     cancel_check: Callable[[], bool] | None = None,
 ) -> Path:
     """
-    Download the given model and return the local snapshot path.
+    Download and install the specified model snapshot into the local cache.
     
     Parameters:
-        model_name (str): Name of the model to download; must be one of the supported model names.
+        model_name (str): Supported model name to download.
         progress_callback (Callable[[int], None] | None): Optional callback receiving download progress as an integer percentage (0–100).
-        cancel_check (Callable[[], bool] | None): Optional callable that returns True to request cancellation; checked before start and during transfer.
+        cancel_check (Callable[[], bool] | None): Optional callable checked before start and periodically during download; return `True` to request cancellation.
     
     Returns:
-        path (Path): Filesystem path to the downloaded model snapshot.
+        Path: Filesystem path to the downloaded model snapshot.
     
     Raises:
         ValueError: If `model_name` is not a known supported model.
@@ -638,19 +655,21 @@ def _download_model_in_subprocess(
     cancel_check: Callable[[], bool] | None = None,
 ) -> Path:
     """
-    Downloads the specified Hugging Face repository snapshot in a separate subprocess while optionally reporting progress and honoring cancellation.
+    Download a Hugging Face model snapshot for the given repository in a separate subprocess while reporting progress and honoring cancellation.
+    
+    When provided, progress_callback receives integer percentage updates (0–100). If expected_total_bytes is given and greater than zero, percentages are estimated from the on-disk cache size and capped at 99% until the subprocess completes; a final 100% update is emitted on success. The cancel_check callable, when it returns True during the operation, causes the download to be terminated and the partial cache to be pruned.
     
     Parameters:
         repo_id (str): Hugging Face repository identifier to download.
-        progress_callback (Callable[[int], None] | None): Optional callback receiving integer percentage progress (0–100).
-        expected_total_bytes (int | None): Optional expected total size in bytes used to compute progress percentages when available.
+        progress_callback (Callable[[int], None] | None): Optional callback invoked with integer percent progress (0–100).
+        expected_total_bytes (int | None): Optional expected total size in bytes used to estimate progress percentages.
         cancel_check (Callable[[], bool] | None): Optional callable checked periodically; if it returns True the download is cancelled.
     
     Returns:
         Path: Filesystem path to the downloaded model snapshot.
     
     Raises:
-        DownloadCancelledError: If cancellation is requested via `cancel_check` during the download.
+        DownloadCancelledError: If cancellation is requested via cancel_check during the download.
         RuntimeError: If the subprocess fails or does not return a valid path.
     """
     env = os.environ.copy()
@@ -676,9 +695,9 @@ def _download_model_in_subprocess(
 
     def emit_progress() -> None:
         """
-        Update progress by computing the download percentage from the cache path size and invoking the progress callback when the reported percent changes.
+        Compute and emit the download progress percentage to the configured progress callback when the value changes.
         
-        If `expected_total_bytes` is missing or zero, reports `0%`. When a total is known, the cache path size is refreshed at most once per `SIZE_SCAN_INTERVAL` and used to compute an integer percentage capped at `99%` until completion. The `progress_callback` is called with the new percent only if it differs from the last emitted value.
+        If `expected_total_bytes` is missing or zero, emits `0`. Otherwise computes the integer percentage from the cached download size divided by the expected total, capping the reported value at `99` until completion. Calls `progress_callback(percent)` only when the newly computed percent differs from the last emitted value.
         """
         nonlocal last_percent, last_size, last_scan_time
         if progress_callback is None:
@@ -756,10 +775,10 @@ def remove_model(model_name: str) -> None:
 
 def set_selected_model(model_name: str, path: Path | None = None) -> None:
     """
-    Set the selected model name in the configuration and clear any stored model path.
+    Set the selected model in the persisted configuration and clear any stored model path.
     
     Parameters:
-        model_name (str): Name of the model to select; must be one of the supported model names.
+        model_name (str): Model identifier to select; must be one of the supported model names.
         path (Path | None): Optional path to the configuration file or directory. If None, the default config location is used.
     
     Raises:
@@ -774,5 +793,11 @@ def set_selected_model(model_name: str, path: Path | None = None) -> None:
 
 
 def set_default_model(model_name: str, path: Path | None = None) -> None:
-    """Backward-compatible alias for pre-select command naming."""
+    """
+    Set the selected model in the application configuration (backwards-compatible alias).
+    
+    Parameters:
+        model_name (str): Name of the model to select.
+        path (Path | None): Optional path to a specific installed model snapshot to store; if None the stored path is cleared.
+    """
     set_selected_model(model_name, path)

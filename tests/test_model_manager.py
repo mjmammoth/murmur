@@ -280,6 +280,11 @@ def test_get_installed_model_path_ignores_incomplete_snapshot(
 def test_prune_invalid_model_cache_keeps_valid_snapshot(
     tmp_path: Path, monkeypatch
 ) -> None:
+    """
+    Ensure prune_invalid_model_cache removes incomplete snapshot directories while preserving valid ones.
+    
+    Creates a valid and an incomplete snapshot for the "small" model, arranges modification times so the incomplete snapshot appears newer, verifies the valid snapshot is initially recognized as installed, runs prune_invalid_model_cache("small"), and then asserts the valid snapshot still exists while the incomplete snapshot has been removed.
+    """
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
 
     snapshots_dir = model_manager._model_cache_path("small") / "snapshots"

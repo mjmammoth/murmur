@@ -40,10 +40,18 @@ export function ExitConfirmModal(): JSX.Element {
     return `${percent}% downloaded`;
   });
 
+  /**
+   * Closes the currently open dialog in the dialog context.
+   */
   function cancelExit() {
     dialog.closeDialog();
   }
 
+  /**
+   * Cancel the in-progress model download (if any) and exit the application.
+   *
+   * If a concrete model name is available and not the placeholder "selected model", requests the backend to cancel that model's download, then calls the renderer exit utility to terminate the app.
+   */
   function confirmExit() {
     const model = modelName();
     if (model && model !== "selected model") {

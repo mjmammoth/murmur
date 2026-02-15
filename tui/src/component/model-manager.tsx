@@ -17,6 +17,13 @@ import { ModelItem } from "./model-item";
 import { useSpinnerFrame } from "./spinner";
 import type { ModelManagerDialogData } from "../types";
 
+/**
+ * Render a compact key badge with an adjacent descriptive label for keyboard command hints.
+ *
+ * @param props.keys - The key or key sequence text displayed inside the colored badge (for example: "Esc", "Enter", "x/Enter").
+ * @param props.label - The descriptive label shown next to the badge (for example: "close", "select").
+ * @returns A JSX element containing a colored key badge and a muted label, arranged horizontally.
+ */
 function CommandHint(props: { keys: string; label: string }): JSX.Element {
   const { colors } = useTheme();
 
@@ -173,6 +180,14 @@ export function ModelManager(): JSX.Element {
     }
   });
 
+  /**
+   * Perform the primary action for the currently highlighted model.
+   *
+   * If no model is selected, no action is taken. If the selected model is currently being downloaded,
+   * the download is cancelled. If a different model operation is active, no action is taken. If the
+   * selected model is installed, it is set as the active/selected model; otherwise a download for the
+   * model is started.
+   */
   function handlePrimaryAction() {
     const model = selectedModel();
     if (!model) return;
@@ -188,12 +203,23 @@ export function ModelManager(): JSX.Element {
     handlePull();
   }
 
+  /**
+   * Cancels the currently active model download if one exists.
+   *
+   * If no model is being downloaded, this function has no effect.
+   */
   function handleCancelDownload() {
     const pullingModelName = activePullingModelName();
     if (!pullingModelName) return;
     backend.cancelModelDownload(pullingModelName);
   }
 
+  /**
+   * Starts downloading the currently selected model if one exists and no model operation is active.
+   *
+   * Clears the visible status message and requests the backend to download the selected model.
+   * If there is no selected model or another model operation is in progress, this function does nothing.
+   */
   function handlePull() {
     const model = selectedModel();
     if (!model || backend.activeModelOp()) return;

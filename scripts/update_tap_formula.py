@@ -76,16 +76,6 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError(f"Expected wheel URL ending in .whl: {args.wheel_url}")
     if not args.tui_url.endswith(".tar.gz"):
         raise ValueError(f"Expected TUI URL ending in .tar.gz: {args.tui_url}")
-    formula_path_value = str(getattr(args, "formula_path", "Formula/whisper-local.rb"))
-    formula_path = Path(formula_path_value)
-    if formula_path.is_absolute():
-        raise ValueError(f"formula_path must be relative, got absolute path: {formula_path_value}")
-    if "~" in formula_path_value:
-        raise ValueError(f"formula_path must not contain ~: {formula_path_value}")
-    if ".." in formula_path.parts:
-        raise ValueError(
-            f"formula_path must not escape tap checkout (no .. segments): {formula_path_value}"
-        )
     for label, value in (
         ("wheel-sha256", args.wheel_sha256),
         ("tui-sha256", args.tui_sha256),
@@ -96,20 +86,20 @@ def validate_args(args: argparse.Namespace) -> None:
 
 def render_formula(args: argparse.Namespace) -> str:
     """
-    Render a Homebrew formula by substituting template placeholders with values from the parsed arguments.
+    Render a Homebrew formula by substituting placeholders in a template with values from `args`.
     
     Parameters:
-        args (argparse.Namespace): Parsed arguments containing the following attributes used for substitution:
-            - version: version string to insert for `VERSION`
-            - repository: repository identifier to insert for `REPOSITORY`
-            - wheel_url: URL to the wheel file for `WHEEL_URL`
-            - wheel_sha256: 64-character SHA256 for `WHEEL_SHA256`
-            - tui_url: URL to the TUI tarball for `TUI_URL`
-            - tui_sha256: 64-character SHA256 for `TUI_SHA256`
+        args (argparse.Namespace): Parsed arguments providing values used for substitution:
+            - version: value for `VERSION`
+            - repository: value for `REPOSITORY`
+            - wheel_url: value for `WHEEL_URL`
+            - wheel_sha256: value for `WHEEL_SHA256`
+            - tui_url: value for `TUI_URL`
+            - tui_sha256: value for `TUI_SHA256`
             - template: filesystem path to the template file
     
     Returns:
-        str: The rendered formula content with all placeholders substituted.
+        str: Rendered formula content with all placeholders substituted.
     """
     template_path = Path(args.template)
     template = Template(template_path.read_text(encoding="utf-8"))

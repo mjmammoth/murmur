@@ -58,10 +58,7 @@ export { useBackend };
 const RECONNECT_DELAY = 2000;
 
 /**
- * Provides the backend WebSocket context for child components and manages connection, state, and server communication.
- *
- * Initializes and maintains a WebSocket to the specified host and port, syncs server messages into reactive signals,
- * exposes actions for model operations and config requests, and registers runtime event handlers for transcripts, hotkeys, and toasts.
+ * Provide a backend WebSocket context and manage connection, server-derived state, and related actions for child components.
  *
  * @param props.host - Optional backend host (default: "localhost")
  * @param props.port - Optional backend port (default: 7878)
@@ -163,6 +160,13 @@ export function BackendContextProvider(props: {
     }, RECONNECT_DELAY);
   }
 
+  /**
+   * Process an incoming ServerMessage, update backend signals, and notify registered handlers.
+   *
+   * This updates connection and application state (status, config, models, download progress, active model operations, suppress-paste timers, and logs) and invokes transcript, hotkey, and toast handlers as appropriate based on the message type.
+   *
+   * @param message - The server message to handle
+   */
   function handleMessage(message: ServerMessage) {
     switch (message.type) {
       case "status":
@@ -404,16 +408,33 @@ export function BackendContextProvider(props: {
     send({ type: "download_model", name });
   }
 
+  /**
+   * Initiates removal of a model on the backend.
+   *
+   * Marks the model as being removed, clears any active download progress for it, and sends a `remove_model` request to the server.
+   *
+   * @param name - The name of the model to remove
+   */
   function removeModel(name: string) {
     setActiveModelOp({ type: "removing", model: name });
     setDownloadProgress(null);
     send({ type: "remove_model", name });
   }
 
+  /**
+   * Requests cancellation of an in-progress model download.
+   *
+   * @param name - The name of the model whose download should be canceled
+   */
   function cancelModelDownload(name: string) {
     send({ type: "cancel_model_download", name });
   }
 
+  /**
+   * Request the backend to send the current configuration file.
+   *
+   * Sends a `get_config_file` request to the server so the client will receive the configuration file content and path.
+   */
   function requestConfigFile() {
     send({ type: "get_config_file" });
   }

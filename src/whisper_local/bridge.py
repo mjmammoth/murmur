@@ -177,10 +177,10 @@ class BridgeServer:
 
         def _cleanup(_t: asyncio.Task) -> None:
             """
-            Remove the tracked model task entry if the provided task is the currently recorded task for that model.
+            Remove the tracked model task entry when the completed task matches the recorded task for that model.
             
             Parameters:
-                _t (asyncio.Task): The task that completed; if it matches self._model_tasks[name], the entry for `name` is removed.
+                _t (asyncio.Task): The completed task; if it is the same object as the currently stored task for the associated model name, the task entry is removed.
             """
             if self._model_tasks.get(name) is _t:
                 self._model_tasks.pop(name, None)
@@ -190,10 +190,10 @@ class BridgeServer:
 
     def _client_path(self, websocket: WebSocketServerProtocol) -> str:
         """
-        Get the client's connection path in a way compatible with different websockets library versions.
+        Resolve the connection path for a client WebSocket across different websockets library versions.
         
         Returns:
-            str: The connection path string, or an empty string if the path cannot be determined.
+            str: The connection path string, or an empty string if it cannot be determined.
         """
         # websockets <=13 exposes `.path` directly.
         legacy_path = getattr(websocket, "path", None)
@@ -238,9 +238,9 @@ class BridgeServer:
         capture_logs: bool = False,
     ) -> None:
         """
-        Start and run the bridge WebSocket server, initialize runtime components, and manage initial model loading.
+        Start the bridge WebSocket server, initialize runtime components, and begin model loading.
         
-        Initializes the event loop, ensures native Whisper C++ is installed, optionally installs a WebSocket log handler, initializes audio/transcription components, prunes invalid model caches, determines whether first-run setup is needed, serves clients on the given host and port, and triggers model loading (or first-run status) while running indefinitely.
+        Binds to the given host and port, initializes audio/transcription components and runtime state, prunes model caches, determines whether first-run setup is required, and either sets the first-run status or triggers asynchronous model loading. Runs until the server is shut down.
         
         Parameters:
             host (str): Hostname or IP address to bind the WebSocket server to.
@@ -671,13 +671,13 @@ class BridgeServer:
         self, websocket: WebSocketServerProtocol, message: str
     ) -> None:
         """
-        Dispatch incoming JSON control messages from a client to the bridge's handlers.
+        Dispatch a JSON-encoded control message from a client to the appropriate bridge handler.
         
-        Parses the JSON-encoded `message` and routes it by the message's `"type"` field to perform actions such as recording control, noise/VAD toggles, model downloads/removals/cancellation, model and backend configuration, hotkey and theme updates, clipboard and file output changes, requesting model/config data, and initiating transcription from pasted text or files. Replies or status updates are sent to the provided `websocket` when a direct response is required; many actions broadcast user-facing toasts or config/model updates to all connected clients. Malformed JSON or unknown message types are logged and ignored.
+        Parses the provided message and routes it by the top-level "type" field to perform actions such as recording control, model management (download, cancel, remove, select), backend/device/compute configuration, audio/VAD/noise toggles, hotkey and theme updates, clipboard/file output changes, requests for model/config data, and initiating transcription from pasted text or files. Direct replies are sent to the given websocket when required; other responses are broadcast to connected clients. Invalid JSON or unknown message types are ignored.
         
         Parameters:
-            websocket (WebSocketServerProtocol): The client's WebSocket connection, used for direct replies when applicable.
-            message (str): A JSON-encoded message string that must include a top-level `"type"` field and any type-specific payload.
+            websocket (WebSocketServerProtocol): The client's WebSocket connection used for direct replies when applicable.
+            message (str): A JSON-encoded message string that must include a top-level "type" field and any type-specific payload.
         """
         try:
             data = json.loads(message)
@@ -1050,7 +1050,15 @@ class BridgeServer:
         await self._broadcast_config()
 
     async def _toggle_vad(self, enabled: bool) -> None:
-        """Toggle VAD."""
+        """
+        Enable or disable voice activity detection (VAD) and persist the change.
+        
+        Parameters:
+            enabled (bool): `True` to enable VAD, `False` to disable it.
+        
+        Notes:
+            This updates the in-memory VAD processor, saves the configuration, and notifies connected clients with a toast and an updated config broadcast.
+        """
         self.config.vad.enabled = enabled
         self.vad = VadProcessor(
             enabled=enabled, aggressiveness=self.config.vad.aggressiveness
@@ -2076,6 +2084,14 @@ class BridgeServer:
         await self._broadcast({"type": "config", "config": self._config_payload()})
 
     def _config_payload(self) -> dict[str, Any]:
+        """
+        Build the configuration payload used to synchronize state with connected clients.
+        
+        Refreshes cached runtime capability information and returns a dictionary containing the serialized application config extended with bridge connection info and runtime/UI flags such as `auto_copy`, `auto_paste`, `first_run_setup_required`, and `runtime` capabilities.
+        
+        Returns:
+            dict[str, Any]: Serialized configuration payload for clients.
+        """
         self._refresh_runtime_capabilities()
         config_dict = self.config.to_dict()
         config_dict["bridge"] = {"host": "localhost", "port": 7878}
@@ -2087,9 +2103,9 @@ class BridgeServer:
 
     def shutdown(self) -> None:
         """
-        Initiate shutdown and release runtime resources.
+        Initiates server shutdown and releases runtime resources.
         
-        Signals the server shutdown, triggers cancellation of any active model downloads, stops the audio recorder if currently recording, stops the hotkey listener if started, and closes the noise suppression component.
+        Signals shutdown, cancels any in-progress model downloads, stops the audio recorder if active, stops the global hotkey listener if running, and closes the noise suppression component.
         """
         self._shutdown_requested.set()
         for cancel_event in list(self._download_cancel_events.values()):
@@ -2113,7 +2129,17 @@ def run_bridge(
     port: int = 7878,
     capture_logs: bool = False,
 ) -> None:
-    """Run the bridge server."""
+    """
+    Start and run the WebSocket bridge server and its event loop until shutdown.
+    
+    Creates a BridgeServer using the provided AppConfig (or the loaded default) and runs it listening on the given host and port. The function runs the server loop until interrupted (e.g., Ctrl+C) and ensures the server is shut down and cleaned up on exit.
+    
+    Parameters:
+        config (AppConfig | None): Optional application configuration. If omitted, the configuration is loaded from the default location.
+        host (str): Hostname or IP address to bind the server to.
+        port (int): TCP port to listen on.
+        capture_logs (bool): If true, install the WebSocket log forwarder so server logs are sent to connected clients.
+    """
     app_config = config or load_config()
     server = BridgeServer(app_config)
     try:
