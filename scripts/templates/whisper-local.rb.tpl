@@ -20,7 +20,11 @@ class WhisperLocal < Formula
 
   def install
     venv = virtualenv_create(libexec, "python3.12")
-    venv.pip_install cached_download
+    # Strip Homebrew's SHA256 cache prefix to restore PEP 427 wheel filename for pip
+    wheel_name = cached_download.basename.to_s.sub(/\A[0-9a-f]{64}--/i, "")
+    wheel_path = buildpath/wheel_name
+    cp cached_download, wheel_path
+    venv.pip_install wheel_path
 
     resource("whisper-local-tui").stage do
       (libexec/"bin").install "whisper-local-tui"
