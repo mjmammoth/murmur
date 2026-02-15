@@ -55,7 +55,7 @@ Use `whisper.local run --no-status-indicator` to disable the macOS menu bar indi
 ## macOS permissions
 
 Global hotkeys require Input Monitoring permission for your terminal or app host.
-Auto-paste uses System Events and may require Accessibility permission for Terminal (or your host app).
+Auto-paste uses System Events and requires Accessibility permission for the terminal or app running whisper.local. Grant permission in **System Settings → Privacy & Security → Accessibility** — add Terminal (or your Python/app launcher) to the allowed apps list. Without this permission, auto-paste will fail silently or report a permission error.
 
 ## Hotkey
 

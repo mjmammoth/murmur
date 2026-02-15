@@ -491,7 +491,7 @@ class BridgeServer:
                 await self._broadcast(
                     {"type": "suppress_paste_input", "duration_ms": AUTO_PASTE_INPUT_SUPPRESS_MS}
                 )
-                paste_from_clipboard()
+                await asyncio.to_thread(paste_from_clipboard)
             if self.config.output.file.enabled:
                 append_to_file(self.config.output.file.path, result.text)
             final_status = "ready"

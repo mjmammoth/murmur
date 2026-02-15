@@ -5,8 +5,13 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+import logging
+
 import tomllib
 import tomli_w
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -156,6 +161,7 @@ def normalize_backend_name(name: str) -> str:
         return normalized
     if normalized in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
         return "whisper.cpp"
+    logger.warning("Unknown backend '%s', falling back to 'faster-whisper'", name)
     return "faster-whisper"
 
 

@@ -173,11 +173,11 @@ export function BackendContextProvider(props: {
 
       case "config":
         setConfig(message.config);
-        if ("auto_copy" in (message.config as any)) {
-          setAutoCopy((message.config as any).auto_copy ?? false);
+        if ("auto_copy" in message.config) {
+          setAutoCopy(message.config.auto_copy ?? false);
         }
-        if ("auto_paste" in (message.config as any)) {
-          setAutoPaste((message.config as any).auto_paste ?? false);
+        if ("auto_paste" in message.config) {
+          setAutoPaste(message.config.auto_paste ?? false);
         }
         break;
 

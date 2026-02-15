@@ -21,7 +21,11 @@ def copy_to_clipboard(text: str) -> bool:
 
 
 def paste_from_clipboard() -> bool:
-    """Paste current clipboard contents into the focused macOS app."""
+    """Paste current clipboard contents into the focused macOS app.
+    
+    Requires macOS Accessibility permission (System Settings → Privacy & Security → Accessibility)
+    for the terminal or app running whisper.local to allow osascript to simulate Cmd+V.
+    """
     if sys.platform != "darwin":
         logger.warning("Auto paste is currently supported only on macOS")
         return False
@@ -41,10 +45,30 @@ def paste_from_clipboard() -> bool:
     except FileNotFoundError:
         logger.warning("Auto paste failed: osascript is not available")
     except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or exc.stdout or str(exc)).strip()
-        logger.warning("Auto paste failed: %s", detail)
+        detail = (exc.stderr or exc.stdout or str(exc)).strip().lower()
+        # Check for macOS Accessibility permission errors
+        if any(keyword in detail for keyword in ["not permitted", "ax", "accessibility", "permission"]):
+            logger.warning(
+                "Auto paste failed: macOS Accessibility permission required. "
+                "Please grant Accessibility permission to the terminal/app in "
+                "System Settings → Privacy & Security → Accessibility. "
+                "Error: %s",
+                detail,
+            )
+        else:
+            logger.warning("Auto paste failed: %s", detail)
     except OSError as exc:
-        logger.warning("Auto paste failed: %s", exc)
+        exc_str = str(exc).lower()
+        if any(keyword in exc_str for keyword in ["not permitted", "ax", "accessibility", "permission"]):
+            logger.warning(
+                "Auto paste failed: macOS Accessibility permission required. "
+                "Please grant Accessibility permission to the terminal/app in "
+                "System Settings → Privacy & Security → Accessibility. "
+                "Error: %s",
+                exc,
+            )
+        else:
+            logger.warning("Auto paste failed: %s", exc)
     return False
 
 
