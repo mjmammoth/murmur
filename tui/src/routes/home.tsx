@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
 import { useKeyHandler, usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid";
 import { BorderChars, RGBA, type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -20,6 +20,7 @@ import { ThemePickerModal } from "../component/theme-picker-modal";
 import { SettingsEditModal } from "../component/settings-edit-modal";
 import { ExitConfirmModal } from "../component/exit-confirm-modal";
 import { exitApp } from "../util/exit";
+import { setSigintHandler } from "../util/interrupt";
 import type { ModelManagerDialogData } from "../types";
 
 /**
@@ -106,6 +107,13 @@ export function Home(): JSX.Element {
     }
     exitApp(renderer);
   }
+
+  setSigintHandler(() => {
+    requestExit();
+  });
+  onCleanup(() => {
+    setSigintHandler(null);
+  });
 
   useKeyHandler((key: KeyEvent) => {
     if (key.ctrl && key.name === "c") {
