@@ -24,7 +24,9 @@ class WhisperLocal < Formula
     wheel_name = cached_download.basename.to_s.sub(/\A[0-9a-f]{64}--/i, "")
     wheel_path = buildpath/wheel_name
     cp cached_download, wheel_path
-    venv.pip_install wheel_path
+    # Install wheel with dependencies from PyPI (venv.pip_install uses --no-deps)
+    system "python3.12", "-m", "pip", "--python=#{libexec}/bin/python",
+           "install", "--no-cache-dir", wheel_path
 
     resource("whisper-local-tui").stage do
       (libexec/"bin").install "whisper-local-tui"
