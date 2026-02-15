@@ -12,6 +12,7 @@ import tomli_w
 @dataclass
 class ModelConfig:
     name: str = "small"
+    backend: str = "faster-whisper"
     device: str = "cpu"
     compute_type: str = "int8"
     auto_download: bool = True
@@ -20,8 +21,15 @@ class ModelConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ModelConfig":
+        backend = str(data.get("backend", "faster-whisper")).strip().lower()
+        if backend in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
+            backend = "whisper.cpp"
+        if backend not in {"faster-whisper", "whisper.cpp"}:
+            backend = "faster-whisper"
+
         return cls(
             name=data.get("name", "small"),
+            backend=backend,
             device=data.get("device", "cpu"),
             compute_type=data.get("compute_type", "int8"),
             auto_download=data.get("auto_download", True),
@@ -33,13 +41,13 @@ class ModelConfig:
 @dataclass
 class HotkeyConfig:
     mode: str = "ptt"
-    key: str = "cmd+shift+space"
+    key: str = "f3"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "HotkeyConfig":
         return cls(
             mode=data.get("mode", "ptt"),
-            key=data.get("key", "cmd+shift+space"),
+            key=data.get("key", "f3"),
         )
 
 
@@ -126,13 +134,14 @@ class AppConfig:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["output"]["file"]["path"] = str(self.output.file.path)
+        data["model"]["backend"] = self.model.backend
         data["model"]["path"] = self.model.path
         data["model"]["language"] = self.model.language
         return data
 
 
 def default_config_path() -> Path:
-    return Path("~/.config/whisper-local/config.toml").expanduser()
+    return Path("~/.config/whisper.local/config.toml").expanduser()
 
 
 def _load_default_config() -> dict[str, Any]:

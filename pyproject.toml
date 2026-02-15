@@ -27,6 +27,7 @@ vad = ["webrtcvad>=2.0.10"]
 
 [project.scripts]
 whisper-local = "whisper_local.cli:main"
+"whisper.local" = "whisper_local.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

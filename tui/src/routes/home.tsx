@@ -1,6 +1,6 @@
 import { createEffect, createSignal, Show, type JSX } from "solid-js";
-import { useKeyHandler, useRenderer } from "@opentui/solid";
-import { RGBA, type KeyEvent } from "@opentui/core";
+import { useKeyHandler, usePaste, useRenderer } from "@opentui/solid";
+import { BorderChars, RGBA, type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
 import { useConfig } from "../context/config";
@@ -15,6 +15,12 @@ import { ModelManager } from "../component/model-manager";
 import { Settings } from "../component/settings";
 import { LOG_LEVELS, LogPanel } from "../component/log-panel";
 import { HotkeyModal } from "../component/hotkey-modal";
+import { SettingsSelectModal } from "../component/settings-select-modal";
+import { exitApp } from "../util/exit";
+
+interface ModelManagerDialogData {
+  firstRunSetup?: boolean;
+}
 
 export function Home(): JSX.Element {
   const { colors } = useTheme();
@@ -27,40 +33,35 @@ export function Home(): JSX.Element {
   const [showLogs, setShowLogs] = createSignal(false);
   const [activePane, setActivePane] = createSignal<"main" | "logs">("main");
   const [logLevelIndex, setLogLevelIndex] = createSignal(1);
+  const firstRunSetupRequired = () => Boolean(backend.config()?.first_run_setup_required);
+
+  createEffect(() => {
+    if (!backend.connected()) return;
+    backend.send({ type: "list_models" });
+  });
+
+  createEffect(() => {
+    if (!firstRunSetupRequired()) return;
+    const models = backend.models();
+    if (models.length === 0) return;
+
+    const currentDialog = dialog.currentDialog();
+    const currentData = (currentDialog?.data as ModelManagerDialogData | undefined) ?? undefined;
+    if (currentDialog?.type === "model-manager" && currentData?.firstRunSetup) {
+      return;
+    }
+
+    dialog.openDialog("model-manager", { firstRunSetup: true });
+  });
 
   createEffect(() => {
     backend.send({ type: "set_hotkey_blocked", enabled: dialog.isOpen() });
   });
 
-  function exitApp() {
-    try {
-      renderer.destroy();
-    } catch {
-      // Ignore renderer teardown errors during exit
-    }
-
-    try {
-      if (process.stdin.isTTY && "setRawMode" in process.stdin) {
-        (process.stdin as NodeJS.ReadStream).setRawMode(false);
-      }
-    } catch {
-      // Ignore raw mode reset errors during exit
-    }
-
-    try {
-      // Disable common mouse tracking modes and restore cursor/style.
-      process.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?25h\x1b[0m");
-    } catch {
-      // Ignore terminal restore write errors during exit
-    }
-
-    process.exit(0);
-  }
-
   useKeyHandler((key: KeyEvent) => {
     if (key.ctrl && key.name === "c") {
       key.preventDefault();
-      exitApp();
+      exitApp(renderer);
       return;
     }
 
@@ -113,7 +114,7 @@ export function Home(): JSX.Element {
 
     switch (keyName) {
       case "q":
-        exitApp();
+        exitApp(renderer);
         break;
       case "c":
         handleCopyLatest();
@@ -154,6 +155,15 @@ export function Home(): JSX.Element {
     }
   });
 
+  usePaste((event) => {
+    if (dialog.isOpen()) return;
+    const pasted = event.text.trim();
+    if (!pasted) return;
+    event.preventDefault();
+    backend.send({ type: "transcribe_paste", text: event.text });
+    toast.showToast("Paste received. Queueing transcription...");
+  });
+
   function handleCopyLatest() {
     const latest = transcriber.getLatest();
     if (!latest) {
@@ -188,19 +198,21 @@ export function Home(): JSX.Element {
         paddingLeft={2}
         paddingRight={2}
       >
-        <Show when={showLogs()}>
-          <box
-            width={1}
-            borderStyle="single"
-            border={["left"]}
-            borderColor={activePane() === "main" ? colors().secondary : colors().borderSubtle}
-          />
-        </Show>
+        <box
+          width={1}
+          borderStyle="single"
+          border={["left"]}
+          borderColor={activePane() === "main" ? colors().secondary : colors().borderSubtle}
+          customBorderChars={{
+            ...BorderChars.single,
+            vertical: activePane() === "main" ? "┃" : "│",
+          }}
+        />
         <box
           flexDirection="column"
           flexGrow={1}
           height="100%"
-          paddingLeft={showLogs() ? 1 : 0}
+          paddingLeft={1}
           gap={1}
         >
           <box flexShrink={0}>
@@ -223,17 +235,26 @@ export function Home(): JSX.Element {
           paddingLeft={2}
         >
           <box
+            flexDirection="row"
             flexGrow={1}
             height="100%"
-            paddingLeft={1}
-            borderStyle="single"
-            border={["left"]}
-            borderColor={activePane() === "logs" ? colors().secondary : colors().borderSubtle}
           >
-            <LogPanel
-              minLevel={LOG_LEVELS[logLevelIndex()]!}
-              active={activePane() === "logs"}
+            <box
+              width={1}
+              borderStyle="single"
+              border={["left"]}
+              borderColor={activePane() === "logs" ? colors().secondary : colors().borderSubtle}
+              customBorderChars={{
+                ...BorderChars.single,
+                vertical: activePane() === "logs" ? "┃" : "│",
+              }}
             />
+            <box flexGrow={1} height="100%" paddingLeft={1}>
+              <LogPanel
+                minLevel={LOG_LEVELS[logLevelIndex()]!}
+                active={activePane() === "logs"}
+              />
+            </box>
           </box>
         </box>
       </Show>
@@ -274,6 +295,19 @@ export function Home(): JSX.Element {
           backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
         >
           <HotkeyModal />
+        </box>
+      </Show>
+
+      <Show when={dialog.currentDialog()?.type === "settings-select"}>
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={RGBA.fromInts(0, 0, 0, 160)}
+        >
+          <SettingsSelectModal />
         </box>
       </Show>
     </box>

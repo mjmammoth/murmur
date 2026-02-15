@@ -1,6 +1,6 @@
-import { createEffect, createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js";
-import { useKeyHandler } from "@opentui/solid";
-import { type InputRenderable, type KeyEvent } from "@opentui/core";
+import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js";
+import { useKeyHandler, useTerminalDimensions } from "@opentui/solid";
+import { type KeyEvent, type ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useDialog } from "../context/dialog";
 import { useConfig } from "../context/config";
@@ -128,16 +128,30 @@ export function Settings(): JSX.Element {
   const config = useConfig();
   const backend = useBackend();
   const dialog = useDialog();
+  const terminal = useTerminalDimensions();
 
-  const [query, setQuery] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [listeningSettingId, setListeningSettingId] = createSignal<string | null>(null);
   const [captureError, setCaptureError] = createSignal("");
-  let searchInput: InputRenderable | undefined;
+  let settingsScroll: ScrollBoxRenderable | undefined;
 
   const configPath = createMemo(
-    () => backend.configFilePath() || "~/.config/whisper-local/config.toml",
+    () => backend.configFilePath() || "~/.config/whisper.local/config.toml",
   );
+
+  const modalHeight = createMemo(() => {
+    const minHeight = 20;
+    const maxHeight = Math.max(minHeight, terminal().height - 4);
+    const preferred = Math.floor(terminal().height * 0.8);
+    return Math.max(minHeight, Math.min(preferred, maxHeight));
+  });
+
+  const selectedInstalledModelName = createMemo(() => {
+    const selected = config.config()?.model.name;
+    if (!selected) return "none";
+    const match = backend.models().find((model) => model.name === selected);
+    return match?.installed ? selected : "none";
+  });
 
   const items = createMemo<SettingItem[]>(() => {
     const cfg = config.config();
@@ -177,17 +191,26 @@ export function Settings(): JSX.Element {
         id: "model.name",
         section: "Model",
         kind: "text",
-        title: "Model Name",
-        description: "Default whisper model",
+        title: "Selected Model",
+        description: "Press enter to open model manager",
         keywords: ["model", "whisper"],
-        value: () => withFallback(cfg?.model.name),
+        value: () => selectedInstalledModelName(),
+      },
+      {
+        id: "model.backend",
+        section: "Model",
+        kind: "text",
+        title: "Backend",
+        description: "Press enter to choose transcription backend",
+        keywords: ["backend", "faster-whisper", "whisper.cpp"],
+        value: () => withFallback(cfg?.model.backend, "faster-whisper"),
       },
       {
         id: "model.device",
         section: "Model",
         kind: "text",
         title: "Device",
-        description: "Runtime device",
+        description: "Press enter to choose runtime device",
         keywords: ["device", "cpu", "cuda", "mps"],
         value: () => withFallback(cfg?.model.device),
       },
@@ -196,7 +219,7 @@ export function Settings(): JSX.Element {
         section: "Model",
         kind: "text",
         title: "Compute Type",
-        description: "Quantization and precision",
+        description: "Press enter to choose quantization",
         keywords: ["compute", "int8", "float16"],
         value: () => withFallback(cfg?.model.compute_type),
       },
@@ -205,7 +228,7 @@ export function Settings(): JSX.Element {
         section: "Model",
         kind: "text",
         title: "Language",
-        description: "Force language or auto-detect",
+        description: "Press enter to search and choose language",
         keywords: ["language", "locale", "auto"],
         value: () => withFallback(cfg?.model.language, "auto"),
       },
@@ -338,18 +361,6 @@ export function Settings(): JSX.Element {
     ];
   });
 
-  const filteredItems = createMemo(() => {
-    const needle = query().trim().toLowerCase();
-    if (!needle) return items();
-
-    return items().filter((item) => {
-      const searchable = [item.section, item.title, item.description, ...item.keywords]
-        .join(" ")
-        .toLowerCase();
-      return searchable.includes(needle);
-    });
-  });
-
   const groupedItems = createMemo(() => {
     const grouped = new Map<SettingSection, SettingItem[]>();
 
@@ -357,7 +368,7 @@ export function Settings(): JSX.Element {
       grouped.set(section, []);
     }
 
-    for (const item of filteredItems()) {
+    for (const item of items()) {
       grouped.get(item.section)?.push(item);
     }
 
@@ -373,6 +384,10 @@ export function Settings(): JSX.Element {
     if (list.length === 0) return null;
     return list[selectedIndex()] ?? list[0] ?? null;
   });
+
+  const isModelManagerSetting = (id: string) => id === "model.name";
+  const isSelectorSetting = (id: string) =>
+    id === "model.backend" || id === "model.device" || id === "model.compute" || id === "model.language";
 
   createEffect(() => {
     const list = flatItems();
@@ -392,11 +407,50 @@ export function Settings(): JSX.Element {
     }
   });
 
-  onMount(() => {
-    setTimeout(() => {
-      if (!searchInput || searchInput.isDestroyed) return;
-      searchInput.focus();
-    }, 1);
+  const itemScrollOffsets = createMemo(() => {
+    const offsets = new Map<string, number>();
+    let lineOffset = 0;
+
+    for (const group of groupedItems()) {
+      lineOffset += 2;
+      for (const item of group.items) {
+        offsets.set(item.id, lineOffset);
+        lineOffset += 2;
+      }
+    }
+
+    return offsets;
+  });
+
+  createEffect(() => {
+    const active = selectedItem();
+    if (!active) return;
+    if (dialog.currentDialog()?.type !== "settings") return;
+    if (!settingsScroll || settingsScroll.isDestroyed) return;
+
+    const offset = itemScrollOffsets().get(active.id);
+    if (offset === undefined) return;
+
+    const rowTop = offset;
+    const rowBottom = rowTop + 1;
+    const viewportHeight = settingsScroll.viewport.height;
+    if (viewportHeight <= 0) return;
+
+    const currentTop = settingsScroll.scrollTop;
+    const topMargin = 1;
+    const bottomMargin = 1;
+    const minVisibleTop = currentTop + topMargin;
+    const maxVisibleBottom = currentTop + viewportHeight - 1 - bottomMargin;
+
+    if (rowTop < minVisibleTop) {
+      settingsScroll.scrollTo(Math.max(0, rowTop - topMargin));
+      return;
+    }
+
+    if (rowBottom > maxVisibleBottom) {
+      const nextTop = rowBottom - (viewportHeight - 1 - bottomMargin);
+      settingsScroll.scrollTo(Math.max(0, nextTop));
+    }
   });
 
   function moveSelection(delta: number) {
@@ -440,9 +494,24 @@ export function Settings(): JSX.Element {
     setCaptureError("");
   }
 
+  function openSettingDialog(id: string) {
+    if (isModelManagerSetting(id)) {
+      dialog.openDialog("model-manager", { returnToSettings: true });
+      return true;
+    }
+    if (isSelectorSetting(id)) {
+      dialog.openDialog("settings-select", { settingId: id, returnToSettings: true });
+      return true;
+    }
+    return false;
+  }
+
   function activateSelected() {
     const item = selectedItem();
     if (!item) return;
+
+    if (openSettingDialog(item.id)) return;
+
     if (item.kind === "toggle") {
       item.toggle();
       return;
@@ -504,23 +573,6 @@ export function Settings(): JSX.Element {
     }
   });
 
-  const sectionColor = (section: SettingSection) => {
-    switch (section) {
-      case "Recording":
-        return colors().primary;
-      case "Model":
-        return colors().secondary;
-      case "Audio":
-        return colors().accent;
-      case "VAD":
-        return colors().warning;
-      case "Output":
-        return colors().success;
-      case "System":
-        return colors().textMuted;
-    }
-  };
-
   const valueText = (item: SettingItem) => {
     if (item.kind === "hotkey" && listeningSettingId() === item.id) {
       return "listening...";
@@ -553,20 +605,18 @@ export function Settings(): JSX.Element {
     <box
       flexDirection="column"
       width={86}
-      height={30}
+      height={modalHeight()}
       backgroundColor={colors().backgroundPanel}
-      borderStyle="single"
-      borderColor={colors().borderSubtle}
       paddingY={1}
     >
-      <box paddingX={3} paddingTop={1} paddingBottom={0} flexDirection="column">
+      <box paddingX={3} paddingTop={1} paddingBottom={0} flexDirection="column" flexShrink={0}>
         <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
           <text>
             <span style={{ fg: colors().primary, bold: true }}>Settings</span>
           </text>
           <box flexDirection="row" alignItems="center" gap={2}>
             <text>
-              <span style={{ fg: colors().textMuted }}>search and toggle</span>
+              <span style={{ fg: colors().textMuted }}>toggle and edit</span>
             </text>
             <box backgroundColor={colors().secondary} paddingX={1}>
               <text>
@@ -581,29 +631,19 @@ export function Settings(): JSX.Element {
         </box>
       </box>
 
-      <box paddingX={2}>
-        <input
-          placeholder="Search settings"
-          value={query()}
-          focusedBackgroundColor={colors().backgroundElement}
-          focusedTextColor={colors().text}
-          cursorColor={colors().primary}
-          onInput={(value) => {
-            setQuery(value);
-            setSelectedIndex(0);
-          }}
-          ref={(r) => {
-            searchInput = r;
-          }}
-        />
-      </box>
-
-      <scrollbox flexGrow={1} paddingTop={1}>
+      <scrollbox
+        flexGrow={1}
+        flexShrink={1}
+        paddingTop={1}
+        ref={(r: ScrollBoxRenderable) => {
+          settingsScroll = r;
+        }}
+      >
         <Show
           when={groupedItems().length > 0}
           fallback={
             <box paddingX={3} paddingY={1}>
-              <text fg={colors().textMuted}>No settings match this search.</text>
+              <text fg={colors().textMuted}>No settings available.</text>
             </box>
           }
         >
@@ -613,7 +653,7 @@ export function Settings(): JSX.Element {
                 <>
                   <box paddingLeft={3} paddingTop={1} paddingBottom={0}>
                     <text>
-                      <span style={{ fg: sectionColor(group.section) }}>▌ {group.section}</span>
+                      <span style={{ fg: colors().accent, bold: true }}>{group.section}</span>
                     </text>
                   </box>
                   <For each={group.items}>
@@ -621,19 +661,23 @@ export function Settings(): JSX.Element {
                       const isActive = () => selectedItem()?.id === item.id;
                       return (
                         <box
+                          id={item.id}
                           flexDirection="row"
                           paddingRight={1}
                           backgroundColor={isActive() ? colors().backgroundElement : undefined}
                           onMouseUp={() => {
                             const idx = flatItems().findIndex((entry) => entry.id === item.id);
                             if (idx >= 0) setSelectedIndex(idx);
+
+                            if (openSettingDialog(item.id)) return;
+
                             if (item.kind === "toggle") item.toggle();
                             if (item.kind === "hotkey") beginHotkeyCapture();
                           }}
                         >
                           <box
                             width={1}
-                            backgroundColor={isActive() ? colors().secondary : colors().borderSubtle}
+                            backgroundColor={isActive() ? colors().secondary : undefined}
                           />
                           <box paddingLeft={2} flexDirection="row" width="100%" justifyContent="space-between" gap={2}>
                             <box flexDirection="column" flexGrow={1}>
@@ -657,10 +701,30 @@ export function Settings(): JSX.Element {
                               <text>
                                 <span style={{ fg: valueColor(item, isActive()) }}>{valueText(item)}</span>
                               </text>
-                              <Show when={item.kind === "text"}>
+                              <Show
+                                when={
+                                  item.kind === "text" &&
+                                  !isModelManagerSetting(item.id) &&
+                                  !isSelectorSetting(item.id)
+                                }
+                              >
                                 <text>
                                   <span style={{ fg: colors().textDim }}>
                                     read-only
+                                  </span>
+                                </text>
+                              </Show>
+                              <Show when={isModelManagerSetting(item.id)}>
+                                <text>
+                                  <span style={{ fg: colors().textDim }}>
+                                    open manager
+                                  </span>
+                                </text>
+                              </Show>
+                              <Show when={isSelectorSetting(item.id)}>
+                                <text>
+                                  <span style={{ fg: colors().textDim }}>
+                                    open selector
                                   </span>
                                 </text>
                               </Show>
@@ -684,7 +748,7 @@ export function Settings(): JSX.Element {
         </Show>
       </scrollbox>
 
-      <box paddingX={3} paddingTop={1}>
+      <box paddingX={3} paddingTop={1} flexShrink={0}>
         <box flexDirection="row" gap={2} alignItems="center">
           <LegendHint keys="↑/↓" label="navigate" />
           <LegendHint keys="enter" label="activate" />
@@ -692,7 +756,7 @@ export function Settings(): JSX.Element {
           <LegendHint keys="←/→" label="set off/on" />
         </box>
       </box>
-      <box paddingX={3}>
+      <box paddingX={3} flexShrink={0}>
         <text>
           <span style={{ fg: colors().textDim }}>{configPath()}</span>
         </text>

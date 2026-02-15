@@ -3,6 +3,7 @@ import { useTerminalDimensions } from "@opentui/solid";
 import { useTheme } from "../context/theme";
 import { useConfig } from "../context/config";
 import { useTranscriber } from "../context/transcriber";
+import { useBackend } from "../context/backend";
 import { Scanner } from "./spinner";
 
 interface KeyHintProps {
@@ -74,10 +75,16 @@ function truncateLabel(value: string, maxLength: number): string {
 export function Footer(): JSX.Element {
   const { colors } = useTheme();
   const config = useConfig();
+  const backend = useBackend();
   const transcriber = useTranscriber();
   const terminal = useTerminalDimensions();
 
-  const modelName = () => config.config()?.model.name ?? "-";
+  const modelName = () => {
+    const selected = config.config()?.model.name;
+    if (!selected) return "-";
+    const match = backend.models().find((model) => model.name === selected);
+    return match?.installed ? selected : "-";
+  };
   const hotkeyMode = () => config.config()?.hotkey.mode ?? "-";
   const hotkeyKey = () => config.config()?.hotkey.key ?? "-";
 
@@ -139,6 +146,7 @@ export function Footer(): JSX.Element {
 
         <box width="33%" justifyContent="flex-end" flexDirection="row" gap={2} alignItems="center" flexShrink={0}>
           <KeyHint keyChar="q" word="quit" />
+          <KeyHint keyChar="l" word="logs" />
           <KeyHint keyChar="s" word="settings" />
         </box>
       </box>

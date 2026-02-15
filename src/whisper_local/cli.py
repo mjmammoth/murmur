@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import logging
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -16,8 +17,9 @@ from whisper_local.model_manager import (
     download_model,
     list_installed_models,
     remove_model,
-    set_default_model,
+    set_selected_model,
 )
+from whisper_local.transcribe import ensure_whisper_cpp_installed
 
 
 logging.basicConfig(level=logging.INFO)
@@ -25,13 +27,18 @@ logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="whisper-local")
+    parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
     subparsers = parser.add_subparsers(dest="command")
 
     run_parser = subparsers.add_parser("run", help="Start the TUI (bridge + TypeScript frontend)")
     run_parser.add_argument("--host", default="localhost", help="Bridge host")
     run_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
     run_parser.add_argument("--legacy", action="store_true", help="Use legacy Textual TUI")
+    run_parser.add_argument(
+        "--no-status-indicator",
+        action="store_true",
+        help="Disable macOS menu bar status indicator",
+    )
 
     bridge_parser = subparsers.add_parser("bridge", help="Start only the WebSocket bridge server")
     bridge_parser.add_argument("--host", default="localhost", help="Bridge host")
@@ -51,8 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
     remove_parser = models_sub.add_parser("remove", help="Remove a model")
     remove_parser.add_argument("name")
 
-    default_parser = models_sub.add_parser("set-default", help="Set default model")
-    default_parser.add_argument("name")
+    select_parser = models_sub.add_parser(
+        "select",
+        aliases=["set-default"],
+        help="Select model",
+    )
+    select_parser.add_argument("name")
 
     config_parser = subparsers.add_parser("config", help="Show config")
     config_parser.add_argument("--path", type=Path)
@@ -79,8 +90,18 @@ def _check_bun() -> bool:
     return shutil.which("bun") is not None
 
 
+def _ensure_runtime_dependencies() -> None:
+    """Fail fast with actionable message when required runtime deps are missing."""
+    try:
+        ensure_whisper_cpp_installed()
+    except Exception as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+
+
 def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
     """Run the bridge server."""
+    _ensure_runtime_dependencies()
     from whisper_local.bridge import run_bridge
     config = load_config()
     run_bridge(config, host, port, capture_logs=capture_logs)
@@ -92,6 +113,30 @@ def _run_tui(host: str, port: int) -> subprocess.Popen:
     # Run from tui directory so bunfig.toml is picked up for the OpenTUI plugin
     cmd = ["bun", "src/index.tsx", "--host", host, "--port", str(port)]
     return subprocess.Popen(cmd, cwd=str(tui_path))
+
+
+def _start_status_indicator(host: str, port: int) -> subprocess.Popen | None:
+    """Start the macOS menu bar status indicator sidecar."""
+    if sys.platform != "darwin":
+        return None
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "whisper_local.status_indicator",
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+    try:
+        return subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return None
 
 
 def _restore_terminal_state() -> None:
@@ -112,8 +157,9 @@ def _restore_terminal_state() -> None:
         pass
 
 
-def _run_combined(host: str, port: int) -> None:
+def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
     """Run both bridge and TUI together."""
+    _ensure_runtime_dependencies()
     if not _check_bun():
         print("Error: bun is not installed. Install it with: curl -fsSL https://bun.sh/install | bash")
         sys.exit(1)
@@ -140,6 +186,10 @@ def _run_combined(host: str, port: int) -> None:
     # Track bridge state/errors
     bridge_server = None
     bridge_error: list[Exception] = []
+    status_indicator_process: subprocess.Popen | None = None
+    tui_process: subprocess.Popen | None = None
+    interrupted = False
+    previous_sigint = signal.getsignal(signal.SIGINT)
 
     def _bridge_target() -> None:
         nonlocal bridge_server
@@ -166,18 +216,44 @@ def _run_combined(host: str, port: int) -> None:
         print(f"Bridge failed to start: {bridge_error[0]}", file=real_stderr)
         sys.exit(1)
 
+    if status_indicator:
+        status_indicator_process = _start_status_indicator(host, port)
+
     # Start TUI
     try:
         tui_process = _run_tui(host, port)
         tui_process.wait()
     except KeyboardInterrupt:
-        pass
+        interrupted = True
     except FileNotFoundError as e:
         sys.stderr = real_stderr
         print(f"Error: {e}", file=real_stderr)
         print("Make sure you're running from the project root directory.", file=real_stderr)
         sys.exit(1)
     finally:
+        if interrupted:
+            try:
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+            except Exception:
+                pass
+
+        if tui_process is not None and tui_process.poll() is None:
+            tui_process.terminate()
+            try:
+                tui_process.wait(timeout=1.0)
+            except Exception:
+                try:
+                    tui_process.kill()
+                except Exception:
+                    pass
+
+        if status_indicator_process is not None:
+            status_indicator_process.terminate()
+            try:
+                status_indicator_process.wait(timeout=1.0)
+            except Exception:
+                pass
+
         if bridge_server is not None:
             bridge_server.shutdown()
             loop = bridge_server._loop
@@ -188,6 +264,11 @@ def _run_combined(host: str, port: int) -> None:
         sys.stderr = real_stderr
         _restore_terminal_state()
         devnull.close()
+        if interrupted:
+            try:
+                signal.signal(signal.SIGINT, previous_sigint)
+            except Exception:
+                pass
 
 
 def main() -> None:
@@ -198,6 +279,8 @@ def main() -> None:
         host = getattr(args, "host", "localhost")
         port = getattr(args, "port", 7878)
         legacy = getattr(args, "legacy", False)
+        no_status_indicator = getattr(args, "no_status_indicator", False)
+        _ensure_runtime_dependencies()
 
         if legacy:
             # Use legacy Textual TUI
@@ -205,7 +288,7 @@ def main() -> None:
             run_app()
         else:
             # Use new TypeScript TUI
-            _run_combined(host, port)
+            _run_combined(host, port, status_indicator=not no_status_indicator)
         return
 
     if args.command == "bridge":
@@ -242,14 +325,17 @@ def main() -> None:
             remove_model(args.name)
             print(f"Removed {args.name}")
             return
-        if args.models_command == "set-default":
-            set_default_model(args.name)
-            print(f"Default model set to {args.name}")
+        if args.models_command in ("select", "set-default"):
+            set_selected_model(args.name)
+            print(f"Selected model set to {args.name}")
             return
 
     if args.command == "config":
         config = load_config(args.path)
         for section, values in config.to_dict().items():
+            if not isinstance(values, dict):
+                print(f"{section} = {values}")
+                continue
             print(f"[{section}]")
             for key, value in values.items():
                 if isinstance(value, dict):

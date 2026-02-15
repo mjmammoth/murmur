@@ -1,7 +1,25 @@
 // Configuration types (mirroring Python dataclasses)
 
+export interface RuntimeOptionState {
+  enabled: boolean;
+  reason: string | null;
+}
+
+export interface RuntimeModelCapabilities {
+  backends: Record<string, RuntimeOptionState>;
+  devices_by_backend: Record<string, Record<string, RuntimeOptionState>>;
+  compute_types_by_backend_device: Record<string, Record<string, string[]>>;
+  devices: Record<string, RuntimeOptionState>;
+  compute_types_by_device: Record<string, string[]>;
+}
+
+export interface RuntimeCapabilities {
+  model: RuntimeModelCapabilities;
+}
+
 export interface ModelConfig {
   name: string;
+  backend: string;
   device: string;
   compute_type: string;
   auto_download: boolean;
@@ -54,6 +72,8 @@ export interface AppConfig {
   output: OutputConfig;
   bridge: BridgeConfig;
   auto_copy?: boolean;
+  first_run_setup_required?: boolean;
+  runtime?: RuntimeCapabilities;
 }
 
 // Transcript types
@@ -69,6 +89,8 @@ export interface ModelInfo {
   name: string;
   installed: boolean;
   path: string | null;
+  size_bytes?: number | null;
+  size_estimated?: boolean;
 }
 
 // Application status
@@ -87,15 +109,21 @@ export type AppStatus =
 export type ClientMessage =
   | { type: "start_recording" }
   | { type: "stop_recording" }
+  | { type: "transcribe_paste"; text: string }
   | { type: "toggle_noise"; enabled: boolean }
   | { type: "toggle_vad"; enabled: boolean }
   | { type: "toggle_auto_copy"; enabled: boolean }
   | { type: "set_hotkey_blocked"; enabled: boolean }
   | { type: "set_hotkey_mode"; mode: "ptt" | "toggle" }
+  | { type: "set_hotkey"; hotkey: string }
+  | { type: "set_selected_model"; name: string }
+  | { type: "set_default_model"; name: string }
+  | { type: "set_model_backend"; backend: string }
+  | { type: "set_model_device"; device: string }
+  | { type: "set_model_compute_type"; compute_type: string }
+  | { type: "set_model_language"; language: string | null }
   | { type: "download_model"; name: string }
   | { type: "remove_model"; name: string }
-  | { type: "set_default_model"; name: string }
-  | { type: "set_hotkey"; hotkey: string }
   | { type: "list_models" }
   | { type: "get_config" }
   | { type: "get_config_file" }
@@ -135,7 +163,7 @@ export interface Toast {
 
 // Dialog types
 
-export type DialogType = "model-manager" | "settings" | "hotkey";
+export type DialogType = "model-manager" | "settings" | "settings-select" | "hotkey";
 
 export interface DialogState {
   type: DialogType;

@@ -18,7 +18,7 @@ interface SelectOption {
   label: string;
   description: string;
   disabled?: boolean;
-  reason?: string;
+  reason?: string | null;
 }
 
 const LANGUAGE_OPTIONS: SelectOption[] = [

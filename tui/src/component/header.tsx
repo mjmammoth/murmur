@@ -83,7 +83,7 @@ export function Header(): JSX.Element {
           alignItems="center"
           flexShrink={0}
         >
-          <ToggleHint keyChar="n" label="noise cancellation" active={config.noiseEnabled()} />
+          <ToggleHint keyChar="n" label="noise suppression" active={config.noiseEnabled()} />
           <ToggleHint keyChar="v" label="vad" active={config.vadEnabled()} />
           <ToggleHint keyChar="a" label="auto copy" active={config.autoCopy()} />
         </box>
