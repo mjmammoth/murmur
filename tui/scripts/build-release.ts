@@ -1,7 +1,8 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import solidTransformPlugin from "@opentui/solid/bun-plugin";
 
 type PackageJson = {
   version: string;
@@ -42,13 +43,12 @@ function run(command: string, args: string[], cwd: string): string {
  *
  * The manifest contains the package version (from tui/package.json), target architecture, ISO build timestamp, git commit SHA, binary name, and tarball filename.
  */
-function main(): void {
+async function main(): Promise<void> {
   const scriptDir = dirname(fileURLToPath(import.meta.url));
   const tuiRoot = resolve(scriptDir, "..");
   const repoRoot = resolve(tuiRoot, "..");
 
   const packageJsonPath = resolve(tuiRoot, "package.json");
-  const tsconfigBuildPath = resolve(tuiRoot, "tsconfig.build.json");
   let packageJson: PackageJson;
   try {
     packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as PackageJson;
@@ -71,22 +71,50 @@ function main(): void {
 
   mkdirSync(binDir, { recursive: true });
 
-  run(
+  // Step 1: Bundle with Bun.build() API so the solid JSX plugin runs.
+  // (bun build CLI does not apply bunfig.toml preload plugins.)
+  // Output to tuiRoot so step 2 can resolve dynamic native imports from node_modules.
+  const bundlePath = resolve(tuiRoot, ".build-tmp.js");
+  const buildResult = await Bun.build({
+    entrypoints: [resolve(tuiRoot, "src/index.tsx")],
+    outdir: tuiRoot,
+    naming: ".build-tmp.js",
+    target: "bun",
+    minify: true,
+    plugins: [solidTransformPlugin],
+  });
+  if (!buildResult.success) {
+    throw new Error(
+      `Bun.build() failed:\n${buildResult.logs.map(String).join("\n")}`,
+    );
+  }
+
+  // Step 2: Compile the pre-bundled JS (no JSX left) into a standalone binary.
+  // Use BUN_CONFIG_FILE=/dev/null to prevent bunfig.toml preload from being baked in.
+  const compileResult = spawnSync(
     "bun",
     [
       "build",
-      "src/index.tsx",
+      bundlePath,
       "--compile",
       "--production",
       "--target=bun-darwin-arm64",
-      "--tsconfig-override",
-      tsconfigBuildPath,
       "--outfile",
       binPath,
     ],
-    tuiRoot,
+    {
+      cwd: tuiRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
+      env: { ...process.env, BUN_CONFIG_FILE: "/dev/null" },
+    },
   );
-
+  unlinkSync(bundlePath);
+  if (compileResult.status !== 0) {
+    throw new Error(
+      `Compile failed: bun build --compile\n${compileResult.stderr || compileResult.stdout}`,
+    );
+  }
   chmodSync(binPath, 0o755);
 
   run("tar", ["-czf", tarPath, "-C", binDir, "whisper-local-tui"], repoRoot);
@@ -107,4 +135,4 @@ function main(): void {
   process.stdout.write(`Built ${tarPath}\n`);
 }
 
-main();
+await main();

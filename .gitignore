@@ -22,3 +22,4 @@ logs/
 .cache/ctranslate2/
 
 node_modules/
+.build-tmp.js
