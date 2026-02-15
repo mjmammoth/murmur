@@ -3,7 +3,11 @@ version = 1
 name = "whisper.local"
 
 [setup]
-script = "pyenv activate whisper.local"
+script = '''
+#source /Users/mark.marryatt/.zshrc
+#pyenv activate whisper.local
+echo "Mark was here"
+'''
 
 [[actions]]
 name = "pyenv"
