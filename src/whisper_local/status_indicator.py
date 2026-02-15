@@ -65,7 +65,7 @@ class StatusListenerThread(threading.Thread):
 
 
 class MenuBarStatusApp(NSObject):
-    def initWithHost_port_(self, host: str, port: int):  # noqa: N802
+    def initWithHost_port_(self, host: str, port: int):
         self = objc.super(MenuBarStatusApp, self).init()
         if self is None:
             return None
@@ -109,11 +109,11 @@ class MenuBarStatusApp(NSObject):
         self._cancel_success_timer()
         self._listener.stop()
 
-    def quitIndicator_(self, _sender: Any) -> None:  # noqa: N802
+    def quitIndicator_(self, _sender: Any) -> None:
         self.stop()
         AppHelper.stopEventLoop()
 
-    def updateBridgeStatus_message_(self, status: str, message: str) -> None:  # noqa: N802
+    def updateBridgeStatus_message_(self, status: str, message: str) -> None:
         previous_status = self._bridge_status
         self._bridge_status = status
         self._bridge_message = message

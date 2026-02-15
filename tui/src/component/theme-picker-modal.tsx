@@ -216,6 +216,8 @@ export function ThemePickerModal(): JSX.Element {
               const badgeText = () => badgeTextFor(themeOption.id, isCurrent());
               return (
                 <box
+                  role="button"
+                  aria-selected={isActive()}
                   flexDirection="row"
                   paddingRight={1}
                   backgroundColor={isActive() ? colors().backgroundElement : undefined}

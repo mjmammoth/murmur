@@ -677,6 +677,9 @@ export function Settings(): JSX.Element {
                       return (
                         <box
                           id={item.id}
+                          role="button"
+                          aria-selected={isActive()}
+                          aria-pressed={item.kind === "toggle" ? item.enabled() : undefined}
                           flexDirection="row"
                           paddingRight={1}
                           backgroundColor={isActive() ? colors().backgroundElement : undefined}

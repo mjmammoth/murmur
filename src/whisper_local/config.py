@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import shutil
 from dataclasses import asdict, dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -20,7 +22,7 @@ class ModelConfig:
     language: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ModelConfig":
+    def from_dict(cls, data: dict[str, Any]) -> ModelConfig:
         backend = str(data.get("backend", "faster-whisper")).strip().lower()
         if backend in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
             backend = "whisper.cpp"
@@ -44,7 +46,7 @@ class HotkeyConfig:
     key: str = "f3"
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "HotkeyConfig":
+    def from_dict(cls, data: dict[str, Any]) -> HotkeyConfig:
         return cls(
             mode=data.get("mode", "ptt"),
             key=data.get("key", "f3"),
@@ -57,7 +59,7 @@ class NoiseSuppressionConfig:
     level: int = 2
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "NoiseSuppressionConfig":
+    def from_dict(cls, data: dict[str, Any]) -> NoiseSuppressionConfig:
         return cls(
             enabled=data.get("enabled", True),
             level=data.get("level", 2),
@@ -70,7 +72,7 @@ class AudioConfig:
     noise_suppression: NoiseSuppressionConfig = field(default_factory=NoiseSuppressionConfig)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AudioConfig":
+    def from_dict(cls, data: dict[str, Any]) -> AudioConfig:
         return cls(
             sample_rate=data.get("sample_rate", 48000),
             noise_suppression=NoiseSuppressionConfig.from_dict(
@@ -87,7 +89,7 @@ class VadConfig:
     max_silence_ms: int = 600
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "VadConfig":
+    def from_dict(cls, data: dict[str, Any]) -> VadConfig:
         return cls(
             enabled=data.get("enabled", False),
             aggressiveness=data.get("aggressiveness", 1),
@@ -102,7 +104,7 @@ class FileOutputConfig:
     path: Path = Path("~/transcripts.txt")
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "FileOutputConfig":
+    def from_dict(cls, data: dict[str, Any]) -> FileOutputConfig:
         return cls(
             enabled=data.get("enabled", False),
             path=Path(data.get("path", "~/transcripts.txt")),
@@ -115,7 +117,7 @@ class OutputConfig:
     file: FileOutputConfig = field(default_factory=FileOutputConfig)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OutputConfig":
+    def from_dict(cls, data: dict[str, Any]) -> OutputConfig:
         return cls(
             clipboard=data.get("clipboard", True),
             file=FileOutputConfig.from_dict(data.get("file", {})),
@@ -127,7 +129,7 @@ class UiConfig:
     theme: str = "dark"
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "UiConfig":
+    def from_dict(cls, data: dict[str, Any]) -> UiConfig:
         theme = str(data.get("theme", "dark")).strip() or "dark"
         return cls(theme=theme)
 
@@ -151,8 +153,31 @@ class AppConfig:
         return data
 
 
+_config_logger = logging.getLogger(__name__)
+
+_OLD_CONFIG_DIR = "whisper-local"
+_NEW_CONFIG_DIR = "whisper.local"
+
+
 def default_config_path() -> Path:
-    return Path("~/.config/whisper.local/config.toml").expanduser()
+    new_path = Path("~/.config", _NEW_CONFIG_DIR, "config.toml").expanduser()
+    if not new_path.exists():
+        old_path = Path("~/.config", _OLD_CONFIG_DIR, "config.toml").expanduser()
+        if old_path.exists():
+            try:
+                new_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(old_path), str(new_path))
+                _config_logger.info(
+                    "Migrated config from %s to %s", old_path, new_path
+                )
+            except Exception as exc:
+                _config_logger.error(
+                    "Failed to migrate config from %s to %s: %s",
+                    old_path,
+                    new_path,
+                    exc,
+                )
+    return new_path
 
 
 def _load_default_config() -> dict[str, Any]:

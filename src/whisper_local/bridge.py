@@ -113,6 +113,7 @@ class BridgeServer:
         self._shutdown_requested = threading.Event()
 
         self._background_tasks: set[asyncio.Task] = set()
+        self._model_tasks: dict[str, asyncio.Task] = {}
 
         # Audio/transcription components (initialized lazily)
         self.recorder: AudioRecorder | None = None
@@ -125,7 +126,25 @@ class BridgeServer:
         """Create a background task and prevent it from being garbage-collected."""
         task = asyncio.create_task(coro)
         self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        task.add_done_callback(self._on_task_done)
+        return task
+
+    def _on_task_done(self, task: asyncio.Task) -> None:
+        """Clean up a finished background task and surface any unhandled exception."""
+        self._background_tasks.discard(task)
+        if not task.cancelled():
+            exc = task.exception()
+            if exc is not None:
+                logger.error("Background task failed: %s", exc)
+
+    def _spawn_model_task(self, name: str, coro) -> asyncio.Task:
+        """Spawn a model operation task, cancelling any existing task for that model."""
+        existing = self._model_tasks.get(name)
+        if existing is not None and not existing.done():
+            existing.cancel()
+        task = self._spawn_task(coro)
+        self._model_tasks[name] = task
+        task.add_done_callback(lambda _t, _name=name: self._model_tasks.pop(_name, None))
         return task
 
     def _client_path(self, websocket: WebSocketServerProtocol) -> str:
@@ -635,9 +654,9 @@ class BridgeServer:
             elif msg_type == "set_model_language":
                 await self._set_model_language(data.get("language"))
             elif msg_type == "download_model":
-                self._spawn_task(self._download_model(data.get("name", "")))
+                self._spawn_model_task(data.get("name", ""), self._download_model(data.get("name", "")))
             elif msg_type == "remove_model":
-                self._spawn_task(self._remove_model(data.get("name", "")))
+                self._spawn_model_task(data.get("name", ""), self._remove_model(data.get("name", "")))
             elif msg_type == "set_selected_model":
                 await self._set_selected_model(data.get("name", ""))
             elif msg_type == "set_default_model":

@@ -333,10 +333,10 @@ class WhisperCppBackend(_BackendBase):
 
             if self._effective_device == "cpu" and self._gpu_control_mode == "no-gpu":
                 cmd.append("-ng")
-            elif self._gpu_control_mode == "ngl" and self._effective_device == "cpu":
-                cmd.extend(["-ngl", "0"])
-            elif self._gpu_control_mode == "ngl" and self._effective_device == "mps":
-                cmd.extend(["-ngl", "99"])
+            elif self._gpu_control_mode == "dev" and self._effective_device == "cpu":
+                cmd.extend(["-dev", "0"])
+            elif self._gpu_control_mode == "dev" and self._effective_device == "mps":
+                cmd.extend(["-dev", "99"])
 
             process = subprocess.run(cmd, capture_output=True, text=True)
             if process.returncode != 0:
@@ -608,8 +608,8 @@ def _detect_whisper_cpp_gpu_control(binary_path: str) -> str:
 
     if "--no-gpu" in help_text or "-ng,       --no-gpu" in help_text:
         return "no-gpu"
-    if "--gpu-layers" in help_text or "--n-gpu-layers" in help_text or "-ngl" in help_text:
-        return "ngl"
+    if "-dev" in help_text or "--device" in help_text:
+        return "dev"
     return "unknown"
 
 
