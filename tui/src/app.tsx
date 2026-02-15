@@ -8,16 +8,26 @@ import { ToastContextProvider } from "./context/toast";
 import { Home } from "./routes/home";
 
 function ErrorFallback(props: { error: Error }): JSX.Element {
-  const { colors } = useTheme();
+  let themeColors: ReturnType<ReturnType<typeof useTheme>["colors"]> | null = null;
+  try {
+    const { colors } = useTheme();
+    themeColors = colors();
+  } catch {
+    // Theme context unavailable — use hardcoded fallback colors
+  }
+
+  const bg = themeColors?.errorBackground ?? "#1a0000";
+  const fg = themeColors?.errorText ?? "#ff4444";
+  const trace = themeColors?.errorTrace ?? "#888888";
 
   return (
-    <box flexDirection="column" padding={2} backgroundColor={colors().errorBackground}>
+    <box flexDirection="column" padding={2} backgroundColor={bg}>
       <text>
-        <span style={{ fg: colors().errorText }}>✗ Error: {props.error.message}</span>
+        <span style={{ fg }}>Error: {props.error.message}</span>
       </text>
       <box paddingTop={1}>
         <text>
-          <span style={{ fg: colors().errorTrace }}>{props.error.stack}</span>
+          <span style={{ fg: trace }}>{props.error.stack}</span>
         </text>
       </box>
     </box>

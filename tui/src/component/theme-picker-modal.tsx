@@ -88,14 +88,6 @@ export function ThemePickerModal(): JSX.Element {
 
   createEffect(() => {
     if (dialog.currentDialog()?.type !== "theme-picker") return;
-    const activeThemeId = themeId();
-    const index = availableThemes.findIndex((theme) => theme.id === activeThemeId);
-    if (index < 0) return;
-    if (index !== selectedIndex()) setSelectedIndex(index);
-  });
-
-  createEffect(() => {
-    if (dialog.currentDialog()?.type !== "theme-picker") return;
     if (!themeScroll || themeScroll.isDestroyed) return;
     const index = selectedIndex();
     const target = themeScroll.getChildren()[index];

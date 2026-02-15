@@ -122,6 +122,7 @@ export type ClientMessage =
   | { type: "set_hotkey_mode"; mode: "ptt" | "toggle" }
   | { type: "set_hotkey"; hotkey: string }
   | { type: "set_selected_model"; name: string }
+  // Backward-compatible alias for set_selected_model
   | { type: "set_default_model"; name: string }
   | { type: "set_model_backend"; backend: string }
   | { type: "set_model_device"; device: string }

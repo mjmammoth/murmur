@@ -164,7 +164,7 @@ export function Home(): JSX.Element {
     const pasted = event.text.trim();
     if (!pasted) return;
     event.preventDefault();
-    backend.send({ type: "transcribe_paste", text: event.text });
+    backend.send({ type: "transcribe_paste", text: pasted });
     toast.showToast("Paste received. Queueing transcription...");
   });
 

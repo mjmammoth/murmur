@@ -116,7 +116,7 @@ export function LogPanel(props: LogPanelProps): JSX.Element {
             </text>
             <box flexDirection="row" alignItems="center" gap={2} paddingLeft={1} flexShrink={1}>
               <text>
-                <span style={{ fg: colors().textMuted }}>{filteredLogs().length}/{backend.logs().length} entries</span>
+                <span style={{ fg: colors().textMuted }}>{filteredLogs().length} logs</span>
               </text>
               <text>
                 <span style={{ fg: colors().textMuted }}>level </span>
