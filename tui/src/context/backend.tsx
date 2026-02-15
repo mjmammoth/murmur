@@ -42,6 +42,7 @@ export interface BackendContextValue {
   downloadProgress: Accessor<DownloadProgress | null>;
   activeModelOp: Accessor<ActiveModelOp | null>;
   downloadModel: (name: string) => void;
+  cancelModelDownload: (name: string) => void;
   removeModel: (name: string) => void;
   send: (message: ClientMessage) => void;
   requestConfigFile: () => void;
@@ -363,6 +364,10 @@ export function BackendContextProvider(props: {
     send({ type: "remove_model", name });
   }
 
+  function cancelModelDownload(name: string) {
+    send({ type: "cancel_model_download", name });
+  }
+
   function requestConfigFile() {
     send({ type: "get_config_file" });
   }
@@ -411,6 +416,7 @@ export function BackendContextProvider(props: {
     downloadProgress,
     activeModelOp,
     downloadModel,
+    cancelModelDownload,
     removeModel,
     send,
     requestConfigFile,

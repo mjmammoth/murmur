@@ -34,6 +34,7 @@ from whisper_local.model_manager import (
     download_model,
     get_installed_model_path,
     list_installed_models,
+    prune_invalid_model_caches,
     remove_model,
 )
 from whisper_local.noise import RNNoiseSuppressor
@@ -124,6 +125,7 @@ class BridgeServer:
 
         self._background_tasks: set[asyncio.Task] = set()
         self._model_tasks: dict[str, asyncio.Task] = {}
+        self._download_cancel_events: dict[str, threading.Event] = {}
 
         # Audio/transcription components (initialized lazily)
         self.recorder: AudioRecorder | None = None
@@ -215,6 +217,10 @@ class BridgeServer:
             self._install_log_handler()
 
         self._init_components()
+        try:
+            prune_invalid_model_caches()
+        except Exception:
+            logger.warning("Failed to prune invalid model cache entries", exc_info=True)
         self._first_run_setup_required = not self._has_installed_models()
 
         # Start the WebSocket server FIRST so the TUI can connect immediately,
@@ -709,6 +715,8 @@ class BridgeServer:
                 await self._set_model_language(data.get("language"))
             elif msg_type == "download_model":
                 self._spawn_model_task(data.get("name", ""), self._download_model(data.get("name", "")))
+            elif msg_type == "cancel_model_download":
+                await self._cancel_model_download(data.get("name", ""))
             elif msg_type == "remove_model":
                 self._spawn_model_task(data.get("name", ""), self._remove_model(data.get("name", "")))
             elif msg_type == "set_selected_model":
@@ -1011,6 +1019,8 @@ class BridgeServer:
         if not name:
             return
         async with self._model_op_lock:
+            cancel_event = threading.Event()
+            self._download_cancel_events[name] = cancel_event
             await self._broadcast({"type": "toast", "message": f"Downloading {name}..."})
             loop = asyncio.get_event_loop()
             last_percent = -1
@@ -1036,7 +1046,7 @@ class BridgeServer:
                     lambda: download_model(
                         name,
                         progress_callback=on_progress,
-                        cancel_check=self._shutdown_requested.is_set,
+                        cancel_check=lambda: self._shutdown_requested.is_set() or cancel_event.is_set(),
                     ),
                 )
                 # Send 100% to ensure TUI sees completion
@@ -1053,14 +1063,47 @@ class BridgeServer:
                         {
                             "type": "toast",
                             "message": f"Download cancelled: {name}",
-                            "level": "error",
                         }
                     )
+                    await self._broadcast_models()
+            except asyncio.CancelledError:
+                cancel_event.set()
+                raise
             except Exception as exc:
                 if not self._shutdown_requested.is_set():
                     await self._broadcast(
                         {"type": "toast", "message": f"Download failed: {exc}", "level": "error"}
                     )
+                    await self._broadcast_models()
+            finally:
+                self._download_cancel_events.pop(name, None)
+
+    async def _cancel_model_download(self, name: str) -> None:
+        model_name = str(name or "").strip()
+        if not model_name:
+            active = [model for model, event in self._download_cancel_events.items() if not event.is_set()]
+            if len(active) == 1:
+                model_name = active[0]
+
+        if not model_name:
+            return
+
+        cancel_event = self._download_cancel_events.get(model_name)
+        if cancel_event is None:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"No active download for {model_name}",
+                    "level": "error",
+                }
+            )
+            return
+
+        if cancel_event.is_set():
+            return
+
+        cancel_event.set()
+        await self._broadcast({"type": "toast", "message": f"Cancelling download {model_name}..."})
 
     async def _remove_model(self, name: str) -> None:
         """Remove a model."""
@@ -1973,6 +2016,8 @@ class BridgeServer:
     def shutdown(self) -> None:
         """Clean up resources."""
         self._shutdown_requested.set()
+        for cancel_event in list(self._download_cancel_events.values()):
+            cancel_event.set()
         if self.recorder and self._recording:
             try:
                 self.recorder.stop()

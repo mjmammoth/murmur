@@ -91,9 +91,22 @@ export function ModelManager(): JSX.Element {
     return models[idx];
   };
 
+  const activePullingModelName = createMemo(() => {
+    const op = backend.activeModelOp();
+    if (!op || op.type !== "pulling") return null;
+    return op.model;
+  });
+
+  const selectedModelIsPulling = createMemo(() => {
+    const model = selectedModel();
+    const pullingModelName = activePullingModelName();
+    return Boolean(model && pullingModelName && model.name === pullingModelName);
+  });
+
   const primaryActionLabel = createMemo(() => {
     const model = selectedModel();
     if (!model) return "pull/select";
+    if (selectedModelIsPulling()) return "cancel pull";
     return model.installed ? "select" : "pull + select";
   });
 
@@ -137,6 +150,9 @@ export function ModelManager(): JSX.Element {
       case "p":
         handlePull();
         break;
+      case "x":
+        handleCancelDownload();
+        break;
       case "r":
       case "backspace":
         handleRemove();
@@ -146,12 +162,23 @@ export function ModelManager(): JSX.Element {
 
   function handlePrimaryAction() {
     const model = selectedModel();
-    if (!model || backend.activeModelOp()) return;
+    if (!model) return;
+    if (selectedModelIsPulling()) {
+      handleCancelDownload();
+      return;
+    }
+    if (backend.activeModelOp()) return;
     if (model.installed) {
       handleSelect();
       return;
     }
     handlePull();
+  }
+
+  function handleCancelDownload() {
+    const pullingModelName = activePullingModelName();
+    if (!pullingModelName) return;
+    backend.cancelModelDownload(pullingModelName);
   }
 
   function handlePull() {
@@ -271,6 +298,9 @@ export function ModelManager(): JSX.Element {
       <box paddingX={2} paddingTop={1} flexShrink={0}>
         <box flexDirection="row" gap={2} alignItems="center">
           <CommandHint keys="enter" label={primaryActionLabel()} />
+          <Show when={activePullingModelName()}>
+            <CommandHint keys="x" label="cancel pull" />
+          </Show>
           <CommandHint keys="p" label="pull" />
           <CommandHint keys="r/backspace" label="remove" />
         </box>

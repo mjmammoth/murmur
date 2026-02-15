@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -32,6 +33,16 @@ MODEL_REPO_IDS: dict[str, str] = {
     "large-v3": "Systran/faster-whisper-large-v3",
     "large-v3-turbo": "dropbox-dash/faster-whisper-large-v3-turbo",
 }
+MODEL_REPO_ALIASES: dict[str, tuple[str, ...]] = {
+    # Legacy location used by older app versions.
+    "large-v3-turbo": ("Systran/faster-whisper-large-v3-turbo",),
+}
+MODEL_REQUIRED_FILES = (
+    "model.bin",
+    "config.json",
+    "tokenizer.json",
+    "vocabulary.json",
+)
 # Fallback display sizes when remote metadata is unavailable.
 # Values are approximate and may vary slightly by repository revision.
 MODEL_ESTIMATED_SIZE_BYTES: dict[str, int] = {
@@ -74,9 +85,22 @@ def get_hf_cache_dir() -> Path:
 
 
 def _model_cache_path(model_name: str) -> Path:
-    repo_id = _model_repo_id(model_name)
+    return _model_cache_paths(model_name)[0]
+
+
+def _cache_path_for_repo_id(repo_id: str) -> Path:
     cache_name = f"models--{repo_id.replace('/', '--')}"
     return get_hf_cache_dir() / "hub" / cache_name
+
+
+def _model_repo_ids(model_name: str) -> tuple[str, ...]:
+    primary_repo = _model_repo_id(model_name)
+    aliases = MODEL_REPO_ALIASES.get(model_name, ())
+    return (primary_repo, *aliases)
+
+
+def _model_cache_paths(model_name: str) -> tuple[Path, ...]:
+    return tuple(_cache_path_for_repo_id(repo_id) for repo_id in _model_repo_ids(model_name))
 
 
 def _model_repo_id(model_name: str) -> str:
@@ -95,25 +119,103 @@ def is_model_installed(model_name: str) -> bool:
 def get_installed_model_path(model_name: str) -> Path | None:
     if model_name not in MODEL_NAMES:
         return None
-    cache_path = _model_cache_path(model_name)
-    snapshots_path = cache_path / "snapshots"
-    if not snapshots_path.exists():
-        return None
-    candidates = [path for path in snapshots_path.iterdir() if path.is_dir()]
+    candidates: list[Path] = []
+    for cache_path in _model_cache_paths(model_name):
+        for snapshot_path in _iter_snapshot_paths(cache_path):
+            if _snapshot_is_complete(snapshot_path):
+                candidates.append(snapshot_path)
     if not candidates:
         return None
     candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     return candidates[0]
 
 
-def model_cache_size_bytes(model_name: str) -> int:
-    cache_path = _model_cache_path(model_name)
+def _cache_path_size_bytes(cache_path: Path) -> int:
     if not cache_path.exists():
         return 0
     total = 0
     for path in cache_path.rglob("*"):
         if path.is_file():
             total += path.stat().st_size
+    return total
+
+
+def _iter_snapshot_paths(cache_path: Path) -> list[Path]:
+    snapshots_path = cache_path / "snapshots"
+    if not snapshots_path.exists():
+        return []
+    return [path for path in snapshots_path.iterdir() if path.is_dir()]
+
+
+def _snapshot_is_complete(snapshot_path: Path) -> bool:
+    for filename in MODEL_REQUIRED_FILES:
+        candidate = snapshot_path / filename
+        if not candidate.is_file():
+            return False
+        try:
+            if candidate.stat().st_size <= 0:
+                return False
+        except OSError:
+            return False
+    return True
+
+
+def _prune_cache_path(cache_path: Path) -> None:
+    removed_any = False
+    for snapshot_path in _iter_snapshot_paths(cache_path):
+        if _snapshot_is_complete(snapshot_path):
+            continue
+        try:
+            shutil.rmtree(snapshot_path)
+            removed_any = True
+        except Exception:
+            logger.warning("Failed to remove incomplete model snapshot: %s", snapshot_path)
+
+    blobs_path = cache_path / "blobs"
+    if blobs_path.exists():
+        for partial_path in blobs_path.glob("*.incomplete"):
+            try:
+                partial_path.unlink()
+                removed_any = True
+            except Exception:
+                logger.warning("Failed to remove partial model blob: %s", partial_path)
+
+    if not removed_any:
+        return
+
+    snapshots_path = cache_path / "snapshots"
+    try:
+        has_snapshots = snapshots_path.exists() and any(
+            path.is_dir() for path in snapshots_path.iterdir()
+        )
+    except Exception:
+        has_snapshots = True
+    if has_snapshots:
+        return
+
+    try:
+        shutil.rmtree(cache_path)
+    except Exception:
+        logger.warning("Failed to remove empty model cache path: %s", cache_path)
+
+
+def prune_invalid_model_cache(model_name: str) -> None:
+    if model_name not in MODEL_NAMES:
+        return
+    for cache_path in _model_cache_paths(model_name):
+        if cache_path.exists():
+            _prune_cache_path(cache_path)
+
+
+def prune_invalid_model_caches() -> None:
+    for model_name in MODEL_NAMES:
+        prune_invalid_model_cache(model_name)
+
+
+def model_cache_size_bytes(model_name: str) -> int:
+    total = 0
+    for cache_path in _model_cache_paths(model_name):
+        total += _cache_path_size_bytes(cache_path)
     return total
 
 
@@ -298,13 +400,19 @@ def download_model(
     progress_callback: Callable[[int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> Path:
+    if model_name not in MODEL_NAMES:
+        raise ValueError(f"Unknown model: {model_name}")
+
     repo_id = _model_repo_id(model_name)
+    prune_invalid_model_cache(model_name)
+
     # HF Xet can trigger subprocess FD issues in some TUI/runtime contexts.
     os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
     os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
     logger.info("Downloading model %s", repo_id)
 
     kwargs: dict = {"repo_id": repo_id}
+    expected_total_bytes: int | None = None
     if progress_callback is not None:
         if cancel_check is not None and cancel_check():
             raise DownloadCancelledError("Download cancelled before start")
@@ -321,18 +429,37 @@ def download_model(
         )
 
     try:
-        if cancel_check is not None and cancel_check():
-            raise DownloadCancelledError("Download cancelled before transfer")
+        if cancel_check is not None:
+            if cancel_check():
+                raise DownloadCancelledError("Download cancelled before transfer")
+            return _download_model_in_subprocess(
+                repo_id,
+                progress_callback=progress_callback,
+                expected_total_bytes=expected_total_bytes,
+                cancel_check=cancel_check,
+            )
         return Path(snapshot_download(**kwargs))
     except DownloadCancelledError:
+        prune_invalid_model_cache(model_name)
         raise
     except Exception as exc:
         if "fds_to_keep" not in str(exc):
+            prune_invalid_model_cache(model_name)
             raise
         logger.warning("Retrying model download in clean subprocess due to FD error")
         if cancel_check is not None and cancel_check():
+            prune_invalid_model_cache(model_name)
             raise DownloadCancelledError("Download cancelled before retry") from exc
-        return _download_model_in_subprocess(repo_id)
+        try:
+            return _download_model_in_subprocess(
+                repo_id,
+                progress_callback=progress_callback,
+                expected_total_bytes=expected_total_bytes,
+                cancel_check=cancel_check,
+            )
+        except Exception:
+            prune_invalid_model_cache(model_name)
+            raise
 
 
 def ensure_model_available(model_name: str) -> Path:
@@ -342,31 +469,90 @@ def ensure_model_available(model_name: str) -> Path:
     return download_model(model_name)
 
 
-def _download_model_in_subprocess(repo_id: str) -> Path:
+def _download_model_in_subprocess(
+    repo_id: str,
+    progress_callback: Callable[[int], None] | None = None,
+    expected_total_bytes: int | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> Path:
     env = os.environ.copy()
     env["HF_HUB_DISABLE_XET"] = "1"
     env["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
     script = (
         "from huggingface_hub import snapshot_download; "
-        "print(snapshot_download(repo_id='" + repo_id + "'))"
+        f"print(snapshot_download(repo_id={repo_id!r}))"
     )
-    result = subprocess.run(
+    process = subprocess.Popen(
         [sys.executable, "-c", script],
-        check=True,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         env=env,
     )
-    output = result.stdout.strip().splitlines()
+
+    cache_path = _cache_path_for_repo_id(repo_id)
+    last_percent = -1
+
+    def emit_progress() -> None:
+        nonlocal last_percent
+        if progress_callback is None:
+            return
+
+        total = int(expected_total_bytes or 0)
+        if total <= 0:
+            percent = 0
+        else:
+            downloaded = _cache_path_size_bytes(cache_path)
+            percent = int(max(0.0, min((downloaded / float(total)) * 100.0, 99.0)))
+
+        if percent == last_percent:
+            return
+
+        last_percent = percent
+        progress_callback(percent)
+
+    while process.poll() is None:
+        if cancel_check is not None and cancel_check():
+            process.terminate()
+            try:
+                process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                try:
+                    process.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    pass
+            _prune_cache_path(cache_path)
+            raise DownloadCancelledError("Download cancelled during shutdown")
+
+        emit_progress()
+        time.sleep(0.2)
+
+    stdout, stderr = process.communicate()
+    if process.returncode:
+        _prune_cache_path(cache_path)
+        details = (stderr or stdout).strip()
+        raise RuntimeError(
+            f"Model download subprocess failed for {repo_id}" + (f": {details}" if details else "")
+        )
+
+    emit_progress()
+
+    output = stdout.strip().splitlines()
     if not output:
+        _prune_cache_path(cache_path)
         raise RuntimeError("No model path returned by download subprocess")
+    if progress_callback is not None and last_percent < 100:
+        progress_callback(100)
     return Path(output[-1])
 
 
 def remove_model(model_name: str) -> None:
-    cache_path = _model_cache_path(model_name)
-    if cache_path.exists():
-        shutil.rmtree(cache_path)
+    if model_name not in MODEL_NAMES:
+        return
+    for cache_path in _model_cache_paths(model_name):
+        if cache_path.exists():
+            shutil.rmtree(cache_path)
 
 
 def set_selected_model(model_name: str, path: Path | None = None) -> None:

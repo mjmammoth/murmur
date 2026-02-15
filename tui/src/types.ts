@@ -138,6 +138,7 @@ export type ClientMessage =
   | { type: "set_model_language"; language: string | null }
   | { type: "set_theme"; theme: string }
   | { type: "download_model"; name: string }
+  | { type: "cancel_model_download"; name: string }
   | { type: "remove_model"; name: string }
   | { type: "list_models" }
   | { type: "get_config" }
@@ -185,13 +186,18 @@ export type DialogType =
   | "settings-select"
   | "settings-edit"
   | "hotkey"
-  | "theme-picker";
+  | "theme-picker"
+  | "exit-confirm";
 
 export interface ModelManagerDialogData {
   returnToSettings?: boolean;
   returnSettingId?: string;
   returnFilterQuery?: string;
   firstRunSetup?: boolean;
+}
+
+export interface ExitConfirmDialogData {
+  model?: string;
 }
 
 export interface DialogState {
