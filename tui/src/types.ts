@@ -187,12 +187,15 @@ export type DialogType =
   | "hotkey"
   | "theme-picker";
 <<<<<<< ours
+=======
+<<<<<<< ours
 
 export interface ModelManagerDialogData {
   returnToSettings?: boolean;
   firstRunSetup?: boolean;
 }
 =======
+>>>>>>> theirs
 >>>>>>> theirs
 
 export interface DialogState {

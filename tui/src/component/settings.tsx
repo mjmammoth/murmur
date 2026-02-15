@@ -38,10 +38,16 @@ interface SettingItem {
 
 <<<<<<< ours
 =======
+<<<<<<< ours
+=======
+>>>>>>> theirs
 interface SettingsDialogData {
   selectedSettingId?: string;
 }
 
+<<<<<<< ours
+=======
+>>>>>>> theirs
 >>>>>>> theirs
 const SECTION_ORDER: SettingSection[] = ["Capture", "Model", "Output", "Appearance", "Advanced"];
 
@@ -88,8 +94,12 @@ export function Settings(): JSX.Element {
   const [filterQuery, setFilterQuery] = createSignal("");
   const [filterMode, setFilterMode] = createSignal(false);
 <<<<<<< ours
+  const [consumedRestoreSettingId, setConsumedRestoreSettingId] = createSignal<string | null>(null);
+=======
+<<<<<<< ours
 =======
   const [consumedRestoreSettingId, setConsumedRestoreSettingId] = createSignal<string | null>(null);
+>>>>>>> theirs
 >>>>>>> theirs
   let settingsScroll: ScrollBoxRenderable | undefined;
 
@@ -116,6 +126,8 @@ export function Settings(): JSX.Element {
   });
 
 <<<<<<< ours
+=======
+<<<<<<< ours
   function openSelector(settingId: SelectSettingId) {
     dialog.openDialog("settings-select", { settingId, returnToSettings: true });
   }
@@ -123,6 +135,7 @@ export function Settings(): JSX.Element {
   function openEditor(settingId: EditSettingId) {
     dialog.openDialog("settings-edit", { settingId, returnToSettings: true });
 =======
+>>>>>>> theirs
   function openSelector(settingId: SelectSettingId, returnSettingId?: string) {
     dialog.openDialog("settings-select", {
       settingId,
@@ -137,6 +150,9 @@ export function Settings(): JSX.Element {
       returnToSettings: true,
       returnSettingId: returnSettingId ?? settingId,
     });
+<<<<<<< ours
+=======
+>>>>>>> theirs
 >>>>>>> theirs
   }
 
@@ -174,9 +190,13 @@ export function Settings(): JSX.Element {
         interactive: true,
         value: () => withFallback(cfg?.hotkey.key),
 <<<<<<< ours
+        activate: () => dialog.openDialog("hotkey", { returnToSettings: true, returnSettingId: "hotkey.key" }),
+=======
+<<<<<<< ours
         activate: () => dialog.openDialog("hotkey", { returnToSettings: true }),
 =======
         activate: () => dialog.openDialog("hotkey", { returnToSettings: true, returnSettingId: "hotkey.key" }),
+>>>>>>> theirs
 >>>>>>> theirs
       },
       {
@@ -250,10 +270,15 @@ export function Settings(): JSX.Element {
         interactive: true,
         value: () => selectedInstalledModelName(),
 <<<<<<< ours
+        activate: () =>
+          dialog.openDialog("model-manager", { returnToSettings: true, returnSettingId: "model.name" }),
+=======
+<<<<<<< ours
         activate: () => dialog.openDialog("model-manager", { returnToSettings: true }),
 =======
         activate: () =>
           dialog.openDialog("model-manager", { returnToSettings: true, returnSettingId: "model.name" }),
+>>>>>>> theirs
 >>>>>>> theirs
       },
       {
@@ -412,9 +437,13 @@ export function Settings(): JSX.Element {
         interactive: true,
         value: () => withFallback(theme().label),
 <<<<<<< ours
+        activate: () => dialog.openDialog("theme-picker", { returnToSettings: true, returnSettingId: "ui.theme" }),
+=======
+<<<<<<< ours
         activate: () => dialog.openDialog("theme-picker", { returnToSettings: true }),
 =======
         activate: () => dialog.openDialog("theme-picker", { returnToSettings: true, returnSettingId: "ui.theme" }),
+>>>>>>> theirs
 >>>>>>> theirs
       },
       {
@@ -537,6 +566,9 @@ export function Settings(): JSX.Element {
 
 <<<<<<< ours
 =======
+<<<<<<< ours
+=======
+>>>>>>> theirs
   createEffect(() => {
     if (dialog.currentDialog()?.type !== "settings") {
       setConsumedRestoreSettingId(null);
