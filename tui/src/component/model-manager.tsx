@@ -16,7 +16,16 @@ import { useConfig } from "../context/config";
 import { ModelItem } from "./model-item";
 import { useSpinnerFrame } from "./spinner";
 import { exitApp } from "../util/exit";
+<<<<<<< ours
 import type { ModelManagerDialogData } from "../types";
+=======
+
+interface ModelManagerDialogData {
+  returnToSettings?: boolean;
+  returnSettingId?: string;
+  firstRunSetup?: boolean;
+}
+>>>>>>> theirs
 
 function CommandHint(props: { keys: string; label: string }): JSX.Element {
   const { colors } = useTheme();
@@ -50,6 +59,7 @@ export function ModelManager(): JSX.Element {
     () => (dialog.currentDialog()?.data as ModelManagerDialogData | undefined) ?? {},
   );
   const returnToSettings = createMemo(() => Boolean(dialogData().returnToSettings));
+  const returnSettingId = createMemo(() => dialogData().returnSettingId ?? null);
   const firstRunSetup = createMemo(() => Boolean(dialogData().firstRunSetup));
   const setupRequired = createMemo(() => Boolean(backend.config()?.first_run_setup_required));
   const setupLocked = createMemo(() => firstRunSetup() && setupRequired());
@@ -60,7 +70,11 @@ export function ModelManager(): JSX.Element {
       return;
     }
     if (returnToSettings()) {
-      dialog.openDialog("settings");
+      const selectedSettingId = returnSettingId();
+      dialog.openDialog(
+        "settings",
+        selectedSettingId ? { selectedSettingId } : undefined,
+      );
       return;
     }
     dialog.closeDialog();

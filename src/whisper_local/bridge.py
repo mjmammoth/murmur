@@ -682,6 +682,18 @@ class BridgeServer:
                 await self._set_hotkey_mode(data.get("mode", ""))
             elif msg_type == "set_theme":
                 await self._set_theme(data.get("theme", ""))
+            elif msg_type == "set_audio_sample_rate":
+                await self._set_audio_sample_rate(data.get("sample_rate"))
+            elif msg_type == "set_vad_aggressiveness":
+                await self._set_vad_aggressiveness(data.get("aggressiveness"))
+            elif msg_type == "set_output_clipboard":
+                await self._set_output_clipboard(data.get("enabled"))
+            elif msg_type == "set_output_file_enabled":
+                await self._set_output_file_enabled(data.get("enabled"))
+            elif msg_type == "set_output_file_path":
+                await self._set_output_file_path(data.get("path", ""))
+            elif msg_type == "set_model_path":
+                await self._set_model_path(data.get("path"))
             elif msg_type == "set_model_backend":
                 await self._set_model_backend(data.get("backend", ""))
             elif msg_type == "set_model_device":
@@ -1494,6 +1506,266 @@ class BridgeServer:
                 {
                     "type": "toast",
                     "message": f"Model language applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_audio_sample_rate(self, sample_rate: Any) -> None:
+        try:
+            normalized = int(sample_rate)
+        except (TypeError, ValueError):
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Invalid sample rate: {sample_rate}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        allowed = {8000, 16000, 32000, 48000}
+        if normalized not in allowed:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Unsupported sample rate: {normalized}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if self._recording:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Cannot change sample rate while recording",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if self.config.audio.sample_rate == normalized:
+            return
+
+        self.config.audio.sample_rate = normalized
+        if self.recorder:
+            self.recorder.sample_rate = normalized
+        persist_error = self._persist_config("audio sample rate")
+
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Sample rate {normalized} Hz"})
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Sample rate applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_vad_aggressiveness(self, aggressiveness: Any) -> None:
+        try:
+            normalized = int(aggressiveness)
+        except (TypeError, ValueError):
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Invalid VAD aggressiveness: {aggressiveness}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if normalized < 0 or normalized > 3:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "VAD aggressiveness must be between 0 and 3",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if self.config.vad.aggressiveness == normalized:
+            return
+
+        previous_aggressiveness = self.config.vad.aggressiveness
+        previous_vad = self.vad
+        self.config.vad.aggressiveness = normalized
+
+        try:
+            self.vad = VadProcessor(
+                enabled=self.config.vad.enabled, aggressiveness=self.config.vad.aggressiveness
+            )
+        except Exception as exc:
+            logger.exception("Failed to apply VAD aggressiveness")
+            self.config.vad.aggressiveness = previous_aggressiveness
+            self.vad = previous_vad
+            rollback_error = self._persist_config("vad aggressiveness rollback")
+            await self._broadcast_config()
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Failed to apply VAD aggressiveness: {exc}",
+                    "level": "error",
+                }
+            )
+            if rollback_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Rollback config save failed: {rollback_error}",
+                        "level": "error",
+                    }
+                )
+            return
+
+        persist_error = self._persist_config("vad aggressiveness")
+        await self._broadcast_config()
+        await self._broadcast(
+            {"type": "toast", "message": f"VAD aggressiveness {self.config.vad.aggressiveness}"}
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"VAD aggressiveness applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_output_clipboard(self, enabled: Any) -> None:
+        normalized = bool(enabled)
+        if self.config.output.clipboard == normalized:
+            return
+
+        self.config.output.clipboard = normalized
+        persist_error = self._persist_config("output clipboard")
+        await self._broadcast_config()
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Clipboard output {'on' if normalized else 'off'}",
+            }
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Clipboard output applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_output_file_enabled(self, enabled: Any) -> None:
+        normalized = bool(enabled)
+        if self.config.output.file.enabled == normalized:
+            return
+
+        self.config.output.file.enabled = normalized
+        persist_error = self._persist_config("output file enabled")
+        await self._broadcast_config()
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"File output {'on' if normalized else 'off'}",
+            }
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"File output applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_output_file_path(self, path: Any) -> None:
+        raw = str(path or "").strip()
+        if not raw:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Output file path cannot be empty",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        normalized = Path(raw).expanduser()
+        if self.config.output.file.path == normalized:
+            return
+
+        self.config.output.file.path = normalized
+        persist_error = self._persist_config("output file path")
+        await self._broadcast_config()
+        await self._broadcast({"type": "toast", "message": f"Output file path {normalized}"})
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Output file path applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_model_path(self, path: Any) -> None:
+        raw = "" if path is None else str(path).strip()
+        next_path = str(Path(raw).expanduser()) if raw else None
+
+        if self.config.model.path == next_path:
+            return
+
+        previous_path = self.config.model.path
+        self.config.model.path = next_path
+        persist_error = self._persist_config("model path")
+
+        try:
+            await self._reload_transcriber()
+        except Exception as exc:
+            logger.exception("Failed to apply model path")
+            self.config.model.path = previous_path
+            rollback_error = self._persist_config("model path rollback")
+            await self._broadcast_config()
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Failed to apply model path: {exc}",
+                    "level": "error",
+                }
+            )
+            if rollback_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Rollback config save failed: {rollback_error}",
+                        "level": "error",
+                    }
+                )
+            return
+
+        await self._broadcast_config()
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": (
+                    "Local model path cleared (default cache)"
+                    if next_path is None
+                    else f"Local model path {next_path}"
+                ),
+            }
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Model path applied, but failed to save: {persist_error}",
                     "level": "error",
                 }
             )

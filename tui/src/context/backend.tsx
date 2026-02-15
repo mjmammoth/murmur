@@ -257,6 +257,27 @@ export function BackendContextProvider(props: {
     });
   }
 
+  function patchAudioConfig(updater: (audio: AppConfig["audio"]) => AppConfig["audio"]) {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      return { ...prev, audio: updater(prev.audio) };
+    });
+  }
+
+  function patchVadConfig(updater: (vad: AppConfig["vad"]) => AppConfig["vad"]) {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      return { ...prev, vad: updater(prev.vad) };
+    });
+  }
+
+  function patchOutputConfig(updater: (output: AppConfig["output"]) => AppConfig["output"]) {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      return { ...prev, output: updater(prev.output) };
+    });
+  }
+
   function patchUiConfig(
     updater: (ui: NonNullable<AppConfig["ui"]>) => NonNullable<AppConfig["ui"]>
   ) {
@@ -290,6 +311,30 @@ export function BackendContextProvider(props: {
         return;
       case "set_hotkey":
         patchHotkeyConfig((hotkey) => ({ ...hotkey, key: message.hotkey }));
+        return;
+      case "set_audio_sample_rate":
+        patchAudioConfig((audio) => ({ ...audio, sample_rate: message.sample_rate }));
+        return;
+      case "set_vad_aggressiveness":
+        patchVadConfig((vad) => ({ ...vad, aggressiveness: message.aggressiveness }));
+        return;
+      case "set_output_clipboard":
+        patchOutputConfig((output) => ({ ...output, clipboard: message.enabled }));
+        return;
+      case "set_output_file_enabled":
+        patchOutputConfig((output) => ({
+          ...output,
+          file: { ...output.file, enabled: message.enabled },
+        }));
+        return;
+      case "set_output_file_path":
+        patchOutputConfig((output) => ({
+          ...output,
+          file: { ...output.file, path: message.path },
+        }));
+        return;
+      case "set_model_path":
+        patchModelConfig((model) => ({ ...model, path: message.path }));
         return;
       case "set_theme":
         patchUiConfig((ui) => ({ ...ui, theme: message.theme }));

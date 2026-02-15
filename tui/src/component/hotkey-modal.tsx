@@ -74,13 +74,21 @@ export function HotkeyModal(): JSX.Element {
   const [captureError, setCaptureError] = createSignal("");
   const [lastSetHotkey, setLastSetHotkey] = createSignal("");
 
-  const returnToSettings = createMemo(
-    () => Boolean((dialog.currentDialog()?.data as { returnToSettings?: boolean } | undefined)?.returnToSettings),
+  const dialogData = createMemo(
+    () =>
+      (dialog.currentDialog()?.data as { returnToSettings?: boolean; returnSettingId?: string } | undefined) ??
+      undefined,
   );
+  const returnToSettings = createMemo(() => Boolean(dialogData()?.returnToSettings));
+  const returnSettingId = createMemo(() => dialogData()?.returnSettingId ?? null);
 
   function closeModal() {
     if (returnToSettings()) {
-      dialog.openDialog("settings");
+      const selectedSettingId = returnSettingId();
+      dialog.openDialog(
+        "settings",
+        selectedSettingId ? { selectedSettingId } : undefined,
+      );
       return;
     }
     dialog.closeDialog();

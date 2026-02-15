@@ -123,6 +123,12 @@ export type ClientMessage =
   | { type: "set_hotkey_blocked"; enabled: boolean }
   | { type: "set_hotkey_mode"; mode: "ptt" | "toggle" }
   | { type: "set_hotkey"; hotkey: string }
+  | { type: "set_audio_sample_rate"; sample_rate: number }
+  | { type: "set_vad_aggressiveness"; aggressiveness: number }
+  | { type: "set_output_clipboard"; enabled: boolean }
+  | { type: "set_output_file_enabled"; enabled: boolean }
+  | { type: "set_output_file_path"; path: string }
+  | { type: "set_model_path"; path: string | null }
   | { type: "set_selected_model"; name: string }
   // Backward-compatible alias for set_selected_model
   | { type: "set_default_model"; name: string }
@@ -173,12 +179,21 @@ export interface Toast {
 
 // Dialog types
 
-export type DialogType = "model-manager" | "settings" | "settings-select" | "hotkey" | "theme-picker";
+export type DialogType =
+  | "model-manager"
+  | "settings"
+  | "settings-select"
+  | "settings-edit"
+  | "hotkey"
+  | "theme-picker";
+<<<<<<< ours
 
 export interface ModelManagerDialogData {
   returnToSettings?: boolean;
   firstRunSetup?: boolean;
 }
+=======
+>>>>>>> theirs
 
 export interface DialogState {
   type: DialogType;

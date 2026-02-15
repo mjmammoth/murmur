@@ -17,6 +17,7 @@ import { LOG_LEVELS, LogPanel } from "../component/log-panel";
 import { HotkeyModal } from "../component/hotkey-modal";
 import { SettingsSelectModal } from "../component/settings-select-modal";
 import { ThemePickerModal } from "../component/theme-picker-modal";
+import { SettingsEditModal } from "../component/settings-edit-modal";
 import { exitApp } from "../util/exit";
 import type { ModelManagerDialogData } from "../types";
 
@@ -356,6 +357,19 @@ export function Home(): JSX.Element {
           backgroundColor={modalOverlayColor()}
         >
           <SettingsSelectModal />
+        </box>
+      </Show>
+
+      <Show when={dialog.currentDialog()?.type === "settings-edit"}>
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={modalOverlayColor()}
+        >
+          <SettingsEditModal />
         </box>
       </Show>
 

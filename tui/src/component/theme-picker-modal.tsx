@@ -6,6 +6,7 @@ import { useDialog } from "../context/dialog";
 
 interface ThemePickerDialogData {
   returnToSettings?: boolean;
+  returnSettingId?: string;
 }
 
 export function ThemePickerModal(): JSX.Element {
@@ -22,6 +23,7 @@ export function ThemePickerModal(): JSX.Element {
     () => (dialog.currentDialog()?.data as ThemePickerDialogData | undefined) ?? null,
   );
   const returnToSettings = createMemo(() => Boolean(dialogData()?.returnToSettings));
+  const returnSettingId = createMemo(() => dialogData()?.returnSettingId ?? null);
 
   const selectedTheme = createMemo(() => availableThemes[selectedIndex()] ?? null);
 
@@ -60,7 +62,11 @@ export function ThemePickerModal(): JSX.Element {
 
   function closeModal() {
     if (returnToSettings()) {
-      dialog.openDialog("settings");
+      const selectedSettingId = returnSettingId();
+      dialog.openDialog(
+        "settings",
+        selectedSettingId ? { selectedSettingId } : undefined,
+      );
       return;
     }
     dialog.closeDialog();
