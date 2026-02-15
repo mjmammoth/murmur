@@ -316,7 +316,7 @@ class WhisperCppBackend(_BackendBase):
             if self._effective_device == "cpu":
                 cmd.append("-ng")
 
-            process = subprocess.run(cmd, capture_output=True, text=True)
+            process = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             if process.returncode != 0:
                 stderr = (process.stderr or process.stdout or "").strip()
                 raise RuntimeError(

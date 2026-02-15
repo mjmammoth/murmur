@@ -18,10 +18,7 @@ import { HotkeyModal } from "../component/hotkey-modal";
 import { SettingsSelectModal } from "../component/settings-select-modal";
 import { ThemePickerModal } from "../component/theme-picker-modal";
 import { exitApp } from "../util/exit";
-
-interface ModelManagerDialogData {
-  firstRunSetup?: boolean;
-}
+import type { ModelManagerDialogData } from "../types";
 
 export function Home(): JSX.Element {
   const LOGS_PANEL_WIDTH_RATIO = 0.42;

@@ -175,6 +175,11 @@ export interface Toast {
 
 export type DialogType = "model-manager" | "settings" | "settings-select" | "hotkey" | "theme-picker";
 
+export interface ModelManagerDialogData {
+  returnToSettings?: boolean;
+  firstRunSetup?: boolean;
+}
+
 export interface DialogState {
   type: DialogType;
   data?: unknown;

@@ -23,7 +23,7 @@ def load_audio_file(path: Path, target_sample_rate: int) -> np.ndarray:
 
     try:
         from faster_whisper.audio import decode_audio  # type: ignore
-    except Exception as exc:
+    except ImportError as exc:
         raise RuntimeError(
             "Audio file decoding unavailable. Install faster-whisper."
         ) from exc

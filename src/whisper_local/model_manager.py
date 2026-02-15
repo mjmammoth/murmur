@@ -42,6 +42,9 @@ _MODEL_SIZE_CACHE_LOCK = threading.Lock()
 class DownloadCancelledError(RuntimeError):
     """Raised when a model download is cancelled by shutdown."""
 
+    def __init__(self, message: str = "Download cancelled") -> None:
+        super().__init__(message)
+
 
 @dataclass(frozen=True)
 class ModelInfo:
