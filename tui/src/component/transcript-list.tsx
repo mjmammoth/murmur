@@ -70,7 +70,9 @@ export function TranscriptList(): JSX.Element {
               </Show>
               <Show when={emptyStateMode() === "full"}>
                 <text>
-                  <span style={{ fg: colors().textMuted }}>Press your hotkey to start recording</span>
+                  <span style={{ fg: colors().textMuted }}>
+                    Press your hotkey or drop an audio file path to transcribe
+                  </span>
                 </text>
               </Show>
             </box>

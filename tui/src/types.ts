@@ -94,6 +94,8 @@ export interface ModelInfo {
   name: string;
   installed: boolean;
   path: string | null;
+  size_bytes?: number | null;
+  size_estimated?: boolean;
 }
 
 // Application status
@@ -112,6 +114,7 @@ export type AppStatus =
 export type ClientMessage =
   | { type: "start_recording" }
   | { type: "stop_recording" }
+  | { type: "transcribe_paste"; text: string }
   | { type: "toggle_noise"; enabled: boolean }
   | { type: "toggle_vad"; enabled: boolean }
   | { type: "toggle_auto_copy"; enabled: boolean }

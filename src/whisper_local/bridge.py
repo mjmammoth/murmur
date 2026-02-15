@@ -5,20 +5,26 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shlex
+import threading
 from datetime import datetime
+from pathlib import Path
 from time import monotonic
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import websockets
 from websockets.server import WebSocketServerProtocol
 
 from whisper_local.audio import AudioRecorder
+from whisper_local.audio_file import DEFAULT_DECODE_SAMPLE_RATE, load_audio_file
 from whisper_local.config import AppConfig, default_config_path, load_config, save_config
 from whisper_local.hotkey import HotkeyListener, parse_hotkey
 from whisper_local.model_manager import (
+    DownloadCancelledError,
     MODEL_NAMES,
     download_model,
+    get_installed_model_path,
     list_installed_models,
     remove_model,
 )
@@ -32,6 +38,10 @@ from whisper_local.transcribe import (
 from whisper_local.vad import VadProcessor
 
 logger = logging.getLogger(__name__)
+
+MAX_DROP_FILES = 32
+MAX_DROP_FILE_BYTES = 512 * 1024 * 1024
+MAX_DROP_AUDIO_SECONDS = 4 * 60 * 60
 
 
 class WebSocketLogHandler(logging.Handler):
@@ -96,7 +106,13 @@ class BridgeServer:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._model_reload_lock = asyncio.Lock()
         self._model_op_lock = asyncio.Lock()
+        self._file_transcription_lock = asyncio.Lock()
         self._runtime_capabilities = self._detect_runtime_capabilities()
+        self._runtime_capabilities_updated_at = monotonic()
+        self._runtime_capabilities_dirty = False
+        self._shutdown_requested = threading.Event()
+
+        self._background_tasks: set[asyncio.Task] = set()
 
         # Audio/transcription components (initialized lazily)
         self.recorder: AudioRecorder | None = None
@@ -104,6 +120,13 @@ class BridgeServer:
         self.vad: VadProcessor | None = None
         self.transcriber: Transcriber | None = None
         self.hotkey: HotkeyListener | None = None
+
+    def _spawn_task(self, coro) -> asyncio.Task:
+        """Create a background task and prevent it from being garbage-collected."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     def _client_path(self, websocket: WebSocketServerProtocol) -> str:
         """Return connection path across websockets API versions."""
@@ -137,8 +160,11 @@ class BridgeServer:
     def _active_client_count(self) -> int:
         return sum(1 for client in self.clients if client not in self._passive_clients)
 
+    def _installed_model_names(self) -> list[str]:
+        return [model.name for model in list_installed_models() if model.installed]
+
     def _has_installed_models(self) -> bool:
-        return any(model.installed for model in list_installed_models())
+        return bool(self._installed_model_names())
 
     async def start(
         self,
@@ -210,8 +236,24 @@ class BridgeServer:
     def _detect_runtime_capabilities(self) -> dict[str, Any]:
         return detect_runtime_capabilities(self.config.model.backend)
 
-    def _refresh_runtime_capabilities(self) -> None:
+    _RUNTIME_CAPS_TTL = 30.0
+
+    def _refresh_runtime_capabilities(self, *, force: bool = False) -> None:
+        now = monotonic()
+        if not force and not self._runtime_capabilities_dirty:
+            if (now - self._runtime_capabilities_updated_at) < self._RUNTIME_CAPS_TTL:
+                return
         self._runtime_capabilities = self._detect_runtime_capabilities()
+        self._runtime_capabilities_updated_at = now
+        self._runtime_capabilities_dirty = False
+
+    def _invalidate_runtime_capabilities(self) -> None:
+        self._runtime_capabilities_dirty = True
+
+    def _set_runtime_capabilities(self, capabilities: dict[str, Any]) -> None:
+        self._runtime_capabilities = capabilities
+        self._runtime_capabilities_updated_at = monotonic()
+        self._runtime_capabilities_dirty = False
 
     async def _load_model_async(self) -> None:
         """Load the transcription model asynchronously."""
@@ -304,7 +346,7 @@ class BridgeServer:
         await self._set_status("transcribing", "Transcribing...")
 
         # Process in background
-        asyncio.create_task(
+        self._spawn_task(
             self._process_audio(
                 audio,
                 transcriber=job_transcriber,
@@ -334,7 +376,8 @@ class BridgeServer:
         transcriber: Transcriber | None = None,
         language: str | None = None,
         sample_rate: int | None = None,
-    ) -> None:
+        source_label: str | None = None,
+    ) -> tuple[str, str]:
         """Process recorded audio through noise/vad/transcription pipeline."""
         final_status = "ready"
         final_message = "Ready"
@@ -360,12 +403,15 @@ class BridgeServer:
         output_language: str | None = None
 
         if audio.size == 0:
-            await self._finalize_transcription_job("ready", "No audio captured")
-            return
+            final_message = "No audio captured"
+            await self._finalize_transcription_job(final_status, final_message)
+            return final_status, final_message
 
         if job_transcriber is None:
-            await self._finalize_transcription_job("error", "Model is not loaded")
-            return
+            final_status = "error"
+            final_message = "Model is not loaded"
+            await self._finalize_transcription_job(final_status, final_message)
+            return final_status, final_message
 
         try:
             # Noise suppression
@@ -399,8 +445,9 @@ class BridgeServer:
             output_language = result.language
 
             if not result.text:
-                await self._finalize_transcription_job("ready", "No speech detected")
-                return
+                final_status = "ready"
+                final_message = "No speech detected"
+                return final_status, final_message
 
             timestamp = datetime.now().strftime("%H:%M:%S")
             await self._broadcast(
@@ -417,10 +464,13 @@ class BridgeServer:
 
         except Exception as exc:
             logger.exception("Transcription failed")
+            error_prefix = "Transcription failed"
+            if source_label:
+                error_prefix = f"Transcription failed ({source_label})"
             await self._broadcast(
                 {
                     "type": "toast",
-                    "message": f"Transcription failed: {exc}",
+                    "message": f"{error_prefix}: {exc}",
                     "level": "error",
                 }
             )
@@ -465,6 +515,8 @@ class BridgeServer:
             )
 
             await self._finalize_transcription_job(final_status, final_message)
+
+        return final_status, final_message
 
     async def _set_status(
         self, status: str, message: str, elapsed: float | None = None
@@ -583,9 +635,9 @@ class BridgeServer:
             elif msg_type == "set_model_language":
                 await self._set_model_language(data.get("language"))
             elif msg_type == "download_model":
-                asyncio.create_task(self._download_model(data.get("name", "")))
+                self._spawn_task(self._download_model(data.get("name", "")))
             elif msg_type == "remove_model":
-                asyncio.create_task(self._remove_model(data.get("name", "")))
+                self._spawn_task(self._remove_model(data.get("name", "")))
             elif msg_type == "set_selected_model":
                 await self._set_selected_model(data.get("name", ""))
             elif msg_type == "set_default_model":
@@ -604,6 +656,8 @@ class BridgeServer:
                     await self._broadcast({"type": "toast", "message": "Copied to clipboard"})
             elif msg_type == "get_config_file":
                 await self._send_config_file(websocket)
+            elif msg_type == "transcribe_paste":
+                self._spawn_task(self._handle_transcribe_paste(data.get("text", "")))
             else:
                 logger.warning(f"Unknown message type: {msg_type}")
 
@@ -611,6 +665,229 @@ class BridgeServer:
             logger.warning("Invalid JSON message received")
         except Exception:
             logger.exception("Error handling message")
+
+    async def _handle_transcribe_paste(self, raw_text: Any) -> None:
+        text = str(raw_text or "").strip()
+        if not text:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "No file path received from paste",
+                    "level": "error",
+                }
+            )
+            return
+
+        parsed_paths = self._extract_paths_from_paste(text)
+        if not parsed_paths:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Could not parse any file paths from paste",
+                    "level": "error",
+                }
+            )
+            return
+
+        valid_paths: list[Path] = []
+        seen: set[str] = set()
+        for path in parsed_paths:
+            normalized = str(path)
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+
+            if not await asyncio.to_thread(path.exists):
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"File not found: {path}",
+                        "level": "error",
+                    }
+                )
+                continue
+            if not await asyncio.to_thread(path.is_file):
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Not a file: {path}",
+                        "level": "error",
+                    }
+                )
+                continue
+
+            valid_paths.append(path)
+
+        if not valid_paths:
+            return
+
+        if len(valid_paths) > MAX_DROP_FILES:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": (
+                        f"Paste contained {len(valid_paths)} files; processing first {MAX_DROP_FILES}."
+                    ),
+                    "level": "error",
+                }
+            )
+            valid_paths = valid_paths[:MAX_DROP_FILES]
+
+        if len(valid_paths) == 1:
+            await self._broadcast(
+                {"type": "toast", "message": f"Queued file transcription: {valid_paths[0].name}"}
+            )
+        else:
+            await self._broadcast(
+                {"type": "toast", "message": f"Queued {len(valid_paths)} files for transcription"}
+            )
+
+        async with self._file_transcription_lock:
+            for path in valid_paths:
+                await self._transcribe_audio_file(path)
+
+    def _extract_paths_from_paste(self, text: str) -> list[Path]:
+        tokens: list[str] = []
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            lines = [text.strip()]
+
+        for line in lines:
+            try:
+                line_tokens = shlex.split(line, posix=True)
+            except ValueError:
+                line_tokens = [line]
+            if line_tokens:
+                tokens.extend(line_tokens)
+
+        paths: list[Path] = []
+        for token in tokens:
+            normalized = self._normalize_paste_path(token)
+            if normalized is not None:
+                paths.append(normalized)
+        return paths
+
+    def _normalize_paste_path(self, token: str) -> Path | None:
+        candidate = token.strip()
+        if not candidate:
+            return None
+
+        if candidate.startswith("file://"):
+            parsed = urlparse(candidate)
+            if parsed.scheme != "file":
+                return None
+            path_part = unquote(parsed.path or "")
+            if parsed.netloc and parsed.netloc not in {"", "localhost"}:
+                path_part = f"//{parsed.netloc}{path_part}"
+            candidate = path_part
+
+        candidate = candidate.strip().strip("'").strip('"')
+        if not candidate:
+            return None
+
+        path = Path(candidate).expanduser()
+        try:
+            if path.is_absolute():
+                return path.resolve(strict=False)
+            return (Path.cwd() / path).resolve(strict=False)
+        except Exception:
+            return None
+
+    async def _transcribe_audio_file(self, path: Path) -> None:
+        try:
+            stat_result = await asyncio.to_thread(path.stat)
+            size_bytes = stat_result.st_size
+        except OSError as exc:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Cannot read file metadata for {path.name}: {exc}",
+                    "level": "error",
+                }
+            )
+            return
+
+        if size_bytes > MAX_DROP_FILE_BYTES:
+            max_mb = int(MAX_DROP_FILE_BYTES / (1024 * 1024))
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": (
+                        f"Skipped {path.name}: file is too large "
+                        f"({size_bytes} bytes, max {max_mb}MB)."
+                    ),
+                    "level": "error",
+                }
+            )
+            return
+
+        target_sample_rate = self.config.audio.sample_rate
+        effective_sample_rate = (
+            target_sample_rate if target_sample_rate > 0 else DEFAULT_DECODE_SAMPLE_RATE
+        )
+        try:
+            audio = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: load_audio_file(path, target_sample_rate=target_sample_rate),
+            )
+        except Exception as exc:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Decode failed for {path.name}: {exc}",
+                    "level": "error",
+                }
+            )
+            return
+
+        duration_seconds = audio.shape[0] / float(effective_sample_rate)
+
+        if duration_seconds > MAX_DROP_AUDIO_SECONDS:
+            max_minutes = int(MAX_DROP_AUDIO_SECONDS / 60)
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": (
+                        f"Skipped {path.name}: audio exceeds {max_minutes} minutes."
+                    ),
+                    "level": "error",
+                }
+            )
+            return
+
+        job_transcriber = self.transcriber
+        job_language = self.config.model.language
+
+        if self._transcribing_jobs == 0:
+            self._busy_started_at = monotonic()
+        self._transcribing_jobs += 1
+        await self._set_status("transcribing", f"Transcribing {path.name}...")
+
+        final_status, final_message = await self._process_audio(
+            audio,
+            transcriber=job_transcriber,
+            language=job_language,
+            sample_rate=effective_sample_rate,
+            source_label=path.name,
+        )
+
+        if final_status != "ready":
+            if final_message == "Model is not loaded":
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"{path.name}: model is not loaded",
+                        "level": "error",
+                    }
+                )
+            return
+
+        if final_message == "Ready":
+            await self._broadcast({"type": "toast", "message": f"Transcribed {path.name}"})
+            return
+
+        if final_message in {"No speech detected", "No audio captured"}:
+            await self._broadcast({"type": "toast", "message": f"{path.name}: {final_message}"})
 
     async def _toggle_noise(self, enabled: bool) -> None:
         """Toggle noise suppression."""
@@ -658,18 +935,35 @@ class BridgeServer:
 
             try:
                 await loop.run_in_executor(
-                    None, lambda: download_model(name, progress_callback=on_progress)
+                    None,
+                    lambda: download_model(
+                        name,
+                        progress_callback=on_progress,
+                        cancel_check=self._shutdown_requested.is_set,
+                    ),
                 )
                 # Send 100% to ensure TUI sees completion
                 await self._broadcast(
                     {"type": "download_progress", "model": name, "percent": 100}
                 )
                 await self._broadcast({"type": "toast", "message": f"Downloaded {name}"})
+                # After a successful pull, make the downloaded model active.
+                await self._set_selected_model(name)
                 await self._broadcast_models()
+            except DownloadCancelledError:
+                if not self._shutdown_requested.is_set():
+                    await self._broadcast(
+                        {
+                            "type": "toast",
+                            "message": f"Download cancelled: {name}",
+                            "level": "error",
+                        }
+                    )
             except Exception as exc:
-                await self._broadcast(
-                    {"type": "toast", "message": f"Download failed: {exc}", "level": "error"}
-                )
+                if not self._shutdown_requested.is_set():
+                    await self._broadcast(
+                        {"type": "toast", "message": f"Download failed: {exc}", "level": "error"}
+                    )
 
     async def _remove_model(self, name: str) -> None:
         """Remove a model."""
@@ -681,11 +975,37 @@ class BridgeServer:
                     None, lambda: remove_model(name)
                 )
                 await self._broadcast({"type": "toast", "message": f"Removed {name}"})
+                installed_model_names = self._installed_model_names()
+
+                if not installed_model_names:
+                    await self._enter_first_run_setup()
+                    await self._broadcast(
+                        {
+                            "type": "toast",
+                            "message": "No models installed. Download and select a model to continue.",
+                        }
+                    )
+                elif self.config.model.name not in installed_model_names:
+                    fallback_name = installed_model_names[0]
+                    await self._set_selected_model(fallback_name)
+
                 await self._broadcast_models()
             except Exception as exc:
                 await self._broadcast(
                     {"type": "toast", "message": f"Remove failed: {exc}", "level": "error"}
                 )
+
+    async def _enter_first_run_setup(self) -> None:
+        self._first_run_setup_required = True
+        self._model_loaded = False
+        if self._hotkey_started and self.hotkey:
+            self.hotkey.stop()
+            self._hotkey_started = False
+        await self._set_status(
+            "connecting",
+            "First run setup required. Download and select a model in Model Manager.",
+        )
+        await self._broadcast_config()
 
     async def _set_selected_model(self, name: str) -> None:
         """Set selected model."""
@@ -698,6 +1018,17 @@ class BridgeServer:
                 {
                     "type": "toast",
                     "message": f"Unknown model: {name}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        if get_installed_model_path(name) is None:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Model {name} is not pulled. Download it before selecting.",
                     "level": "error",
                 }
             )
@@ -771,7 +1102,7 @@ class BridgeServer:
             self.transcriber = next_transcriber
             self._model_loaded = True
             self._first_run_setup_required = False
-            self._refresh_runtime_capabilities()
+            self._refresh_runtime_capabilities(force=True)
             if self._has_active_clients():
                 self._start_hotkey()
             if not self._recording and self._transcribing_jobs <= 0:
@@ -808,12 +1139,12 @@ class BridgeServer:
                     "level": "error",
                 }
             )
-            self._runtime_capabilities = capabilities
+            self._set_runtime_capabilities(capabilities)
             await self._broadcast_config()
             return
 
         if self.config.model.backend == normalized:
-            self._runtime_capabilities = capabilities
+            self._set_runtime_capabilities(capabilities)
             await self._broadcast_config()
             return
 
@@ -821,7 +1152,7 @@ class BridgeServer:
         previous_device = self.config.model.device
         previous_compute_type = self.config.model.compute_type
         self.config.model.backend = normalized
-        self._runtime_capabilities = capabilities
+        self._set_runtime_capabilities(capabilities)
 
         runtime_model = capabilities.get("model", {})
         runtime_devices = runtime_model.get("devices", {})
@@ -863,7 +1194,7 @@ class BridgeServer:
             self.config.model.backend = previous_backend
             self.config.model.device = previous_device
             self.config.model.compute_type = previous_compute_type
-            self._runtime_capabilities = detect_runtime_capabilities(previous_backend)
+            self._set_runtime_capabilities(detect_runtime_capabilities(previous_backend))
             rollback_error = self._persist_config("model backend rollback")
             await self._broadcast_config()
             await self._broadcast(
@@ -895,7 +1226,7 @@ class BridgeServer:
             )
 
     async def _set_model_device(self, device: str) -> None:
-        self._refresh_runtime_capabilities()
+        self._refresh_runtime_capabilities(force=True)
         normalized = str(device).strip().lower()
         if normalized not in {"cpu", "cuda", "mps"}:
             await self._broadcast(
@@ -965,7 +1296,7 @@ class BridgeServer:
             )
 
     async def _set_model_compute_type(self, compute_type: str) -> None:
-        self._refresh_runtime_capabilities()
+        self._refresh_runtime_capabilities(force=True)
         normalized = str(compute_type).strip().lower()
         allowed = {"default", "int8", "float16", "float32", "int8_float16", "int8_float32"}
         if normalized not in allowed:
@@ -1222,7 +1553,13 @@ class BridgeServer:
             json.dumps({
                 "type": "models",
                 "models": [
-                    {"name": m.name, "installed": m.installed, "path": str(m.path) if m.path else None}
+                    {
+                        "name": m.name,
+                        "installed": m.installed,
+                        "path": str(m.path) if m.path else None,
+                        "size_bytes": m.size_bytes,
+                        "size_estimated": m.size_estimated,
+                    }
                     for m in models
                 ],
             })
@@ -1234,7 +1571,13 @@ class BridgeServer:
         await self._broadcast({
             "type": "models",
             "models": [
-                {"name": m.name, "installed": m.installed, "path": str(m.path) if m.path else None}
+                {
+                    "name": m.name,
+                    "installed": m.installed,
+                    "path": str(m.path) if m.path else None,
+                    "size_bytes": m.size_bytes,
+                    "size_estimated": m.size_estimated,
+                }
                 for m in models
             ],
         })
@@ -1270,6 +1613,14 @@ class BridgeServer:
 
     def shutdown(self) -> None:
         """Clean up resources."""
+        self._shutdown_requested.set()
+        if self.recorder and self._recording:
+            try:
+                self.recorder.stop()
+            except Exception:
+                logger.debug("Error stopping recorder during shutdown", exc_info=True)
+            finally:
+                self._recording = False
         if self._hotkey_started and self.hotkey:
             self.hotkey.stop()
         if self.noise:

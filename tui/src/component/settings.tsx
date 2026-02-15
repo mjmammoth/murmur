@@ -146,6 +146,13 @@ export function Settings(): JSX.Element {
     return Math.max(minHeight, Math.min(preferred, maxHeight));
   });
 
+  const selectedInstalledModelName = createMemo(() => {
+    const selected = config.config()?.model.name;
+    if (!selected) return "none";
+    const match = backend.models().find((model) => model.name === selected);
+    return match?.installed ? selected : "none";
+  });
+
   const items = createMemo<SettingItem[]>(() => {
     const cfg = config.config();
 
@@ -187,7 +194,7 @@ export function Settings(): JSX.Element {
         title: "Selected Model",
         description: "Press enter to open model manager",
         keywords: ["model", "whisper"],
-        value: () => withFallback(cfg?.model.name),
+        value: () => selectedInstalledModelName(),
       },
       {
         id: "model.backend",
@@ -497,19 +504,23 @@ export function Settings(): JSX.Element {
     setCaptureError("");
   }
 
+  function openSettingDialog(id: string) {
+    if (isModelManagerSetting(id)) {
+      dialog.openDialog("model-manager", { returnToSettings: true });
+      return true;
+    }
+    if (isSelectorSetting(id)) {
+      dialog.openDialog("settings-select", { settingId: id, returnToSettings: true });
+      return true;
+    }
+    return false;
+  }
+
   function activateSelected() {
     const item = selectedItem();
     if (!item) return;
 
-    if (isModelManagerSetting(item.id)) {
-      dialog.openDialog("model-manager", { returnToSettings: true });
-      return;
-    }
-
-    if (isSelectorSetting(item.id)) {
-      dialog.openDialog("settings-select", { settingId: item.id, returnToSettings: true });
-      return;
-    }
+    if (openSettingDialog(item.id)) return;
 
     if (isThemeSetting(item.id)) {
       dialog.openDialog("theme-picker", { returnToSettings: true });
@@ -673,18 +684,7 @@ export function Settings(): JSX.Element {
                             const idx = flatItems().findIndex((entry) => entry.id === item.id);
                             if (idx >= 0) setSelectedIndex(idx);
 
-                            if (isModelManagerSetting(item.id)) {
-                              dialog.openDialog("model-manager", { returnToSettings: true });
-                              return;
-                            }
-
-                            if (isSelectorSetting(item.id)) {
-                              dialog.openDialog("settings-select", {
-                                settingId: item.id,
-                                returnToSettings: true,
-                              });
-                              return;
-                            }
+                            if (openSettingDialog(item.id)) return;
 
                             if (item.kind === "toggle") item.toggle();
                             if (item.kind === "hotkey") beginHotkeyCapture();

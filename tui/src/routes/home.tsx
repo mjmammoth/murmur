@@ -1,5 +1,5 @@
 import { createEffect, createSignal, Show, type JSX } from "solid-js";
-import { useKeyHandler, useRenderer } from "@opentui/solid";
+import { useKeyHandler, usePaste, useRenderer } from "@opentui/solid";
 import { BorderChars, RGBA, type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
@@ -17,6 +17,7 @@ import { LOG_LEVELS, LogPanel } from "../component/log-panel";
 import { HotkeyModal } from "../component/hotkey-modal";
 import { SettingsSelectModal } from "../component/settings-select-modal";
 import { ThemePickerModal } from "../component/theme-picker-modal";
+import { exitApp } from "../util/exit";
 
 interface ModelManagerDialogData {
   firstRunSetup?: boolean;
@@ -58,35 +59,10 @@ export function Home(): JSX.Element {
     backend.send({ type: "set_hotkey_blocked", enabled: dialog.isOpen() });
   });
 
-  function exitApp() {
-    try {
-      renderer.destroy();
-    } catch {
-      // Ignore renderer teardown errors during exit
-    }
-
-    try {
-      if (process.stdin.isTTY && "setRawMode" in process.stdin) {
-        (process.stdin as NodeJS.ReadStream).setRawMode(false);
-      }
-    } catch {
-      // Ignore raw mode reset errors during exit
-    }
-
-    try {
-      // Disable common mouse tracking modes and restore cursor/style.
-      process.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?25h\x1b[0m");
-    } catch {
-      // Ignore terminal restore write errors during exit
-    }
-
-    process.exit(0);
-  }
-
   useKeyHandler((key: KeyEvent) => {
     if (key.ctrl && key.name === "c") {
       key.preventDefault();
-      exitApp();
+      exitApp(renderer);
       return;
     }
 
@@ -139,7 +115,7 @@ export function Home(): JSX.Element {
 
     switch (keyName) {
       case "q":
-        exitApp();
+        exitApp(renderer);
         break;
       case "c":
         handleCopyLatest();
@@ -181,6 +157,15 @@ export function Home(): JSX.Element {
         transcriber.selectNext();
         break;
     }
+  });
+
+  usePaste((event) => {
+    if (dialog.isOpen()) return;
+    const pasted = event.text.trim();
+    if (!pasted) return;
+    event.preventDefault();
+    backend.send({ type: "transcribe_paste", text: event.text });
+    toast.showToast("Paste received. Queueing transcription...");
   });
 
   function handleCopyLatest() {
