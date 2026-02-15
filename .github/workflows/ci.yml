@@ -70,10 +70,10 @@ jobs:
 
       - name: Simulate Homebrew formula install
         run: |
-          python -m venv --system-site-packages venv
+          python3.12 -m venv --system-site-packages --without-pip venv
           WHEEL="$(ls dist/*.whl | head -n 1)"
-          # This mirrors the formula: pip install with deps resolved from PyPI
-          venv/bin/pip install --no-cache-dir "${WHEEL}"
+          # Mirrors formula: system python pip with --python targeting venv
+          python3.12 -m pip --python=venv/bin/python install --no-cache-dir "${WHEEL}"
 
       - name: Verify CLI works (catches missing deps)
         run: |
