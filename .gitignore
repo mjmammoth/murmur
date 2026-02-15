@@ -23,3 +23,7 @@ logs/
 
 node_modules/
 .build-tmp.js
+
+# Tree-sitter build artifacts
+*.scm
+*.wasm
