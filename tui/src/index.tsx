@@ -1,5 +1,6 @@
 import { render } from "@opentui/solid";
 import { App } from "./app";
+import { handleSigint } from "./util/interrupt";
 
 let terminalRestored = false;
 
@@ -25,6 +26,9 @@ function restoreTerminalState() {
 
 process.on("exit", restoreTerminalState);
 process.on("SIGINT", () => {
+  if (handleSigint()) {
+    return;
+  }
   restoreTerminalState();
   process.exit(0);
 });

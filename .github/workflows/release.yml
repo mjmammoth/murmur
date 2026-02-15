@@ -1,0 +1,227 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build_python_dist:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build
+
+      - name: Check version sync
+        run: python scripts/check_version_sync.py
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Upload Python dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/*
+
+  build_tui_arm64:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - name: Install TUI dependencies
+        run: bun install --frozen-lockfile
+        working-directory: tui
+
+      - name: Build arm64 TUI artifact
+        run: bun run build:release
+        working-directory: tui
+
+      - name: Upload TUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-dist
+          path: dist/tui/*
+
+  checksum_assets:
+    needs: [build_python_dist, build_tui_arm64]
+    runs-on: macos-14
+    steps:
+      - name: Download Python dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: release-assets/python-dist
+
+      - name: Download TUI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tui-dist
+          path: release-assets/tui-dist
+
+      - name: Generate checksums
+        run: |
+          cd release-assets
+          FILES="$(find python-dist tui-dist -type f | sort)"
+          if [ -z "${FILES}" ]; then
+            echo "No release assets found"
+            exit 1
+          fi
+          : > checksums.txt
+          while IFS= read -r file; do
+            shasum -a 256 "${file}" >> checksums.txt
+          done <<< "${FILES}"
+
+      - name: Upload checksums artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: release-assets/checksums.txt
+
+  publish_release:
+    needs: [checksum_assets]
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - name: Download Python dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: release-assets/python-dist
+
+      - name: Download TUI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tui-dist
+          path: release-assets/tui-dist
+
+      - name: Download checksums artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: checksums
+          path: release-assets
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/python-dist/*
+            release-assets/tui-dist/whisper-local-tui-darwin-arm64.tar.gz
+            release-assets/tui-dist/manifest.json
+            release-assets/checksums.txt
+
+  update_tap_formula:
+    needs: [publish_release]
+    runs-on: macos-14
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout app repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download Python dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: release-assets/python-dist
+
+      - name: Download TUI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tui-dist
+          path: release-assets/tui-dist
+
+      - name: Download checksums artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: checksums
+          path: release-assets
+
+      - name: Resolve tap repository
+        id: tap_repo
+        env:
+          HOMEBREW_TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO }}
+        run: |
+          if [ -n "${HOMEBREW_TAP_REPO}" ]; then
+            echo "repository=${HOMEBREW_TAP_REPO}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "repository=${GITHUB_REPOSITORY_OWNER}/homebrew-tap" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Checkout homebrew tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.tap_repo.outputs.repository }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Render formula from release assets
+        env:
+          VERSION: ${{ github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          VERSION="${VERSION#v}"
+          WHEEL_FILE="$(basename "$(ls release-assets/python-dist/*.whl | head -n 1)")"
+          TUI_FILE="whisper-local-tui-darwin-arm64.tar.gz"
+
+          if [ -z "${WHEEL_FILE}" ] || [ ! -f "release-assets/python-dist/${WHEEL_FILE}" ]; then
+            echo "Missing wheel artifact"
+            exit 1
+          fi
+          if [ ! -f "release-assets/tui-dist/${TUI_FILE}" ]; then
+            echo "Missing TUI artifact ${TUI_FILE}"
+            exit 1
+          fi
+
+          WHEEL_SHA="$(awk -v f="python-dist/${WHEEL_FILE}" '$2==f {print $1}' release-assets/checksums.txt)"
+          TUI_SHA="$(awk -v f="tui-dist/${TUI_FILE}" '$2==f {print $1}' release-assets/checksums.txt)"
+
+          if [ -z "${WHEEL_SHA}" ] || [ -z "${TUI_SHA}" ]; then
+            echo "Missing checksum entry for release assets"
+            exit 1
+          fi
+
+          BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ github.ref_name }}"
+          python scripts/update_tap_formula.py \
+            --version "${VERSION}" \
+            --wheel-url "${BASE_URL}/${WHEEL_FILE}" \
+            --wheel-sha256 "${WHEEL_SHA}" \
+            --tui-url "${BASE_URL}/${TUI_FILE}" \
+            --tui-sha256 "${TUI_SHA}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --tap-repo-path homebrew-tap
+
+      - name: Commit and push formula update
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}"
+          git -C homebrew-tap config user.name "github-actions[bot]"
+          git -C homebrew-tap config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C homebrew-tap add Formula/whisper-local.rb
+          if git -C homebrew-tap diff --cached --quiet; then
+            echo "No formula changes to commit."
+            exit 0
+          fi
+          git -C homebrew-tap commit -m "whisper-local ${VERSION}"
+          git -C homebrew-tap push

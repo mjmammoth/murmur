@@ -34,6 +34,7 @@ from whisper_local.model_manager import (
     download_model,
     get_installed_model_path,
     list_installed_models,
+    prune_invalid_model_caches,
     remove_model,
 )
 from whisper_local.noise import RNNoiseSuppressor
@@ -99,6 +100,14 @@ class BridgeServer:
     """WebSocket server bridging the TypeScript TUI to Python backend."""
 
     def __init__(self, config: AppConfig) -> None:
+        """
+        Initialize the BridgeServer internal state from the provided configuration.
+        
+        Sets up runtime flags, client sets, synchronization primitives, task registries, and placeholders for audio/transcription components; runtime capability detection is performed and a shutdown event is created.
+        
+        Parameters:
+            config (AppConfig): Application configuration used to initialize server settings (e.g., auto_copy/auto_paste and model selection).
+        """
         self.config = config
         self.clients: set[WebSocketServerProtocol] = set()
         self._passive_clients: set[WebSocketServerProtocol] = set()
@@ -124,6 +133,7 @@ class BridgeServer:
 
         self._background_tasks: set[asyncio.Task] = set()
         self._model_tasks: dict[str, asyncio.Task] = {}
+        self._download_cancel_events: dict[str, threading.Event] = {}
 
         # Audio/transcription components (initialized lazily)
         self.recorder: AudioRecorder | None = None
@@ -148,17 +158,43 @@ class BridgeServer:
                 logger.error("Background task failed: %s", exc)
 
     def _spawn_model_task(self, name: str, coro) -> asyncio.Task:
-        """Spawn a model operation task, cancelling any existing task for that model."""
+        """
+        Start and track a background task for a named model operation.
+        
+        If a previous task with the same name is running, cancel it and replace it with a new task. The mapping for the name is removed when the task completes.
+        
+        Parameters:
+            coro: The coroutine to schedule as the model task.
+        
+        Returns:
+            asyncio.Task: The created task running the provided coroutine.
+        """
         existing = self._model_tasks.get(name)
         if existing is not None and not existing.done():
             existing.cancel()
         task = self._spawn_task(coro)
         self._model_tasks[name] = task
-        task.add_done_callback(lambda _t, _name=name: self._model_tasks.pop(_name, None))
+
+        def _cleanup(_t: asyncio.Task) -> None:
+            """
+            Remove the tracked model task entry when the completed task matches the recorded task for that model.
+            
+            Parameters:
+                _t (asyncio.Task): The completed task; if it is the same object as the currently stored task for the associated model name, the task entry is removed.
+            """
+            if self._model_tasks.get(name) is _t:
+                self._model_tasks.pop(name, None)
+
+        task.add_done_callback(_cleanup)
         return task
 
     def _client_path(self, websocket: WebSocketServerProtocol) -> str:
-        """Return connection path across websockets API versions."""
+        """
+        Resolve the connection path for a client WebSocket across different websockets library versions.
+        
+        Returns:
+            str: The connection path string, or an empty string if it cannot be determined.
+        """
         # websockets <=13 exposes `.path` directly.
         legacy_path = getattr(websocket, "path", None)
         if isinstance(legacy_path, str):
@@ -201,7 +237,16 @@ class BridgeServer:
         port: int = 7878,
         capture_logs: bool = False,
     ) -> None:
-        """Start the WebSocket server."""
+        """
+        Start the bridge WebSocket server, initialize runtime components, and begin model loading.
+        
+        Binds to the given host and port, initializes audio/transcription components and runtime state, prunes model caches, determines whether first-run setup is required, and either sets the first-run status or triggers asynchronous model loading. Runs until the server is shut down.
+        
+        Parameters:
+            host (str): Hostname or IP address to bind the WebSocket server to.
+            port (int): TCP port to listen on for incoming WebSocket connections.
+            capture_logs (bool): If true, install a WebSocket log handler to forward log records to connected clients.
+        """
         self._loop = asyncio.get_event_loop()
 
         ensure_whisper_cpp_installed()
@@ -210,6 +255,10 @@ class BridgeServer:
             self._install_log_handler()
 
         self._init_components()
+        try:
+            prune_invalid_model_caches()
+        except Exception:
+            logger.warning("Failed to prune invalid model cache entries", exc_info=True)
         self._first_run_setup_required = not self._has_installed_models()
 
         # Start the WebSocket server FIRST so the TUI can connect immediately,
@@ -621,7 +670,15 @@ class BridgeServer:
     async def _handle_message(
         self, websocket: WebSocketServerProtocol, message: str
     ) -> None:
-        """Handle incoming client message."""
+        """
+        Dispatch a JSON-encoded control message from a client to the appropriate bridge handler.
+        
+        Parses the provided message and routes it by the top-level "type" field to perform actions such as recording control, model management (download, cancel, remove, select), backend/device/compute configuration, audio/VAD/noise toggles, hotkey and theme updates, clipboard/file output changes, requests for model/config data, and initiating transcription from pasted text or files. Direct replies are sent to the given websocket when required; other responses are broadcast to connected clients. Invalid JSON or unknown message types are ignored.
+        
+        Parameters:
+            websocket (WebSocketServerProtocol): The client's WebSocket connection used for direct replies when applicable.
+            message (str): A JSON-encoded message string that must include a top-level "type" field and any type-specific payload.
+        """
         try:
             data = json.loads(message)
             msg_type = data.get("type")
@@ -704,6 +761,8 @@ class BridgeServer:
                 await self._set_model_language(data.get("language"))
             elif msg_type == "download_model":
                 self._spawn_model_task(data.get("name", ""), self._download_model(data.get("name", "")))
+            elif msg_type == "cancel_model_download":
+                await self._cancel_model_download(data.get("name", ""))
             elif msg_type == "remove_model":
                 self._spawn_model_task(data.get("name", ""), self._remove_model(data.get("name", "")))
             elif msg_type == "set_selected_model":
@@ -991,7 +1050,15 @@ class BridgeServer:
         await self._broadcast_config()
 
     async def _toggle_vad(self, enabled: bool) -> None:
-        """Toggle VAD."""
+        """
+        Enable or disable voice activity detection (VAD) and persist the change.
+        
+        Parameters:
+            enabled (bool): `True` to enable VAD, `False` to disable it.
+        
+        Notes:
+            This updates the in-memory VAD processor, saves the configuration, and notifies connected clients with a toast and an updated config broadcast.
+        """
         self.config.vad.enabled = enabled
         self.vad = VadProcessor(
             enabled=enabled, aggressiveness=self.config.vad.aggressiveness
@@ -1002,10 +1069,19 @@ class BridgeServer:
         await self._broadcast_config()
 
     async def _download_model(self, name: str) -> None:
-        """Download a model with progress reporting."""
+        """
+        Download and activate a model while broadcasting progress and status updates to connected clients.
+        
+        This method pulls the specified model, broadcasts incremental download progress (0–100) and toast messages for start, completion, cancellation, or failure, and on success sets the downloaded model as the selected model and refreshes the model list. The download is cooperatively cancellable via the server's per-model cancel event and respects the server shutdown signal.
+        
+        Parameters:
+            name (str): Name of the model to download.
+        """
         if not name:
             return
         async with self._model_op_lock:
+            cancel_event = threading.Event()
+            self._download_cancel_events[name] = cancel_event
             await self._broadcast({"type": "toast", "message": f"Downloading {name}..."})
             loop = asyncio.get_event_loop()
             last_percent = -1
@@ -1031,14 +1107,20 @@ class BridgeServer:
                     lambda: download_model(
                         name,
                         progress_callback=on_progress,
-                        cancel_check=self._shutdown_requested.is_set,
+                        cancel_check=lambda: self._shutdown_requested.is_set() or cancel_event.is_set(),
                     ),
                 )
                 # Send 100% to ensure TUI sees completion
                 await self._broadcast(
                     {"type": "download_progress", "model": name, "percent": 100}
                 )
-                await self._broadcast({"type": "toast", "message": f"Downloaded {name}"})
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Downloaded {name}",
+                        "action": "download_complete",
+                    }
+                )
                 # After a successful pull, make the downloaded model active.
                 await self._set_selected_model(name)
                 await self._broadcast_models()
@@ -1048,17 +1130,83 @@ class BridgeServer:
                         {
                             "type": "toast",
                             "message": f"Download cancelled: {name}",
-                            "level": "error",
+                            "action": "download_cancelled",
                         }
                     )
+                    await self._broadcast_models()
+            except asyncio.CancelledError:
+                cancel_event.set()
+                raise
             except Exception as exc:
                 if not self._shutdown_requested.is_set():
                     await self._broadcast(
-                        {"type": "toast", "message": f"Download failed: {exc}", "level": "error"}
+                        {
+                            "type": "toast",
+                            "message": f"Download failed: {exc}",
+                            "level": "error",
+                            "action": "download_failed",
+                        }
                     )
+                    await self._broadcast_models()
+            finally:
+                if self._download_cancel_events.get(name) is cancel_event:
+                    self._download_cancel_events.pop(name, None)
+
+    async def _cancel_model_download(self, name: str) -> None:
+        """
+        Request cancellation of an in-progress model download.
+        
+        If `name` is empty and exactly one download is active, that download will be cancelled.
+        If no active download matches `name`, an error toast with message
+        "No active download matches request" is broadcast to clients.
+        If a cancellation is already in progress for the named model, this is a no-op.
+        Otherwise the method signals cancellation for the model and broadcasts a toast indicating the cancellation.
+        
+        Parameters:
+            name (str): The model name to cancel; may be an empty string to infer a single active download.
+        """
+        model_name = str(name or "").strip()
+        no_active_download_message = "No active download matches request"
+        if not model_name:
+            active = [model for model, event in self._download_cancel_events.items() if not event.is_set()]
+            if len(active) == 1:
+                model_name = active[0]
+            else:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": no_active_download_message,
+                        "level": "error",
+                    }
+                )
+                return
+
+        cancel_event = self._download_cancel_events.get(model_name)
+        if cancel_event is None:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": no_active_download_message,
+                    "level": "error",
+                }
+            )
+            return
+
+        if cancel_event.is_set():
+            return
+
+        cancel_event.set()
+        await self._broadcast({"type": "toast", "message": f"Cancelling download {model_name}..."})
 
     async def _remove_model(self, name: str) -> None:
-        """Remove a model."""
+        """
+        Remove the installed model identified by `name` and notify connected clients of the outcome.
+        
+        If removal succeeds, broadcasts a success toast, refreshes the installed model list, enters first-run setup and notifies clients if no models remain, or selects a fallback model if the removed model was the current selection. On failure, broadcasts an error toast describing the failure.
+        
+        Parameters:
+            name (str): The name of the model to remove. If empty, no action is taken.
+        """
         if not name:
             return
         async with self._model_op_lock:
@@ -1066,7 +1214,13 @@ class BridgeServer:
                 await asyncio.get_event_loop().run_in_executor(
                     None, lambda: remove_model(name)
                 )
-                await self._broadcast({"type": "toast", "message": f"Removed {name}"})
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Removed {name}",
+                        "action": "remove_complete",
+                    }
+                )
                 installed_model_names = self._installed_model_names()
 
                 if not installed_model_names:
@@ -1084,7 +1238,12 @@ class BridgeServer:
                 await self._broadcast_models()
             except Exception as exc:
                 await self._broadcast(
-                    {"type": "toast", "message": f"Remove failed: {exc}", "level": "error"}
+                    {
+                        "type": "toast",
+                        "message": f"Remove failed: {exc}",
+                        "level": "error",
+                        "action": "remove_failed",
+                    }
                 )
 
     async def _enter_first_run_setup(self) -> None:
@@ -1956,6 +2115,14 @@ class BridgeServer:
         await self._broadcast({"type": "config", "config": self._config_payload()})
 
     def _config_payload(self) -> dict[str, Any]:
+        """
+        Build the configuration payload used to synchronize state with connected clients.
+        
+        Refreshes cached runtime capability information and returns a dictionary containing the serialized application config extended with bridge connection info and runtime/UI flags such as `auto_copy`, `auto_paste`, `first_run_setup_required`, and `runtime` capabilities.
+        
+        Returns:
+            dict[str, Any]: Serialized configuration payload for clients.
+        """
         self._refresh_runtime_capabilities()
         config_dict = self.config.to_dict()
         config_dict["bridge"] = {"host": "localhost", "port": 7878}
@@ -1966,8 +2133,14 @@ class BridgeServer:
         return config_dict
 
     def shutdown(self) -> None:
-        """Clean up resources."""
+        """
+        Initiates server shutdown and releases runtime resources.
+        
+        Signals shutdown, cancels any in-progress model downloads, stops the audio recorder if active, stops the global hotkey listener if running, and closes the noise suppression component.
+        """
         self._shutdown_requested.set()
+        for cancel_event in list(self._download_cancel_events.values()):
+            cancel_event.set()
         if self.recorder and self._recording:
             try:
                 self.recorder.stop()
@@ -1987,7 +2160,17 @@ def run_bridge(
     port: int = 7878,
     capture_logs: bool = False,
 ) -> None:
-    """Run the bridge server."""
+    """
+    Start and run the WebSocket bridge server and its event loop until shutdown.
+    
+    Creates a BridgeServer using the provided AppConfig (or the loaded default) and runs it listening on the given host and port. The function runs the server loop until interrupted (e.g., Ctrl+C) and ensures the server is shut down and cleaned up on exit.
+    
+    Parameters:
+        config (AppConfig | None): Optional application configuration. If omitted, the configuration is loaded from the default location.
+        host (str): Hostname or IP address to bind the server to.
+        port (int): TCP port to listen on.
+        capture_logs (bool): If true, install the WebSocket log forwarder so server logs are sent to connected clients.
+    """
     app_config = config or load_config()
     server = BridgeServer(app_config)
     try:

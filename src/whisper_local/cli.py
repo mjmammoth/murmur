@@ -5,7 +5,6 @@ import asyncio
 import logging
 import os
 import signal
-import shutil
 import subprocess
 import sys
 import threading
@@ -13,13 +12,7 @@ import time
 from pathlib import Path
 
 from whisper_local.config import load_config
-from whisper_local.model_manager import (
-    download_model,
-    list_installed_models,
-    remove_model,
-    set_selected_model,
-)
-from whisper_local.transcribe import ensure_whisper_cpp_installed
+from whisper_local.tui_runtime import resolve_tui_runtime
 
 
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +20,19 @@ logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """
+    Builds the top-level command-line argument parser for the application.
+    
+    The parser includes these subcommands:
+    - run: start the combined bridge and TypeScript TUI (with options for host, port, legacy Textual TUI, and disabling the macOS status indicator).
+    - bridge: start only the WebSocket bridge (host and port options).
+    - tui: start only the TypeScript TUI (host and port options).
+    - models: manage models with subcommands `list`, `pull <name>`, `remove <name>`, and `select|set-default <name>`.
+    - config: show configuration (optional --path).
+    
+    Returns:
+        argparse.ArgumentParser: A configured parser ready to parse the application's CLI.
+    """
     parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
     subparsers = parser.add_subparsers(dest="command")
 
@@ -71,28 +77,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _get_tui_path() -> Path:
-    """Get path to the tui directory."""
-    # First check relative to the package
-    pkg_dir = Path(__file__).parent.parent.parent.parent
-    tui_path = pkg_dir / "tui"
-    if tui_path.exists():
-        return tui_path
-    # Fallback to cwd
-    cwd_tui = Path.cwd() / "tui"
-    if cwd_tui.exists():
-        return cwd_tui
-    raise FileNotFoundError("Cannot find tui directory. Make sure you're in the project root.")
-
-
-def _check_bun() -> bool:
-    """Check if bun is installed."""
-    return shutil.which("bun") is not None
-
-
 def _ensure_runtime_dependencies() -> None:
-    """Fail fast with actionable message when required runtime deps are missing."""
+    """
+    Ensure required runtime dependencies for local speech transcription are installed.
+    
+    If verification fails, prints the error message and exits the process with status code 1.
+    """
     try:
+        from whisper_local.transcribe import ensure_whisper_cpp_installed
+
         ensure_whisper_cpp_installed()
     except Exception as exc:
         print(f"Error: {exc}")
@@ -108,15 +101,28 @@ def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
 
 
 def _run_tui(host: str, port: int) -> subprocess.Popen:
-    """Start the TypeScript TUI."""
-    tui_path = _get_tui_path()
-    # Run from tui directory so bunfig.toml is picked up for the OpenTUI plugin
-    cmd = ["bun", "src/index.tsx", "--host", host, "--port", str(port)]
-    return subprocess.Popen(cmd, cwd=str(tui_path))
+    """
+    Start the external TUI process using the resolved TUI runtime and bind it to the given host and port.
+    
+    Returns:
+        subprocess.Popen: The subprocess running the TUI.
+    """
+    runtime = resolve_tui_runtime(cli_file=__file__)
+    logger.info("Starting TUI runtime mode=%s", runtime.mode)
+    cmd = [*runtime.command, "--host", host, "--port", str(port)]
+    return subprocess.Popen(cmd, cwd=str(runtime.cwd) if runtime.cwd else None)
 
 
 def _start_status_indicator(host: str, port: int) -> subprocess.Popen | None:
-    """Start the macOS menu bar status indicator sidecar."""
+    """
+    Start the macOS menu bar status indicator sidecar.
+    
+    Attempts to launch the status indicator as a subprocess and returns the process handle. If the current platform is not macOS or the process fails to start, returns `None`.
+     
+    Returns:
+        subprocess.Popen: The started status indicator process.
+        `None` if the indicator was not started (for example, not running on macOS or process launch failed).
+    """
     if sys.platform != "darwin":
         return None
 
@@ -158,11 +164,15 @@ def _restore_terminal_state() -> None:
 
 
 def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
-    """Run both bridge and TUI together."""
+    """
+    Run the bridge server and the terminal user interface (TUI) together and coordinate their startup and shutdown.
+    
+    Parameters:
+        host: Network interface or hostname used by both the bridge server and the TUI.
+        port: TCP port used by both the bridge server and the TUI.
+        status_indicator: If True, attempt to start the platform status indicator (macOS only); may be ignored on other platforms.
+    """
     _ensure_runtime_dependencies()
-    if not _check_bun():
-        print("Error: bun is not installed. Install it with: curl -fsSL https://bun.sh/install | bash")
-        sys.exit(1)
 
     # Validate config early, before we suppress stderr
     try:
@@ -228,7 +238,6 @@ def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
     except FileNotFoundError as e:
         sys.stderr = real_stderr
         print(f"Error: {e}", file=real_stderr)
-        print("Make sure you're running from the project root directory.", file=real_stderr)
         sys.exit(1)
     finally:
         if interrupted:
@@ -272,6 +281,18 @@ def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
 
 
 def main() -> None:
+    """
+    Parse CLI arguments and dispatch the selected subcommand to run the application's components.
+    
+    Recognizes these subcommands:
+    - run (default): start the legacy Textual TUI or the new TypeScript TUI (supports host, port, legacy flag, and status-indicator toggle).
+    - bridge: start the bridge server on a given host and port.
+    - tui: start the TUI subprocess and wait for it; restores terminal state on exit.
+    - models: manage models with subcommands `list`, `pull <name>`, `remove <name>`, and `select|set-default <name>`.
+    - config: load and print configuration sections and values from an optional path.
+    
+    Performs terminal restoration where applicable and prints or exits on fatal runtime errors.
+    """
     parser = build_parser()
     args = parser.parse_args()
 
@@ -295,9 +316,6 @@ def main() -> None:
         return
 
     if args.command == "tui":
-        if not _check_bun():
-            print("Error: bun is not installed. Install it with: curl -fsSL https://bun.sh/install | bash")
-            sys.exit(1)
         try:
             tui_process = _run_tui(args.host, args.port)
             tui_process.wait()
@@ -311,6 +329,13 @@ def main() -> None:
         return
 
     if args.command == "models":
+        from whisper_local.model_manager import (
+            download_model,
+            list_installed_models,
+            remove_model,
+            set_selected_model,
+        )
+
         if args.models_command == "list":
             for model in list_installed_models():
                 state = "installed" if model.installed else "available"

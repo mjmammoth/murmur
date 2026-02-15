@@ -42,6 +42,7 @@ export interface BackendContextValue {
   downloadProgress: Accessor<DownloadProgress | null>;
   activeModelOp: Accessor<ActiveModelOp | null>;
   downloadModel: (name: string) => void;
+  cancelModelDownload: (name: string) => void;
   removeModel: (name: string) => void;
   send: (message: ClientMessage) => void;
   requestConfigFile: () => void;
@@ -56,6 +57,14 @@ export { useBackend };
 
 const RECONNECT_DELAY = 2000;
 
+/**
+ * Provide a backend WebSocket context and manage connection, server-derived state, and related actions for child components.
+ *
+ * @param props.host - Optional backend host (default: "localhost")
+ * @param props.port - Optional backend port (default: 7878)
+ * @param props.children - The component subtree that consumes the backend context
+ * @returns A JSX element that supplies the BackendContext to `props.children`
+ */
 export function BackendContextProvider(props: {
   host?: string;
   port?: number;
@@ -151,6 +160,13 @@ export function BackendContextProvider(props: {
     }, RECONNECT_DELAY);
   }
 
+  /**
+   * Process an incoming ServerMessage, update backend signals, and notify registered handlers.
+   *
+   * This updates connection and application state (status, config, models, download progress, active model operations, suppress-paste timers, and logs) and invokes transcript, hotkey, and toast handlers as appropriate based on the message type.
+   *
+   * @param message - The server message to handle
+   */
   function handleMessage(message: ServerMessage) {
     switch (message.type) {
       case "status":
@@ -165,11 +181,25 @@ export function BackendContextProvider(props: {
         }
         break;
 
-      case "models":
+      case "models": {
         setModels(message.models);
-        setActiveModelOp(null);
-        setDownloadProgress(null);
+
+        const modelOp = activeModelOp();
+        if (modelOp?.type === "pulling") {
+          const pulled = message.models.find((model) => model.name === modelOp.model);
+          if (pulled?.installed) {
+            setActiveModelOp(null);
+            setDownloadProgress(null);
+          }
+        } else if (modelOp?.type === "removing") {
+          const removed = message.models.find((model) => model.name === modelOp.model);
+          if (!removed || !removed.installed) {
+            setActiveModelOp(null);
+            setDownloadProgress(null);
+          }
+        }
         break;
+      }
 
       case "config":
         setConfig(message.config);
@@ -208,14 +238,37 @@ export function BackendContextProvider(props: {
         }
         break;
 
-      case "toast":
+      case "toast": {
+        const modelOp = activeModelOp();
+        if (
+          modelOp?.type === "pulling" &&
+          (message.action === "download_cancelled" ||
+            message.action === "download_failed" ||
+            message.action === "download_complete")
+        ) {
+          setActiveModelOp(null);
+          setDownloadProgress(null);
+        }
+        if (
+          modelOp?.type === "removing" &&
+          (message.action === "remove_complete" || message.action === "remove_failed")
+        ) {
+          setActiveModelOp(null);
+          setDownloadProgress(null);
+        }
         for (const handler of toastHandlers) {
           handler(message.message, message.level ?? "info");
         }
         break;
+      }
 
       case "download_progress":
         setDownloadProgress({ model: message.model, percent: message.percent });
+        setActiveModelOp((prev) => {
+          if (prev?.type === "removing") return prev;
+          if (prev?.type === "pulling" && prev.model === message.model) return prev;
+          return { type: "pulling", model: message.model };
+        });
         break;
 
       case "suppress_paste_input": {
@@ -357,12 +410,33 @@ export function BackendContextProvider(props: {
     send({ type: "download_model", name });
   }
 
+  /**
+   * Initiates removal of a model on the backend.
+   *
+   * Marks the model as being removed, clears any active download progress for it, and sends a `remove_model` request to the server.
+   *
+   * @param name - The name of the model to remove
+   */
   function removeModel(name: string) {
     setActiveModelOp({ type: "removing", model: name });
     setDownloadProgress(null);
     send({ type: "remove_model", name });
   }
 
+  /**
+   * Requests cancellation of an in-progress model download.
+   *
+   * @param name - The name of the model whose download should be canceled
+   */
+  function cancelModelDownload(name: string) {
+    send({ type: "cancel_model_download", name });
+  }
+
+  /**
+   * Request the backend to send the current configuration file.
+   *
+   * Sends a `get_config_file` request to the server so the client will receive the configuration file content and path.
+   */
   function requestConfigFile() {
     send({ type: "get_config_file" });
   }
@@ -411,6 +485,7 @@ export function BackendContextProvider(props: {
     downloadProgress,
     activeModelOp,
     downloadModel,
+    cancelModelDownload,
     removeModel,
     send,
     requestConfigFile,

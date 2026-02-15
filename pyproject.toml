@@ -24,6 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 rnnoise = ["pyrnnoise>=0.4.3"]
 vad = ["webrtcvad>=2.0.10"]
+typing = ["mypy>=1.0", "types-requests"]
 
 [project.scripts]
 whisper-local = "whisper_local.cli:main"

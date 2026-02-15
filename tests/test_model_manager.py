@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import threading
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -23,6 +23,21 @@ from whisper_local.model_manager import (
     set_default_model,
     set_selected_model,
 )
+
+
+def _write_complete_snapshot(snapshot_path: Path, vocabulary_file: str = "vocabulary.json") -> None:
+    """
+    Create a minimal, complete model snapshot directory containing the files required by tests.
+    
+    Parameters:
+        snapshot_path (Path): Directory to create for the snapshot; will be created if it does not exist.
+        vocabulary_file (str): Filename to use for the vocabulary file (created with minimal placeholder content).
+    """
+    snapshot_path.mkdir(parents=True, exist_ok=True)
+    (snapshot_path / "model.bin").write_bytes(b"00")
+    (snapshot_path / "config.json").write_text("{}", encoding="utf-8")
+    (snapshot_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+    (snapshot_path / vocabulary_file).write_text("{}", encoding="utf-8")
 
 
 def test_model_names_constant():
@@ -111,7 +126,7 @@ def test_is_model_installed_cached(tmp_path: Path, monkeypatch):
     """Test is_model_installed returns True when model exists in cache."""
     monkeypatch.setenv("HF_HOME", str(tmp_path))
     cache_path = tmp_path / "hub" / "models--Systran--faster-whisper-tiny" / "snapshots" / "abc123"
-    cache_path.mkdir(parents=True)
+    _write_complete_snapshot(cache_path)
 
     assert is_model_installed("tiny")
 
@@ -127,7 +142,7 @@ def test_get_installed_model_path_installed(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("HF_HOME", str(tmp_path))
     snapshot_dir = tmp_path / "hub" / "models--Systran--faster-whisper-tiny" / "snapshots"
     snapshot1 = snapshot_dir / "abc123"
-    snapshot1.mkdir(parents=True)
+    _write_complete_snapshot(snapshot1)
 
     result = get_installed_model_path("tiny")
     assert result == snapshot1
@@ -140,15 +155,13 @@ def test_get_installed_model_path_multiple_snapshots(tmp_path: Path, monkeypatch
 
     # Create multiple snapshots with different timestamps
     snapshot1 = snapshot_dir / "old"
-    snapshot1.mkdir(parents=True)
-    (snapshot1 / "file.txt").write_text("old")
+    _write_complete_snapshot(snapshot1)
 
     import time
     time.sleep(0.01)
 
     snapshot2 = snapshot_dir / "new"
-    snapshot2.mkdir(parents=True)
-    (snapshot2 / "file.txt").write_text("new")
+    _write_complete_snapshot(snapshot2)
 
     result = get_installed_model_path("tiny")
     # Should return the newer snapshot
@@ -203,7 +216,7 @@ def test_list_installed_models_some_installed(tmp_path: Path, monkeypatch):
 
     # Install "tiny" model
     tiny_snapshot = tmp_path / "hub" / "models--Systran--faster-whisper-tiny" / "snapshots" / "abc"
-    tiny_snapshot.mkdir(parents=True)
+    _write_complete_snapshot(tiny_snapshot)
 
     models = list_installed_models()
 
@@ -250,6 +263,75 @@ def test_remove_model_nonexistent(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("HF_HOME", str(tmp_path))
     # Should not raise
     remove_model("tiny")
+
+
+def test_get_installed_model_path_ignores_incomplete_snapshot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+
+    incomplete_snapshot = model_manager._model_cache_path("small") / "snapshots" / "incomplete"
+    incomplete_snapshot.mkdir(parents=True, exist_ok=True)
+    (incomplete_snapshot / "config.json").write_text("{}", encoding="utf-8")
+
+    assert model_manager.get_installed_model_path("small") is None
+
+
+def test_prune_invalid_model_cache_keeps_valid_snapshot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """
+    Ensure prune_invalid_model_cache removes incomplete snapshot directories while preserving valid ones.
+    
+    Creates a valid and an incomplete snapshot for the "small" model, arranges modification times so the incomplete snapshot appears newer, verifies the valid snapshot is initially recognized as installed, runs prune_invalid_model_cache("small"), and then asserts the valid snapshot still exists while the incomplete snapshot has been removed.
+    """
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+
+    snapshots_dir = model_manager._model_cache_path("small") / "snapshots"
+    valid_snapshot = snapshots_dir / "valid"
+    incomplete_snapshot = snapshots_dir / "incomplete"
+
+    _write_complete_snapshot(valid_snapshot)
+    incomplete_snapshot.mkdir(parents=True, exist_ok=True)
+    (incomplete_snapshot / "config.json").write_text("{}", encoding="utf-8")
+
+    os.utime(valid_snapshot, (100, 100))
+    os.utime(incomplete_snapshot, (200, 200))
+
+    assert model_manager.get_installed_model_path("small") == valid_snapshot
+
+    model_manager.prune_invalid_model_cache("small")
+
+    assert valid_snapshot.exists()
+    assert not incomplete_snapshot.exists()
+
+
+def test_get_installed_model_path_accepts_vocabulary_txt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+
+    valid_snapshot = model_manager._model_cache_path("base") / "snapshots" / "valid"
+    _write_complete_snapshot(valid_snapshot, vocabulary_file="vocabulary.txt")
+
+    assert model_manager.get_installed_model_path("base") == valid_snapshot
+
+
+def test_remove_model_removes_primary_and_alias_cache_paths(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+
+    for cache_path in model_manager._model_cache_paths("large-v3-turbo"):
+        snapshot_path = cache_path / "snapshots" / "partial"
+        snapshot_path.mkdir(parents=True, exist_ok=True)
+        (snapshot_path / "config.json").write_text("{}", encoding="utf-8")
+
+    model_manager.remove_model("large-v3-turbo")
+
+    assert all(
+        not cache_path.exists() for cache_path in model_manager._model_cache_paths("large-v3-turbo")
+    )
 
 
 @patch('whisper_local.model_manager.config_module')

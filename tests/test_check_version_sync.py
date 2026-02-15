@@ -96,9 +96,8 @@ def test_read_init_version_with_single_quotes(module, tmp_path: Path) -> None:
         encoding="utf-8"
     )
 
-    # The regex looks for double quotes, so this should fail
-    with pytest.raises(ValueError, match="Unable to find __version__"):
-        module.read_init_version(init_file)
+    version = module.read_init_version(init_file)
+    assert version == "3.4.5"
 
 
 def test_read_init_version_missing_version(module, tmp_path: Path) -> None:

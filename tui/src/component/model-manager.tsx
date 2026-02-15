@@ -17,6 +17,13 @@ import { ModelItem } from "./model-item";
 import { useSpinnerFrame } from "./spinner";
 import type { ModelManagerDialogData } from "../types";
 
+/**
+ * Render a compact key badge with an adjacent descriptive label for keyboard command hints.
+ *
+ * @param props.keys - The key or key sequence text displayed inside the colored badge (for example: "Esc", "Enter", "x/Enter").
+ * @param props.label - The descriptive label shown next to the badge (for example: "close", "select").
+ * @returns A JSX element containing a colored key badge and a muted label, arranged horizontally.
+ */
 function CommandHint(props: { keys: string; label: string }): JSX.Element {
   const { colors } = useTheme();
 
@@ -34,6 +41,14 @@ function CommandHint(props: { keys: string; label: string }): JSX.Element {
   );
 }
 
+/**
+ * Renders the Models management dialog that lets users browse, download (pull), select, and remove models.
+ *
+ * The UI shows available models, the currently selected model, active operations (download/remove), and status messages.
+ * It also handles keyboard shortcuts for navigation and actions when the dialog is active.
+ *
+ * @returns The JSX element for the Models management dialog
+ */
 export function ModelManager(): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();
@@ -91,10 +106,28 @@ export function ModelManager(): JSX.Element {
     return models[idx];
   };
 
+  const activePullingModelName = createMemo(() => {
+    const op = backend.activeModelOp();
+    if (!op || op.type !== "pulling") return null;
+    return op.model;
+  });
+
+  const selectedModelIsPulling = createMemo(() => {
+    const model = selectedModel();
+    const pullingModelName = activePullingModelName();
+    return Boolean(model && pullingModelName && model.name === pullingModelName);
+  });
+
   const primaryActionLabel = createMemo(() => {
     const model = selectedModel();
     if (!model) return "pull/select";
+    if (selectedModelIsPulling()) return "cancel pull";
     return model.installed ? "select" : "pull + select";
+  });
+
+  const primaryActionKeys = createMemo(() => {
+    if (selectedModelIsPulling()) return "x/enter";
+    return "enter";
   });
 
   const modalHeight = createMemo(() => {
@@ -137,6 +170,9 @@ export function ModelManager(): JSX.Element {
       case "p":
         handlePull();
         break;
+      case "x":
+        handleCancelDownload();
+        break;
       case "r":
       case "backspace":
         handleRemove();
@@ -144,9 +180,22 @@ export function ModelManager(): JSX.Element {
     }
   });
 
+  /**
+   * Perform the primary action for the currently highlighted model.
+   *
+   * If no model is selected, no action is taken. If the selected model is currently being downloaded,
+   * the download is cancelled. If a different model operation is active, no action is taken. If the
+   * selected model is installed, it is set as the active/selected model; otherwise a download for the
+   * model is started.
+   */
   function handlePrimaryAction() {
     const model = selectedModel();
-    if (!model || backend.activeModelOp()) return;
+    if (!model) return;
+    if (selectedModelIsPulling()) {
+      handleCancelDownload();
+      return;
+    }
+    if (backend.activeModelOp()) return;
     if (model.installed) {
       handleSelect();
       return;
@@ -154,6 +203,23 @@ export function ModelManager(): JSX.Element {
     handlePull();
   }
 
+  /**
+   * Cancels the currently active model download if one exists.
+   *
+   * If no model is being downloaded, this function has no effect.
+   */
+  function handleCancelDownload() {
+    const pullingModelName = activePullingModelName();
+    if (!pullingModelName) return;
+    backend.cancelModelDownload(pullingModelName);
+  }
+
+  /**
+   * Starts downloading the currently selected model if one exists and no model operation is active.
+   *
+   * Clears the visible status message and requests the backend to download the selected model.
+   * If there is no selected model or another model operation is in progress, this function does nothing.
+   */
   function handlePull() {
     const model = selectedModel();
     if (!model || backend.activeModelOp()) return;
@@ -270,7 +336,7 @@ export function ModelManager(): JSX.Element {
 
       <box paddingX={2} paddingTop={1} flexShrink={0}>
         <box flexDirection="row" gap={2} alignItems="center">
-          <CommandHint keys="enter" label={primaryActionLabel()} />
+          <CommandHint keys={primaryActionKeys()} label={primaryActionLabel()} />
           <CommandHint keys="p" label="pull" />
           <CommandHint keys="r/backspace" label="remove" />
         </box>

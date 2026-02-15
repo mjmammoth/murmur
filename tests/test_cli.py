@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -153,28 +153,32 @@ def test_build_parser_no_command_defaults_to_none():
     assert args.command is None
 
 
+@patch('whisper_local.cli._ensure_runtime_dependencies')
 @patch('whisper_local.cli.load_config')
-@patch('whisper_local.cli.run_bridge')
-def test_run_bridge_calls_bridge_with_config(mock_run_bridge, mock_load_config):
+@patch('whisper_local.bridge.run_bridge')
+def test_run_bridge_calls_bridge_with_config(mock_run_bridge, mock_load_config, mock_ensure):
     """Test _run_bridge loads config and calls run_bridge."""
     mock_config = Mock()
     mock_load_config.return_value = mock_config
 
     cli._run_bridge('localhost', 7878)
 
+    mock_ensure.assert_called_once()
     mock_load_config.assert_called_once()
     mock_run_bridge.assert_called_once_with(mock_config, 'localhost', 7878, capture_logs=False)
 
 
+@patch('whisper_local.cli._ensure_runtime_dependencies')
 @patch('whisper_local.cli.load_config')
-@patch('whisper_local.cli.run_bridge')
-def test_run_bridge_with_capture_logs(mock_run_bridge, mock_load_config):
+@patch('whisper_local.bridge.run_bridge')
+def test_run_bridge_with_capture_logs(mock_run_bridge, mock_load_config, mock_ensure):
     """Test _run_bridge with capture_logs=True."""
     mock_config = Mock()
     mock_load_config.return_value = mock_config
 
     cli._run_bridge('localhost', 7878, capture_logs=True)
 
+    mock_ensure.assert_called_once()
     mock_run_bridge.assert_called_once_with(mock_config, 'localhost', 7878, capture_logs=True)
 
 
@@ -223,9 +227,9 @@ def test_start_status_indicator_on_non_macos():
     assert result is None
 
 
-@patch('whisper_local.cli.subprocess.Popen')
 @patch('whisper_local.cli.sys.platform', 'darwin')
-def test_start_status_indicator_handles_error(mock_platform, mock_popen):
+@patch('whisper_local.cli.subprocess.Popen')
+def test_start_status_indicator_handles_error(mock_popen):
     """Test _start_status_indicator returns None on error."""
     mock_popen.side_effect = Exception("Failed to start")
 
@@ -301,13 +305,15 @@ def test_main_tui_handles_keyboard_interrupt(mock_restore, mock_run_tui, monkeyp
     mock_restore.assert_called_once()
 
 
-@patch('whisper_local.cli.list_installed_models')
+@patch('whisper_local.model_manager.list_installed_models')
 def test_main_models_list(mock_list_models, monkeypatch, capsys):
     """Test main handles 'models list' command."""
     monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'list'])
 
-    mock_model1 = Mock(name='tiny', installed=True)
-    mock_model2 = Mock(name='base', installed=False)
+    mock_model1 = Mock(installed=True)
+    mock_model1.name = 'tiny'
+    mock_model2 = Mock(installed=False)
+    mock_model2.name = 'base'
     mock_list_models.return_value = [mock_model1, mock_model2]
 
     cli.main()
@@ -317,7 +323,7 @@ def test_main_models_list(mock_list_models, monkeypatch, capsys):
     assert 'base: available' in captured.out
 
 
-@patch('whisper_local.cli.download_model')
+@patch('whisper_local.model_manager.download_model')
 def test_main_models_pull(mock_download, monkeypatch, capsys):
     """Test main handles 'models pull' command."""
     monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'pull', 'small'])
@@ -329,7 +335,7 @@ def test_main_models_pull(mock_download, monkeypatch, capsys):
     assert 'Downloaded small' in captured.out
 
 
-@patch('whisper_local.cli.remove_model')
+@patch('whisper_local.model_manager.remove_model')
 def test_main_models_remove(mock_remove, monkeypatch, capsys):
     """Test main handles 'models remove' command."""
     monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'remove', 'medium'])
@@ -341,7 +347,7 @@ def test_main_models_remove(mock_remove, monkeypatch, capsys):
     assert 'Removed medium' in captured.out
 
 
-@patch('whisper_local.cli.set_selected_model')
+@patch('whisper_local.model_manager.set_selected_model')
 def test_main_models_select(mock_set_selected, monkeypatch, capsys):
     """Test main handles 'models select' command."""
     monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'select', 'large-v3'])
@@ -353,7 +359,7 @@ def test_main_models_select(mock_set_selected, monkeypatch, capsys):
     assert 'Selected model set to large-v3' in captured.out
 
 
-@patch('whisper_local.cli.set_selected_model')
+@patch('whisper_local.model_manager.set_selected_model')
 def test_main_models_set_default(mock_set_selected, monkeypatch, capsys):
     """Test main handles 'models set-default' command (alias)."""
     monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'set-default', 'tiny'])
@@ -405,7 +411,7 @@ def test_main_run_command_without_legacy(mock_run_combined, monkeypatch):
     mock_run_combined.assert_called_once_with('localhost', 7878, status_indicator=True)
 
 
-@patch('whisper_local.cli.run_app')
+@patch('whisper_local.tui.run_app')
 def test_main_run_command_with_legacy(mock_run_app, monkeypatch):
     """Test main 'run' command with --legacy flag."""
     monkeypatch.setattr(sys, 'argv', ['cli', 'run', '--legacy'])

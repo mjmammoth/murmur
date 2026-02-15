@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -357,9 +355,12 @@ def test_bridge_server_installed_model_names():
     server = BridgeServer(config)
 
     with patch('whisper_local.bridge.list_installed_models') as mock_list:
-        mock_model1 = Mock(name='tiny', installed=True)
-        mock_model2 = Mock(name='base', installed=False)
-        mock_model3 = Mock(name='small', installed=True)
+        mock_model1 = Mock(installed=True)
+        mock_model1.name = 'tiny'
+        mock_model2 = Mock(installed=False)
+        mock_model2.name = 'base'
+        mock_model3 = Mock(installed=True)
+        mock_model3.name = 'small'
         mock_list.return_value = [mock_model1, mock_model2, mock_model3]
 
         result = server._installed_model_names()
@@ -373,7 +374,8 @@ def test_bridge_server_has_installed_models_true():
     server = BridgeServer(config)
 
     with patch('whisper_local.bridge.list_installed_models') as mock_list:
-        mock_model = Mock(name='tiny', installed=True)
+        mock_model = Mock(installed=True)
+        mock_model.name = 'tiny'
         mock_list.return_value = [mock_model]
 
         assert server._has_installed_models() is True
@@ -385,7 +387,8 @@ def test_bridge_server_has_installed_models_false():
     server = BridgeServer(config)
 
     with patch('whisper_local.bridge.list_installed_models') as mock_list:
-        mock_model = Mock(name='tiny', installed=False)
+        mock_model = Mock(installed=False)
+        mock_model.name = 'tiny'
         mock_list.return_value = [mock_model]
 
         assert server._has_installed_models() is False

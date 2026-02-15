@@ -186,6 +186,14 @@ def _resolve_rnnoise_library_path() -> str | None:
 
 
 def _rnnoise_library_candidates() -> list[str]:
+    """
+    Gather candidate filesystem or linker names for the RNNoise shared library in search order.
+    
+    The list includes: the RNNOISE_LIB environment variable (if set), the result of ctypes.util.find_library("rnnoise") (if any), and platform-specific candidate paths returned by _candidate_rnnoise_paths(); duplicate entries are removed while preserving their original order.
+    
+    Returns:
+        list[str]: Ordered, deduplicated candidate paths or library names to try when locating the RNNoise library.
+    """
     candidates: list[str] = []
     env_path = os.environ.get("RNNOISE_LIB")
     if env_path:
@@ -195,21 +203,29 @@ def _rnnoise_library_candidates() -> list[str]:
     if found:
         candidates.append(found)
 
-    for candidate in _candidate_rnnoise_paths():
-        candidates.append(str(candidate))
+    for candidate_path in _candidate_rnnoise_paths():
+        candidates.append(str(candidate_path))
 
     # Keep order but remove duplicates.
     deduped: list[str] = []
     seen = set()
-    for candidate in candidates:
-        if candidate in seen:
+    for candidate_entry in candidates:
+        if candidate_entry in seen:
             continue
-        seen.add(candidate)
-        deduped.append(candidate)
+        seen.add(candidate_entry)
+        deduped.append(candidate_entry)
     return deduped
 
 
 def _candidate_rnnoise_paths() -> list[Path]:
+    """
+    Return candidate filesystem paths where an RNNoise dynamic library may be installed on macOS.
+    
+    The list includes the user's Audio Plug-Ins Components path, the system Audio Plug-Ins Components path, and any Homebrew Caskroom rnnoise installs (each resolved to the macOS RNNoise component path) appended in descending version order.
+    
+    Returns:
+        list[Path]: Ordered list of filesystem Paths to probe for an RNNoise library; earlier entries are preferred.
+    """
     candidates = [
         Path.home() / "Library/Audio/Plug-Ins/Components/rnnoise.component/Contents/MacOS/rnnoise",
         Path("/Library/Audio/Plug-Ins/Components/rnnoise.component/Contents/MacOS/rnnoise"),

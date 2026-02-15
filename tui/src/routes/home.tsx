@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
 import { useKeyHandler, usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid";
 import { BorderChars, RGBA, type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -18,9 +18,18 @@ import { HotkeyModal } from "../component/hotkey-modal";
 import { SettingsSelectModal } from "../component/settings-select-modal";
 import { ThemePickerModal } from "../component/theme-picker-modal";
 import { SettingsEditModal } from "../component/settings-edit-modal";
+import { ExitConfirmModal } from "../component/exit-confirm-modal";
 import { exitApp } from "../util/exit";
+import { setSigintHandler } from "../util/interrupt";
 import type { ModelManagerDialogData } from "../types";
 
+/**
+ * Render the application's Home screen and manage its UI state, global input handlers, backend interactions, and modal overlays.
+ *
+ * Renders the header, transcript list, footer, optional logs panel, toast container, and any active modal dialogs while coordinating keyboard shortcuts, paste handling, and backend requests.
+ *
+ * @returns The root JSX element for the Home screen layout
+ */
 export function Home(): JSX.Element {
   const LOGS_PANEL_WIDTH_COLS = 48;
   const LOGS_PANEL_MIN_TERMINAL_WIDTH = 115;
@@ -84,10 +93,32 @@ export function Home(): JSX.Element {
     backend.send({ type: "set_hotkey_blocked", enabled: dialog.isOpen() });
   });
 
+  /**
+   * Prompt for confirmation when a model is actively being pulled, otherwise exit the application.
+   *
+   * If a model pull operation is in progress and the exit-confirm dialog is not already open, opens the exit-confirm dialog for that model; in all other cases, exits the app immediately.
+   */
+  function requestExit() {
+    const activeOp = backend.activeModelOp();
+    const currentDialog = dialog.currentDialog();
+    if (activeOp?.type === "pulling" && currentDialog?.type !== "exit-confirm") {
+      dialog.openDialog("exit-confirm", { model: activeOp.model });
+      return;
+    }
+    exitApp(renderer);
+  }
+
+  setSigintHandler(() => {
+    requestExit();
+  });
+  onCleanup(() => {
+    setSigintHandler(null);
+  });
+
   useKeyHandler((key: KeyEvent) => {
     if (key.ctrl && key.name === "c") {
       key.preventDefault();
-      exitApp(renderer);
+      requestExit();
       return;
     }
 
@@ -148,7 +179,7 @@ export function Home(): JSX.Element {
 
     switch (keyName) {
       case "q":
-        exitApp(renderer);
+        requestExit();
         break;
       case "c":
         handleCopyLatest();
@@ -383,6 +414,19 @@ export function Home(): JSX.Element {
           backgroundColor={modalOverlayColor()}
         >
           <ThemePickerModal />
+        </box>
+      </Show>
+
+      <Show when={dialog.currentDialog()?.type === "exit-confirm"}>
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={modalOverlayColor()}
+        >
+          <ExitConfirmModal />
         </box>
       </Show>
     </box>

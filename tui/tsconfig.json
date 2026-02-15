@@ -13,7 +13,7 @@
     "declaration": true,
     "declarationMap": true,
     "noEmit": true,
-    "types": ["bun-types"]
+    "types": ["bun-types", "@opentui/solid/jsx-runtime"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]
