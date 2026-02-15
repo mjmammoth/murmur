@@ -1,0 +1,82 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python_checks:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python tooling
+        run: python -m pip install --upgrade pip build mypy pytest ruff
+
+      - name: Check version sync
+        run: python scripts/check_version_sync.py
+
+      - name: Lint
+        run: ruff check src tests scripts
+
+      - name: Type check
+        run: mypy --ignore-missing-imports src/whisper_local/tui_runtime.py src/whisper_local/cli.py
+
+      - name: Run tests
+        env:
+          PYTHONPATH: src
+        run: pytest -q
+
+      - name: CLI smoke (parser/help)
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m whisper_local.cli --help
+          python -m whisper_local.cli bridge --help
+          python -m whisper_local.cli models --help
+
+      - name: Build Python distributions
+        run: python -m build
+
+      - name: Upload Python dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-python-dist
+          path: dist/*
+
+  tui_build_smoke:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - name: Install TUI dependencies
+        run: bun install --frozen-lockfile
+        working-directory: tui
+
+      - name: Build TUI release artifact (smoke)
+        run: bun run build:release
+        working-directory: tui
+
+      - name: Assert TUI artifacts exist
+        run: |
+          test -f dist/tui/darwin-arm64/whisper-local-tui
+          test -f dist/tui/whisper-local-tui-darwin-arm64.tar.gz
+          test -f dist/tui/manifest.json
+
+      - name: Upload TUI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-tui-dist
+          path: dist/tui/*

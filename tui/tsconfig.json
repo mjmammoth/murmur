@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "jsxImportSource": "@opentui/solid",
+    "jsxImportSource": "solid-js",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -13,7 +13,7 @@
     "declaration": true,
     "declarationMap": true,
     "noEmit": true,
-    "types": ["bun-types"]
+    "types": ["bun-types", "@opentui/solid/jsx-runtime"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]
