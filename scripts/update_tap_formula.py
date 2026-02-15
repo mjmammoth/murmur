@@ -76,6 +76,16 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError(f"Expected wheel URL ending in .whl: {args.wheel_url}")
     if not args.tui_url.endswith(".tar.gz"):
         raise ValueError(f"Expected TUI URL ending in .tar.gz: {args.tui_url}")
+    formula_path_value = str(getattr(args, "formula_path", "Formula/whisper-local.rb"))
+    formula_path = Path(formula_path_value)
+    if formula_path.is_absolute():
+        raise ValueError(f"formula_path must be relative, got absolute path: {formula_path_value}")
+    if "~" in formula_path_value:
+        raise ValueError(f"formula_path must not contain ~: {formula_path_value}")
+    if ".." in formula_path.parts:
+        raise ValueError(
+            f"formula_path must not escape tap checkout (no .. segments): {formula_path_value}"
+        )
     for label, value in (
         ("wheel-sha256", args.wheel_sha256),
         ("tui-sha256", args.tui_sha256),

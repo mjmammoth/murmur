@@ -67,10 +67,10 @@ def read_init_version(path: Path) -> str:
         ValueError: If no `__version__` assignment is found in the file.
     """
     text = path.read_text(encoding="utf-8")
-    match = re.search(r'^__version__\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
+    match = re.search(r'^__version__\s*=\s*(["\'])([^"\']+)\1\s*$', text, re.MULTILINE)
     if match is None:
         raise ValueError(f"Unable to find __version__ assignment in {path}")
-    return match.group(1)
+    return match.group(2)
 
 
 def main() -> int:

@@ -41,7 +41,13 @@ function main(): void {
   const repoRoot = resolve(tuiRoot, "..");
 
   const packageJsonPath = resolve(tuiRoot, "package.json");
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as PackageJson;
+  let packageJson: PackageJson;
+  try {
+    packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as PackageJson;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to read/parse package.json at ${packageJsonPath}: ${msg}`);
+  }
 
   const arch = "darwin-arm64";
   const distRoot = resolve(repoRoot, "dist", "tui");
