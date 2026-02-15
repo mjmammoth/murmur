@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
