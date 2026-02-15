@@ -107,95 +107,97 @@ export function LogPanel(props: LogPanelProps): JSX.Element {
       width="100%"
       height="100%"
       backgroundColor={colors().backgroundPanel}
+      paddingTop={1}
+      paddingBottom={1}
+      paddingRight={1}
     >
-      <box flexDirection="column" flexGrow={1} width="100%" height="100%" paddingTop={1} paddingBottom={1} paddingRight={1}>
-        <box paddingX={2} paddingTop={0} paddingBottom={0} flexDirection="column">
-          <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
-            <text>
-              <span style={{ fg: colors().primary, bold: true }}>Logs</span>
-            </text>
-            <box flexDirection="row" alignItems="center" gap={2} paddingLeft={1} flexShrink={1}>
-              <text>
-                <span style={{ fg: colors().textMuted }}>{filteredLogs().length} logs</span>
-              </text>
-              <text>
-                <span style={{ fg: colors().textMuted }}>level </span>
-                <span style={{ fg: levelColor(props.minLevel, colors()) }}>{props.minLevel}</span>
-              </text>
-            </box>
-          </box>
-          <box flexDirection="row" width="100%" marginTop={0}>
-            <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
-            <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
-          </box>
-        </box>
-
-        <scrollbox
-          flexGrow={1}
-          paddingX={1}
-          ref={(r) => {
-            logScroll = r;
-          }}
-        >
-          <box flexDirection="column">
-            <Show when={filteredLogs().length === 0}>
-              <box paddingY={1} paddingX={1}>
-                <text fg={colors().textMuted}>No log entries at this level</text>
-              </box>
-            </Show>
-            <For each={filteredLogs()}>
-              {(entry: LogEntry, index) => {
-                const lines = normalizeLogLines(entry.message);
-                const blockText = `${entry.timestamp} ${levelTag(entry.level)} ${entry.source}:\n${lines.join("\n")}`;
-                const rowBackground = () =>
-                  index() % 2 === 0 ? colors().backgroundPanel : colors().backgroundElement;
-
-                return (
-                  <box
-                    flexDirection="column"
-                    width="100%"
-                    paddingX={1}
-                    paddingY={1}
-                    backgroundColor={rowBackground()}
-                    onMouseUp={() => {
-                      backend.send({ type: "copy_text", text: blockText });
-                    }}
-                  >
-                    <text>
-                      <span style={{ fg: colors().textDim }}>{entry.timestamp} </span>
-                      <span style={{ fg: levelColor(entry.level, colors()) }}>{levelTag(entry.level)} </span>
-                      <span style={{ fg: colors().textDim }}>{entry.source}</span>
-                    </text>
-                    <For each={lines}>
-                      {(line) => (
-                        <box paddingLeft={2}>
-                          <text>
-                            <span style={{ fg: colors().text }}>{line || " "}</span>
-                          </text>
-                        </box>
-                      )}
-                    </For>
-                  </box>
-                );
-              }}
-            </For>
-          </box>
-        </scrollbox>
-
-        <box paddingX={2} paddingY={1}>
+      <box paddingX={2} paddingTop={0} paddingBottom={0} flexDirection="column" flexShrink={0}>
+        <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
           <text>
-            <span style={{ fg: colors().text }}>l</span>
-            <span style={{ fg: colors().textMuted }}> close </span>
-            <span style={{ fg: colors().text }}>tab</span>
-            <span style={{ fg: colors().textMuted }}> focus </span>
-            <span style={{ fg: colors().text }}>click</span>
-            <span style={{ fg: colors().textMuted }}> copy </span>
-            <span style={{ fg: colors().text }}>↑/↓ j/k</span>
-            <span style={{ fg: colors().textMuted }}> scroll </span>
-            <span style={{ fg: colors().text }}>←/→</span>
-            <span style={{ fg: colors().textMuted }}> level</span>
+            <span style={{ fg: colors().primary, bold: true }}>Logs</span>
           </text>
+          <box flexDirection="row" alignItems="center" gap={2} paddingLeft={1} flexShrink={1}>
+            <text>
+              <span style={{ fg: colors().textMuted }}>{filteredLogs().length} logs</span>
+            </text>
+            <text>
+              <span style={{ fg: colors().textMuted }}>level </span>
+              <span style={{ fg: levelColor(props.minLevel, colors()) }}>{props.minLevel}</span>
+            </text>
+          </box>
         </box>
+        <box flexDirection="row" width="100%" marginTop={0}>
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
+        </box>
+      </box>
+
+      <scrollbox
+        flexGrow={1}
+        flexShrink={1}
+        paddingX={1}
+        ref={(r) => {
+          logScroll = r;
+        }}
+      >
+        <box flexDirection="column">
+          <Show when={filteredLogs().length === 0}>
+            <box paddingY={1} paddingX={1}>
+              <text fg={colors().textMuted}>No log entries at this level</text>
+            </box>
+          </Show>
+          <For each={filteredLogs()}>
+            {(entry: LogEntry, index) => {
+              const lines = normalizeLogLines(entry.message);
+              const blockText = `${entry.timestamp} ${levelTag(entry.level)} ${entry.source}:\n${lines.join("\n")}`;
+              const rowBackground = () =>
+                index() % 2 === 0 ? colors().backgroundPanel : colors().backgroundElement;
+
+              return (
+                <box
+                  flexDirection="column"
+                  width="100%"
+                  paddingX={1}
+                  paddingY={1}
+                  backgroundColor={rowBackground()}
+                  onMouseUp={() => {
+                    backend.send({ type: "copy_text", text: blockText });
+                  }}
+                >
+                  <text>
+                    <span style={{ fg: colors().textDim }}>{entry.timestamp} </span>
+                    <span style={{ fg: levelColor(entry.level, colors()) }}>{levelTag(entry.level)} </span>
+                    <span style={{ fg: colors().textDim }}>{entry.source}</span>
+                  </text>
+                  <For each={lines}>
+                    {(line) => (
+                      <box paddingLeft={2}>
+                        <text>
+                          <span style={{ fg: colors().text }}>{line || " "}</span>
+                        </text>
+                      </box>
+                    )}
+                  </For>
+                </box>
+              );
+            }}
+          </For>
+        </box>
+      </scrollbox>
+
+      <box paddingX={2} paddingY={1} flexShrink={0}>
+        <text>
+          <span style={{ fg: colors().text }}>l</span>
+          <span style={{ fg: colors().textMuted }}> close </span>
+          <span style={{ fg: colors().text }}>tab</span>
+          <span style={{ fg: colors().textMuted }}> focus </span>
+          <span style={{ fg: colors().text }}>click</span>
+          <span style={{ fg: colors().textMuted }}> copy </span>
+          <span style={{ fg: colors().text }}>↑/↓ j/k</span>
+          <span style={{ fg: colors().textMuted }}> scroll </span>
+          <span style={{ fg: colors().text }}>←/→</span>
+          <span style={{ fg: colors().textMuted }}> level</span>
+        </text>
       </box>
     </box>
   );

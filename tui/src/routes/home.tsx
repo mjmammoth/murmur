@@ -22,7 +22,7 @@ import { exitApp } from "../util/exit";
 import type { ModelManagerDialogData } from "../types";
 
 export function Home(): JSX.Element {
-  const LOGS_PANEL_WIDTH_RATIO = 0.42;
+  const LOGS_PANEL_WIDTH_COLS = 48;
   const LOGS_PANEL_MIN_TERMINAL_WIDTH = 115;
   const { colors } = useTheme();
   const renderer = useRenderer();
@@ -41,7 +41,7 @@ export function Home(): JSX.Element {
   const homePaneWidth = () => {
     const fullWidth = terminal().width;
     if (!logsVisible()) return fullWidth;
-    return Math.max(0, Math.floor(fullWidth * (1 - LOGS_PANEL_WIDTH_RATIO)));
+    return Math.max(0, fullWidth - LOGS_PANEL_WIDTH_COLS);
   };
   const logsTooNarrowMessage = () => "UI too narrow for logs.";
   const firstRunSetupRequired = () => Boolean(backend.config()?.first_run_setup_required);
@@ -279,7 +279,7 @@ export function Home(): JSX.Element {
 
       <Show when={logsVisible()}>
         <box
-          width="42%"
+          width={LOGS_PANEL_WIDTH_COLS}
           height="100%"
           paddingLeft={2}
         >
