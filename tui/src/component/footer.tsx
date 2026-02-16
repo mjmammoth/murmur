@@ -149,6 +149,14 @@ export function Footer(props: FooterProps): JSX.Element {
     return truncateLabel(oneLine || "-", statusMaxChars());
   };
 
+  const statusBadgeBackground = () => {
+    const status = transcriber.status();
+    if (status === "ready") return colors().ready;
+    if (status === "recording") return colors().recording;
+    if (status === "transcribing" || status === "downloading") return colors().transcribing;
+    return null;
+  };
+
   return (
     <box
       paddingX={2}
@@ -169,9 +177,17 @@ export function Footer(props: FooterProps): JSX.Element {
           <box width={8} justifyContent="flex-start" alignItems="flex-start" flexShrink={0}>
             <Scanner active={transcriber.isBusy()} />
           </box>
-          <text flexShrink={1}>
-            <span style={{ fg: statusColor() }}>{statusDisplay()}</span>
-          </text>
+          {statusBadgeBackground() ? (
+            <box backgroundColor={statusBadgeBackground() ?? undefined} paddingX={1} flexShrink={1}>
+              <text flexShrink={1}>
+                <span style={{ fg: colors().selectedText, bold: true }}>{statusDisplay()}</span>
+              </text>
+            </box>
+          ) : (
+            <text flexShrink={1}>
+              <span style={{ fg: statusColor() }}>{statusDisplay()}</span>
+            </text>
+          )}
         </box>
 
         <box
