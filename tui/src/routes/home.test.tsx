@@ -72,14 +72,14 @@ describe("Home", () => {
   describe("requestExit logic", () => {
     test("should prompt when model is pulling", () => {
       const activeOp = { type: "pulling" as const, model: "whisper-base" };
-      const currentDialog = { type: "model-manager" as const };
+      const currentDialog = { type: "model-manager" };
       const shouldPrompt = activeOp?.type === "pulling" && currentDialog?.type !== "exit-confirm";
 
       expect(shouldPrompt).toBe(true);
     });
 
     test("should exit directly when not pulling", () => {
-      const activeOp = null;
+      const activeOp = null as { type: string; model: string } | null;
       const shouldPrompt = activeOp?.type === "pulling";
 
       expect(shouldPrompt).toBe(false);
@@ -256,7 +256,7 @@ describe("Home", () => {
     });
 
     test("should select previous with k", () => {
-      const keyName = "k";
+      const keyName: string = "k";
       const shouldSelectPrev = keyName === "up" || keyName === "k";
 
       expect(shouldSelectPrev).toBe(true);
@@ -270,7 +270,7 @@ describe("Home", () => {
     });
 
     test("should select next with j", () => {
-      const keyName = "j";
+      const keyName: string = "j";
       const shouldSelectNext = keyName === "down" || keyName === "j";
 
       expect(shouldSelectNext).toBe(true);
@@ -403,7 +403,7 @@ describe("Home", () => {
     });
 
     test("should switch back to main pane", () => {
-      const currentPane = "logs";
+      const currentPane: string = "logs";
       const nextPane = currentPane === "main" ? "logs" : "main";
 
       expect(nextPane).toBe("main");

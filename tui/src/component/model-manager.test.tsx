@@ -47,14 +47,14 @@ describe("ModelManager", () => {
     });
 
     test("should return null when removing", () => {
-      const op = { type: "removing" as const, model: "whisper-large" };
+      const op: { type: string; model: string } = { type: "removing", model: "whisper-large" };
       const pullingModel = op && op.type === "pulling" ? op.model : null;
 
       expect(pullingModel).toBeNull();
     });
 
     test("should return null when no operation", () => {
-      const op = null;
+      const op = null as { type: string; model: string } | null;
       const pullingModel = op && op.type === "pulling" ? op.model : null;
 
       expect(pullingModel).toBeNull();

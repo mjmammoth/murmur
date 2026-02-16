@@ -51,7 +51,7 @@ describe("ToastContainer", () => {
     });
 
     test("should return success color for info level", () => {
-      const level = "info";
+      const level: string = "info";
       const colors = { error: "#FF0000", success: "#00FF00" };
       const color = level === "error" ? colors.error : colors.success;
 
@@ -114,8 +114,8 @@ describe("ToastContainer", () => {
     });
 
     test("should only show copied for matching toast", () => {
-      const currentToastId = 1;
-      const copiedToastId = 2;
+      const currentToastId: number = 1;
+      const copiedToastId: number = 2;
       const shouldShowCopied = copiedToastId === currentToastId;
 
       expect(shouldShowCopied).toBe(false);
@@ -192,7 +192,7 @@ describe("ToastContainer", () => {
     });
 
     test("should show 'info' for info level", () => {
-      const level = "info";
+      const level: string = "info";
       const label = level === "error" ? "error" : "info";
 
       expect(label).toBe("info");

@@ -183,7 +183,7 @@ describe("HotkeyModal", () => {
     });
 
     test("should process press events", () => {
-      const eventType = "press";
+      const eventType: string = "press";
       const repeated = false;
       const shouldProcess = eventType !== "release" && !repeated;
 
@@ -198,7 +198,7 @@ describe("HotkeyModal", () => {
     });
 
     test("should close modal on q", () => {
-      const keyName = "q";
+      const keyName: string = "q";
       const shouldClose = keyName === "escape" || keyName === "q";
 
       expect(shouldClose).toBe(true);
@@ -259,7 +259,7 @@ describe("HotkeyModal", () => {
     });
 
     test("should handle missing dialog data", () => {
-      const dialogData = undefined;
+      const dialogData = undefined as { returnToSettings?: boolean } | undefined;
       const shouldReturn = Boolean(dialogData?.returnToSettings);
 
       expect(shouldReturn).toBe(false);

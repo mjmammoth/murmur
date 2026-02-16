@@ -136,14 +136,14 @@ describe("Settings", () => {
     });
 
     test("should navigate up with k", () => {
-      const keyName = "k";
+      const keyName: string = "k";
       const shouldMoveUp = keyName === "up" || keyName === "k";
 
       expect(shouldMoveUp).toBe(true);
     });
 
     test("should navigate down with j", () => {
-      const keyName = "j";
+      const keyName: string = "j";
       const shouldMoveDown = keyName === "down" || keyName === "j";
 
       expect(shouldMoveDown).toBe(true);
@@ -221,7 +221,7 @@ describe("Settings", () => {
 
   describe("setting interactivity", () => {
     test("should be interactive for toggle settings", () => {
-      const controlKind = "toggle";
+      const controlKind: string = "toggle";
       const interactive = controlKind !== "read-only";
 
       expect(interactive).toBe(true);

@@ -211,14 +211,14 @@ describe("SettingsSelectModal", () => {
     });
 
     test("should navigate up with k", () => {
-      const keyName = "k";
+      const keyName: string = "k";
       const shouldMoveUp = keyName === "up" || keyName === "k";
 
       expect(shouldMoveUp).toBe(true);
     });
 
     test("should navigate down with j", () => {
-      const keyName = "j";
+      const keyName: string = "j";
       const shouldMoveDown = keyName === "down" || keyName === "j";
 
       expect(shouldMoveDown).toBe(true);

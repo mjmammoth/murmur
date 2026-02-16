@@ -110,7 +110,7 @@ describe("ExitConfirmModal", () => {
   describe("confirmExit function", () => {
     test("should cancel download for valid model", () => {
       createRoot((dispose) => {
-        const modelName = "whisper-base";
+        const modelName: string = "whisper-base";
         let cancelledModel = "";
         const mockCancelDownload = (model: string) => { cancelledModel = model; };
 

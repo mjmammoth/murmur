@@ -168,7 +168,7 @@ describe("SettingsEditModal", () => {
     });
 
     test("should close on q", () => {
-      const keyName = "q";
+      const keyName: string = "q";
       const shouldClose = keyName === "escape" || keyName === "q";
 
       expect(shouldClose).toBe(true);
@@ -257,7 +257,7 @@ describe("SettingsEditModal", () => {
     });
 
     test("should handle special characters in path", () => {
-      const draft = "~/my\ documents/file.txt";
+      const draft = "~/my\\ documents/file.txt";
 
       expect(draft).toContain("\\");
     });

@@ -23,7 +23,7 @@ describe("Footer", () => {
       const maxLength = 10;
       const result = value.length <= maxLength ? value : `${value.slice(0, maxLength - 3)}...`;
 
-      expect(result).toBe("very-l...");
+      expect(result).toBe("very-lo...");
       expect(result.length).toBe(10);
     });
 
@@ -95,7 +95,7 @@ describe("Footer", () => {
     test("should render without key character highlight", () => {
       const label = "status";
       const value = "ready";
-      const keyChar = undefined;
+      const keyChar = undefined as string | undefined;
       const idx = keyChar ? Math.max(0, label.toLowerCase().indexOf(keyChar.toLowerCase())) : -1;
 
       expect(idx).toBe(-1);
@@ -183,7 +183,7 @@ describe("Footer", () => {
       const maxLength = compactFooterLayout ? 10 : 14;
       const truncated = modelName.length <= maxLength ? modelName : `${modelName.slice(0, maxLength - 3)}...`;
 
-      expect(truncated).toBe("very-l...");
+      expect(truncated).toBe("very-lo...");
     });
 
     test("should use longer length in normal mode", () => {
@@ -217,7 +217,7 @@ describe("Footer", () => {
     });
 
     test("should return transcribing color for transcribing status", () => {
-      const status = "transcribing";
+      const status: string = "transcribing";
       const colors = {
         recording: "#FF0000",
         transcribing: "#FFAA00",
@@ -236,7 +236,7 @@ describe("Footer", () => {
     });
 
     test("should return error color for error status", () => {
-      const status = "error";
+      const status: string = "error";
       const colors = {
         recording: "#FF0000",
         transcribing: "#FFAA00",
@@ -255,7 +255,7 @@ describe("Footer", () => {
     });
 
     test("should return ready color for ready status", () => {
-      const status = "ready";
+      const status: string = "ready";
       const colors = {
         recording: "#FF0000",
         transcribing: "#FFAA00",
@@ -333,7 +333,7 @@ describe("Footer", () => {
     });
 
     test("should return recording color for recording status", () => {
-      const status = "recording";
+      const status: string = "recording";
       const colors = { ready: "#00FF00", recording: "#FF0000", transcribing: "#FFAA00" };
 
       const bg = status === "ready" ? colors.ready
@@ -345,7 +345,7 @@ describe("Footer", () => {
     });
 
     test("should return null for connecting status", () => {
-      const status = "connecting";
+      const status: string = "connecting";
       const colors = { ready: "#00FF00", recording: "#FF0000", transcribing: "#FFAA00" };
 
       const bg = status === "ready" ? colors.ready

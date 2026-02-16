@@ -159,7 +159,7 @@ describe("ThemePickerModal", () => {
     });
 
     test("should do nothing when no theme selected", () => {
-      const selectedTheme = null;
+      const selectedTheme = null as { id: string; label: string } | null;
       let persistedId = "";
 
       if (selectedTheme) {
@@ -207,7 +207,7 @@ describe("ThemePickerModal", () => {
     });
 
     test("should show empty for non-active non-default theme", () => {
-      const themeId = "custom";
+      const themeId: string = "custom";
       const active = false;
       const labels: string[] = [];
 
@@ -227,21 +227,21 @@ describe("ThemePickerModal", () => {
     });
 
     test("should cancel on q", () => {
-      const keyName = "q";
+      const keyName: string = "q";
       const shouldCancel = keyName === "escape" || keyName === "q";
 
       expect(shouldCancel).toBe(true);
     });
 
     test("should move up with k", () => {
-      const keyName = "k";
+      const keyName: string = "k";
       const shouldMoveUp = keyName === "up" || keyName === "k";
 
       expect(shouldMoveUp).toBe(true);
     });
 
     test("should move down with j", () => {
-      const keyName = "j";
+      const keyName: string = "j";
       const shouldMoveDown = keyName === "down" || keyName === "j";
 
       expect(shouldMoveDown).toBe(true);
@@ -329,8 +329,8 @@ describe("ThemePickerModal", () => {
 
     test("should not detect double-click when indices mismatch", () => {
       const isActive = true;
-      const mouseArmedIndex = 2;
-      const currentIndex = 3;
+      const mouseArmedIndex: number = 2;
+      const currentIndex: number = 3;
       const isDoubleClick = isActive && mouseArmedIndex === currentIndex;
 
       expect(isDoubleClick).toBe(false);
