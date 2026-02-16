@@ -108,6 +108,46 @@ export function Home(): JSX.Element {
     exitApp(renderer);
   }
 
+  function toggleLogsPanel() {
+    setShowLogs((prev) => {
+      const next = !prev;
+      if (next && !canShowLogs()) {
+        toast.showToast(logsTooNarrowMessage());
+      }
+      setActivePane(next && canShowLogs() ? "logs" : "main");
+      return next;
+    });
+  }
+
+  function toggleRecordingFromStatusClick() {
+    if (dialog.isOpen()) return;
+
+    const status = transcriber.status();
+    if (status === "recording") {
+      backend.send({ type: "stop_recording" });
+      return;
+    }
+
+    if (status === "ready") {
+      backend.send({ type: "start_recording" });
+      return;
+    }
+
+    if (status === "connecting") {
+      toast.showToast("Still connecting to backend.");
+      return;
+    }
+
+    if (status === "transcribing" || status === "downloading") {
+      toast.showToast("Busy right now. Try again when ready.");
+      return;
+    }
+
+    if (status === "error") {
+      toast.showToast("Cannot start recording while status is error.");
+    }
+  }
+
   setSigintHandler(() => {
     requestExit();
   });
@@ -129,14 +169,7 @@ export function Home(): JSX.Element {
 
     // Log panel toggle works even with dialogs open
     if (key.name === "l" && !dialog.isOpen()) {
-      setShowLogs((prev) => {
-        const next = !prev;
-        if (next && !canShowLogs()) {
-          toast.showToast(logsTooNarrowMessage());
-        }
-        setActivePane(next && canShowLogs() ? "logs" : "main");
-        return next;
-      });
+      toggleLogsPanel();
       return;
     }
 
@@ -296,13 +329,28 @@ export function Home(): JSX.Element {
           gap={1}
         >
           <box flexShrink={0}>
-            <Header />
+            <Header
+              onToggleNoise={config.toggleNoise}
+              onToggleVad={config.toggleVad}
+              onToggleAutoCopy={config.toggleAutoCopy}
+              onToggleAutoPaste={config.toggleAutoPaste}
+            />
           </box>
           <box flexGrow={1} flexShrink={1} height="100%">
             <TranscriptList />
           </box>
           <box flexShrink={0}>
-            <Footer availableWidth={homePaneWidth()} />
+            <Footer
+              availableWidth={homePaneWidth()}
+              onStatusClick={toggleRecordingFromStatusClick}
+              onModelClick={() => dialog.openDialog("model-manager")}
+              onHotkeyClick={() => dialog.openDialog("hotkey")}
+              onModeClick={config.toggleHotkeyMode}
+              onQuitClick={requestExit}
+              onLogsClick={toggleLogsPanel}
+              onSettingsClick={() => dialog.openDialog("settings")}
+              onThemeClick={() => dialog.openDialog("theme-picker")}
+            />
           </box>
           <ToastContainer />
         </box>

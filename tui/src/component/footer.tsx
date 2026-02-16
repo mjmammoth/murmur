@@ -9,6 +9,7 @@ import { Scanner } from "./spinner";
 interface KeyHintProps {
   keyChar: string;
   word: string;
+  onClick?: () => void;
 }
 
 interface PairHintProps {
@@ -16,10 +17,19 @@ interface PairHintProps {
   value: string;
   keyChar?: string;
   highlightColor?: string;
+  onClick?: () => void;
 }
 
 interface FooterProps {
   availableWidth?: number;
+  onStatusClick?: () => void;
+  onModelClick?: () => void;
+  onHotkeyClick?: () => void;
+  onModeClick?: () => void;
+  onQuitClick?: () => void;
+  onLogsClick?: () => void;
+  onSettingsClick?: () => void;
+  onThemeClick?: () => void;
 }
 
 function KeyHint(props: KeyHintProps): JSX.Element {
@@ -30,11 +40,13 @@ function KeyHint(props: KeyHintProps): JSX.Element {
   const after = props.word.slice(idx + 1);
 
   return (
-    <text>
-      <span style={{ fg: colors().textMuted }}>{before}</span>
-      <span style={{ fg: colors().accent, bold: true }}>{key}</span>
-      <span style={{ fg: colors().textMuted }}>{after}</span>
-    </text>
+    <box onMouseUp={() => props.onClick?.()}>
+      <text>
+        <span style={{ fg: colors().textMuted }}>{before}</span>
+        <span style={{ fg: colors().accent, bold: true }}>{key}</span>
+        <span style={{ fg: colors().textMuted }}>{after}</span>
+      </text>
+    </box>
   );
 }
 
@@ -47,11 +59,13 @@ function PairHint(props: PairHintProps): JSX.Element {
 
   if (idx < 0) {
     return (
-      <text wrapMode="none" truncate>
-        <span style={{ fg: colors().textDim }}>{props.label}</span>
-        <span style={{ fg: colors().textMuted }}>:</span>
-        <span style={{ fg: colors().text }}> {props.value}</span>
-      </text>
+      <box onMouseUp={() => props.onClick?.()}>
+        <text wrapMode="none" truncate>
+          <span style={{ fg: colors().textDim }}>{props.label}</span>
+          <span style={{ fg: colors().textMuted }}>:</span>
+          <span style={{ fg: colors().text }}> {props.value}</span>
+        </text>
+      </box>
     );
   }
 
@@ -60,13 +74,15 @@ function PairHint(props: PairHintProps): JSX.Element {
   const after = props.label.slice(idx + 1);
 
   return (
-    <text wrapMode="none" truncate>
-      <span style={{ fg: colors().textDim }}>{before}</span>
-      <span style={{ fg: highlightColor(), bold: true }}>{key}</span>
-      <span style={{ fg: colors().textDim }}>{after}</span>
-      <span style={{ fg: colors().textMuted }}>:</span>
-      <span style={{ fg: colors().text }}> {props.value}</span>
-    </text>
+    <box onMouseUp={() => props.onClick?.()}>
+      <text wrapMode="none" truncate>
+        <span style={{ fg: colors().textDim }}>{before}</span>
+        <span style={{ fg: highlightColor(), bold: true }}>{key}</span>
+        <span style={{ fg: colors().textDim }}>{after}</span>
+        <span style={{ fg: colors().textMuted }}>:</span>
+        <span style={{ fg: colors().text }}> {props.value}</span>
+      </text>
+    </box>
   );
 }
 
@@ -133,6 +149,14 @@ export function Footer(props: FooterProps): JSX.Element {
     return truncateLabel(oneLine || "-", statusMaxChars());
   };
 
+  const statusBadgeBackground = () => {
+    const status = transcriber.status();
+    if (status === "ready") return colors().ready;
+    if (status === "recording") return colors().recording;
+    if (status === "transcribing" || status === "downloading") return colors().transcribing;
+    return null;
+  };
+
   return (
     <box
       paddingX={2}
@@ -148,13 +172,22 @@ export function Footer(props: FooterProps): JSX.Element {
           alignItems={shouldWrapLeftSection() ? "flex-start" : "center"}
           gap={shouldWrapLeftSection() ? 0 : 2}
           flexShrink={1}
+          onMouseUp={props.onStatusClick}
         >
           <box width={8} justifyContent="flex-start" alignItems="flex-start" flexShrink={0}>
             <Scanner active={transcriber.isBusy()} />
           </box>
-          <text flexShrink={1}>
-            <span style={{ fg: statusColor() }}>{statusDisplay()}</span>
-          </text>
+          {statusBadgeBackground() ? (
+            <box backgroundColor={statusBadgeBackground() ?? undefined} paddingX={1} flexShrink={1}>
+              <text flexShrink={1}>
+                <span style={{ fg: colors().selectedText, bold: true }}>{statusDisplay()}</span>
+              </text>
+            </box>
+          ) : (
+            <text flexShrink={1}>
+              <span style={{ fg: statusColor() }}>{statusDisplay()}</span>
+            </text>
+          )}
         </box>
 
         <box
@@ -168,18 +201,54 @@ export function Footer(props: FooterProps): JSX.Element {
           {compactFooterLayout() ? (
             <>
               <box width="100%" flexDirection="row" justifyContent="center" gap={3}>
-                <PairHint label="model" keyChar="m" value={compactModel()} highlightColor={colors().secondary} />
-                <PairHint label="hotkey" keyChar="h" value={compactHotkey()} highlightColor={colors().secondary} />
+                <PairHint
+                  label="model"
+                  keyChar="m"
+                  value={compactModel()}
+                  highlightColor={colors().secondary}
+                  onClick={props.onModelClick}
+                />
+                <PairHint
+                  label="hotkey"
+                  keyChar="h"
+                  value={compactHotkey()}
+                  highlightColor={colors().secondary}
+                  onClick={props.onHotkeyClick}
+                />
               </box>
               <box width="100%" flexDirection="row" justifyContent="center" gap={3}>
-                <PairHint label="mode" keyChar="o" value={hotkeyMode()} highlightColor={colors().secondary} />
+                <PairHint
+                  label="mode"
+                  keyChar="o"
+                  value={hotkeyMode()}
+                  highlightColor={colors().secondary}
+                  onClick={props.onModeClick}
+                />
               </box>
             </>
           ) : (
             <>
-              <PairHint label="model" keyChar="m" value={compactModel()} highlightColor={colors().secondary} />
-              <PairHint label="hotkey" keyChar="h" value={compactHotkey()} highlightColor={colors().secondary} />
-              <PairHint label="mode" keyChar="o" value={hotkeyMode()} highlightColor={colors().secondary} />
+              <PairHint
+                label="model"
+                keyChar="m"
+                value={compactModel()}
+                highlightColor={colors().secondary}
+                onClick={props.onModelClick}
+              />
+              <PairHint
+                label="hotkey"
+                keyChar="h"
+                value={compactHotkey()}
+                highlightColor={colors().secondary}
+                onClick={props.onHotkeyClick}
+              />
+              <PairHint
+                label="mode"
+                keyChar="o"
+                value={hotkeyMode()}
+                highlightColor={colors().secondary}
+                onClick={props.onModeClick}
+              />
             </>
           )}
         </box>
@@ -195,20 +264,20 @@ export function Footer(props: FooterProps): JSX.Element {
           {shouldWrapRightSection() ? (
             <>
               <box width="100%" flexDirection="row" justifyContent="flex-end" gap={2}>
-                <KeyHint keyChar="q" word="quit" />
-                <KeyHint keyChar="l" word="logs" />
+                <KeyHint keyChar="q" word="quit" onClick={props.onQuitClick} />
+                <KeyHint keyChar="l" word="logs" onClick={props.onLogsClick} />
               </box>
               <box width="100%" flexDirection="row" justifyContent="flex-end" gap={2}>
-                <KeyHint keyChar="s" word="settings" />
-                <KeyHint keyChar="t" word="theme" />
+                <KeyHint keyChar="s" word="settings" onClick={props.onSettingsClick} />
+                <KeyHint keyChar="t" word="theme" onClick={props.onThemeClick} />
               </box>
             </>
           ) : (
             <>
-              <KeyHint keyChar="q" word="quit" />
-              <KeyHint keyChar="l" word="logs" />
-              <KeyHint keyChar="s" word="settings" />
-              <KeyHint keyChar="t" word="theme" />
+              <KeyHint keyChar="q" word="quit" onClick={props.onQuitClick} />
+              <KeyHint keyChar="l" word="logs" onClick={props.onLogsClick} />
+              <KeyHint keyChar="s" word="settings" onClick={props.onSettingsClick} />
+              <KeyHint keyChar="t" word="theme" onClick={props.onThemeClick} />
             </>
           )}
         </box>

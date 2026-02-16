@@ -146,7 +146,7 @@ export function HotkeyModal(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>press combo</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1}>
+            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={closeModal}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
