@@ -24,11 +24,11 @@ import type { ModelManagerDialogData } from "../types";
  * @param props.label - The descriptive label shown next to the badge (for example: "close", "select").
  * @returns A JSX element containing a colored key badge and a muted label, arranged horizontally.
  */
-function CommandHint(props: { keys: string; label: string }): JSX.Element {
+function CommandHint(props: { keys: string; label: string; onClick?: () => void }): JSX.Element {
   const { colors } = useTheme();
 
   return (
-    <box flexDirection="row" alignItems="center" gap={1}>
+    <box flexDirection="row" alignItems="center" gap={1} onMouseUp={() => props.onClick?.()}>
       <box backgroundColor={colors().secondary} paddingX={1}>
         <text>
           <span style={{ fg: colors().selectedText }}>{props.keys}</span>
@@ -58,6 +58,7 @@ export function ModelManager(): JSX.Element {
 
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [statusMessage, setStatusMessage] = createSignal("");
+  const [mouseArmedIndex, setMouseArmedIndex] = createSignal<number | null>(null);
   const spinnerFrame = useSpinnerFrame();
   const dialogData = createMemo<ModelManagerDialogData>(
     () => (dialog.currentDialog()?.data as ModelManagerDialogData | undefined) ?? {},
@@ -96,6 +97,13 @@ export function ModelManager(): JSX.Element {
     const models = backend.models();
     if (models.length > 0 && selectedIndex() >= models.length) {
       setSelectedIndex(models.length - 1);
+    }
+  });
+
+  createEffect(() => {
+    const selected = selectedIndex();
+    if (mouseArmedIndex() !== selected) {
+      setMouseArmedIndex(null);
     }
   });
 
@@ -241,6 +249,17 @@ export function ModelManager(): JSX.Element {
     setStatusMessage(`Selected ${model.name}`);
   }
 
+  function handleModelClick(index: number) {
+    if (selectedIndex() === index && mouseArmedIndex() === index) {
+      handlePrimaryAction();
+      setMouseArmedIndex(null);
+      return;
+    }
+
+    setSelectedIndex(index);
+    setMouseArmedIndex(index);
+  }
+
   const statusDisplay = () => {
     const op = backend.activeModelOp();
     if (op) {
@@ -287,7 +306,7 @@ export function ModelManager(): JSX.Element {
                 </text>
               )}
             >
-              <box backgroundColor={colors().secondary} paddingX={1}>
+              <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={closeManager}>
                 <text>
                   <span style={{ fg: colors().selectedText }}>esc/q</span>
                 </text>
@@ -320,6 +339,7 @@ export function ModelManager(): JSX.Element {
                 model={model}
                 selected={index() === selectedIndex()}
                 isSelectedModel={model.name === selectedModelName()}
+                onClick={() => handleModelClick(index())}
               />
             )}
           </For>
@@ -336,9 +356,9 @@ export function ModelManager(): JSX.Element {
 
       <box paddingX={2} paddingTop={1} flexShrink={0}>
         <box flexDirection="row" gap={2} alignItems="center">
-          <CommandHint keys={primaryActionKeys()} label={primaryActionLabel()} />
-          <CommandHint keys="p" label="pull" />
-          <CommandHint keys="r/backspace" label="remove" />
+          <CommandHint keys={primaryActionKeys()} label={primaryActionLabel()} onClick={handlePrimaryAction} />
+          <CommandHint keys="p" label="pull" onClick={handlePull} />
+          <CommandHint keys="r/backspace" label="remove" onClick={handleRemove} />
         </box>
       </box>
     </box>

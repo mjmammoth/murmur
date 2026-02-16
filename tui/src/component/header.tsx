@@ -27,6 +27,7 @@ interface ToggleHintProps {
   keyChar: string;
   label: string;
   active: boolean;
+  onClick?: () => void;
 }
 
 /**
@@ -46,16 +47,25 @@ function ToggleHint(props: ToggleHintProps): JSX.Element {
   const after = hasMatch ? props.label.slice(matchIndex + 1) : "";
 
   return (
-    <text>
-      <span style={{ fg: colors().textDim }}>{before}</span>
-      <span style={{ fg: colors().accent, bold: true }}>{key}</span>
-      <span style={{ fg: colors().textDim }}>{after}</span>
-      <span style={{ fg: colors().textMuted }}>:</span>
-      <span style={{ fg: props.active ? colors().success : colors().textDim }}>
-        {props.active ? " on" : " off"}
-      </span>
-    </text>
+    <box onMouseUp={() => props.onClick?.()}>
+      <text>
+        <span style={{ fg: colors().textDim }}>{before}</span>
+        <span style={{ fg: colors().accent, bold: true }}>{key}</span>
+        <span style={{ fg: colors().textDim }}>{after}</span>
+        <span style={{ fg: colors().textMuted }}>:</span>
+        <span style={{ fg: props.active ? colors().success : colors().textDim }}>
+          {props.active ? " on" : " off"}
+        </span>
+      </text>
+    </box>
   );
+}
+
+interface HeaderProps {
+  onToggleNoise?: () => void;
+  onToggleVad?: () => void;
+  onToggleAutoCopy?: () => void;
+  onToggleAutoPaste?: () => void;
 }
 
 /**
@@ -68,7 +78,7 @@ function ToggleHint(props: ToggleHintProps): JSX.Element {
  *
  * @returns A JSX element containing the header UI: the animated brand strip on the left and the toggle hints on the right.
  */
-export function Header(): JSX.Element {
+export function Header(props: HeaderProps): JSX.Element {
   const { colors } = useTheme();
   const config = useConfig();
   const titleChars = TITLE.split("");
@@ -110,10 +120,25 @@ export function Header(): JSX.Element {
           alignItems="center"
           flexShrink={0}
         >
-          <ToggleHint keyChar="n" label="noise suppression" active={config.noiseEnabled()} />
-          <ToggleHint keyChar="v" label="vad" active={config.vadEnabled()} />
-          <ToggleHint keyChar="a" label="auto copy" active={config.autoCopy()} />
-          <ToggleHint keyChar="p" label="auto paste" active={config.autoPaste()} />
+          <ToggleHint
+            keyChar="n"
+            label="noise suppression"
+            active={config.noiseEnabled()}
+            onClick={props.onToggleNoise}
+          />
+          <ToggleHint keyChar="v" label="vad" active={config.vadEnabled()} onClick={props.onToggleVad} />
+          <ToggleHint
+            keyChar="a"
+            label="auto copy"
+            active={config.autoCopy()}
+            onClick={props.onToggleAutoCopy}
+          />
+          <ToggleHint
+            keyChar="p"
+            label="auto paste"
+            active={config.autoPaste()}
+            onClick={props.onToggleAutoPaste}
+          />
         </box>
       </box>
     </box>

@@ -169,7 +169,7 @@ export function SettingsEditModal(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>{subtitle()}</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1}>
+            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={closeModal}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
@@ -205,6 +205,25 @@ export function SettingsEditModal(): JSX.Element {
           <span style={{ fg: error() ? colors().error : colors().textDim }}>
             {error() || "Type value, enter to apply, esc/q to cancel"}
           </span>
+        </text>
+      </box>
+
+      <box paddingX={3} paddingTop={1} flexDirection="row" alignItems="center" gap={2}>
+        <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={applyValue}>
+          <text>
+            <span style={{ fg: colors().selectedText }}>enter</span>
+          </text>
+        </box>
+        <text>
+          <span style={{ fg: colors().textMuted }}>apply</span>
+        </text>
+        <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={closeModal}>
+          <text>
+            <span style={{ fg: colors().selectedText }}>esc/q</span>
+          </text>
+        </box>
+        <text>
+          <span style={{ fg: colors().textMuted }}>cancel</span>
         </text>
       </box>
     </box>

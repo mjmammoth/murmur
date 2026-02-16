@@ -16,6 +16,7 @@ export function ThemePickerModal(): JSX.Element {
   const terminal = useTerminalDimensions();
 
   const [selectedIndex, setSelectedIndex] = createSignal(0);
+  const [mouseArmedIndex, setMouseArmedIndex] = createSignal<number | null>(null);
   const [initialThemeId, setInitialThemeId] = createSignal<string | null>(null);
   const [initializedForOpen, setInitializedForOpen] = createSignal(false);
   let themeScroll: ScrollBoxRenderable | undefined;
@@ -43,6 +44,7 @@ export function ThemePickerModal(): JSX.Element {
     if (!isOpen) {
       setInitializedForOpen(false);
       setInitialThemeId(null);
+      setMouseArmedIndex(null);
       return;
     }
     if (initializedForOpen()) return;
@@ -52,6 +54,13 @@ export function ThemePickerModal(): JSX.Element {
     setInitialThemeId(current);
     const index = availableThemes.findIndex((theme) => theme.id === current);
     setSelectedIndex(index >= 0 ? index : 0);
+  });
+
+  createEffect(() => {
+    const selected = selectedIndex();
+    if (mouseArmedIndex() !== selected) {
+      setMouseArmedIndex(null);
+    }
   });
 
   function previewIndex(index: number) {
@@ -189,7 +198,7 @@ export function ThemePickerModal(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>live preview while navigating</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1}>
+            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={cancelSelection}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
@@ -237,7 +246,15 @@ export function ThemePickerModal(): JSX.Element {
                   flexDirection="row"
                   paddingRight={1}
                   backgroundColor={isActive() ? colors().backgroundElement : undefined}
-                  onMouseUp={() => previewIndex(index())}
+                  onMouseUp={() => {
+                    if (isActive() && mouseArmedIndex() === index()) {
+                      applySelection();
+                      setMouseArmedIndex(null);
+                      return;
+                    }
+                    previewIndex(index());
+                    setMouseArmedIndex(index());
+                  }}
                 >
                   <box width={1} backgroundColor={isActive() ? colors().secondary : undefined} />
                   <box paddingLeft={2} paddingRight={1} paddingY={1} flexDirection="column" width="100%">
