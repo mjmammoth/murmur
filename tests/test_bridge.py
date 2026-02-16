@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from time import monotonic
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -485,7 +486,6 @@ def test_bridge_server_init_components(mock_config):
     with patch('whisper_local.bridge.AudioRecorder'), \
          patch('whisper_local.bridge.RNNoiseSuppressor'), \
          patch('whisper_local.bridge.VadProcessor'), \
-         patch('whisper_local.bridge.Transcriber'), \
          patch('whisper_local.bridge.HotkeyListener'):
 
         server._init_components()
@@ -493,7 +493,7 @@ def test_bridge_server_init_components(mock_config):
         assert server.recorder is not None
         assert server.noise is not None
         assert server.vad is not None
-        assert server.transcriber is not None
+        assert server.transcriber is None
         assert server.hotkey is not None
 
 
@@ -501,7 +501,7 @@ def test_bridge_server_detect_runtime_capabilities(mock_config):
     """Test _detect_runtime_capabilities calls detect_runtime_capabilities."""
     server = BridgeServer(mock_config)
 
-    with patch('whisper_local.bridge.detect_runtime_capabilities') as mock_detect:
+    with patch('whisper_local.transcribe.detect_runtime_capabilities') as mock_detect:
         mock_detect.return_value = {'backend': 'test'}
 
         result = server._detect_runtime_capabilities()
@@ -514,9 +514,10 @@ def test_bridge_server_refresh_runtime_capabilities_no_force_within_ttl(mock_con
     """Test _refresh_runtime_capabilities skips refresh within TTL."""
     server = BridgeServer(mock_config)
     server._runtime_capabilities = {'old': 'data'}
+    server._runtime_capabilities_updated_at = monotonic()
     server._runtime_capabilities_dirty = False
 
-    with patch('whisper_local.bridge.detect_runtime_capabilities') as mock_detect:
+    with patch('whisper_local.transcribe.detect_runtime_capabilities') as mock_detect:
         server._refresh_runtime_capabilities(force=False)
 
         # Should not call detect since within TTL
@@ -527,7 +528,7 @@ def test_bridge_server_refresh_runtime_capabilities_force(mock_config):
     """Test _refresh_runtime_capabilities forces refresh when force=True."""
     server = BridgeServer(mock_config)
 
-    with patch('whisper_local.bridge.detect_runtime_capabilities') as mock_detect:
+    with patch('whisper_local.transcribe.detect_runtime_capabilities') as mock_detect:
         mock_detect.return_value = {'new': 'data'}
 
         server._refresh_runtime_capabilities(force=True)

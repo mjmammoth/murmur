@@ -202,6 +202,7 @@ class WhisperApp(App):
         if self._auto_paste and not self._auto_copy:
             self._auto_copy = True
             self.config.auto_copy = True
+            save_config(self.config)
             logger.info("Auto paste enabled in config; forcing auto copy on")
         self._entries: list[TranscriptEntry] = []
         self._status_message = "Initializing..."
