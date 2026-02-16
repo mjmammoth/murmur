@@ -111,6 +111,10 @@ class BridgeServer:
         self._recording = False
         self._auto_copy = bool(config.auto_copy)
         self._auto_paste = bool(config.auto_paste)
+        if self._auto_paste and not self._auto_copy:
+            self._auto_copy = True
+            self.config.auto_copy = True
+            logger.info("Auto paste enabled in config; forcing auto copy on")
         self._busy_started_at = 0.0
         self._transcribing_jobs = 0
         self._hotkey_blocked = False
@@ -733,7 +737,22 @@ class BridgeServer:
             elif msg_type == "toggle_vad":
                 await self._toggle_vad(data.get("enabled", True))
             elif msg_type == "toggle_auto_copy":
-                self._auto_copy = bool(data.get("enabled", not self._auto_copy))
+                requested_auto_copy = bool(data.get("enabled", not self._auto_copy))
+                if not requested_auto_copy and self._auto_paste:
+                    logger.info(
+                        "Rejected auto copy disable request because auto paste is enabled"
+                    )
+                    await self._broadcast(
+                        {
+                            "type": "toast",
+                            "message": "Auto copy remains on while auto paste is enabled",
+                            "level": "info",
+                        }
+                    )
+                    await self._broadcast_config()
+                    return
+
+                self._auto_copy = requested_auto_copy
                 self.config.auto_copy = self._auto_copy
                 persist_error: str | None = None
                 try:
@@ -756,6 +775,12 @@ class BridgeServer:
             elif msg_type == "toggle_auto_paste":
                 self._auto_paste = bool(data.get("enabled", not self._auto_paste))
                 self.config.auto_paste = self._auto_paste
+                auto_copy_forced = False
+                if self._auto_paste and not self._auto_copy:
+                    self._auto_copy = True
+                    self.config.auto_copy = True
+                    auto_copy_forced = True
+                    logger.info("Auto paste enabled; forcing auto copy on")
                 persist_error = None
                 try:
                     save_config(self.config)
@@ -763,7 +788,14 @@ class BridgeServer:
                     logger.exception("Failed to persist auto paste config")
                     persist_error = str(exc)
                 await self._broadcast(
-                    {"type": "toast", "message": f"Auto paste {'on' if self._auto_paste else 'off'}"}
+                    {
+                        "type": "toast",
+                        "message": (
+                            "Auto paste on; auto copy on"
+                            if auto_copy_forced
+                            else f"Auto paste {'on' if self._auto_paste else 'off'}"
+                        ),
+                    }
                 )
                 if persist_error:
                     await self._broadcast(

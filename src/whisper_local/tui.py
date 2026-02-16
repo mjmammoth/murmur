@@ -199,6 +199,10 @@ class WhisperApp(App):
         self._recording = False
         self._auto_copy = bool(config.auto_copy)
         self._auto_paste = bool(config.auto_paste)
+        if self._auto_paste and not self._auto_copy:
+            self._auto_copy = True
+            self.config.auto_copy = True
+            logger.info("Auto paste enabled in config; forcing auto copy on")
         self._entries: list[TranscriptEntry] = []
         self._status_message = "Initializing..."
         self._busy_operation = False
@@ -233,6 +237,10 @@ class WhisperApp(App):
         self._set_status(f"Edit settings in {config_path}")
 
     def action_toggle_auto_copy(self) -> None:
+        if self._auto_paste and self._auto_copy:
+            logger.info("Rejected auto copy disable request because auto paste is enabled")
+            self._set_status("Auto copy remains on while auto paste is enabled")
+            return
         self._auto_copy = not self._auto_copy
         self.config.auto_copy = self._auto_copy
         save_config(self.config)
@@ -242,9 +250,18 @@ class WhisperApp(App):
     def action_toggle_auto_paste(self) -> None:
         self._auto_paste = not self._auto_paste
         self.config.auto_paste = self._auto_paste
+        auto_copy_forced = False
+        if self._auto_paste and not self._auto_copy:
+            self._auto_copy = True
+            self.config.auto_copy = True
+            auto_copy_forced = True
+            logger.info("Auto paste enabled; forcing auto copy on")
         save_config(self.config)
-        state = "on" if self._auto_paste else "off"
-        self._set_status(f"Auto paste {state}")
+        if auto_copy_forced:
+            self._set_status("Auto paste on; auto copy on")
+        else:
+            state = "on" if self._auto_paste else "off"
+            self._set_status(f"Auto paste {state}")
 
     def action_toggle_noise(self) -> None:
         self.config.audio.noise_suppression.enabled = not self.config.audio.noise_suppression.enabled

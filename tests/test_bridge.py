@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -161,6 +163,88 @@ def test_bridge_server_init(mock_config):
     assert server._auto_copy is False
     assert server._auto_paste is False
     assert server._model_loaded is False
+
+
+def test_bridge_server_init_forces_auto_copy_when_auto_paste_enabled(mock_config):
+    """Auto paste startup state should always imply auto copy."""
+    mock_config.auto_copy = False
+    mock_config.auto_paste = True
+
+    with patch('whisper_local.bridge.logger') as mock_logger:
+        server = BridgeServer(mock_config)
+
+    assert server._auto_paste is True
+    assert server._auto_copy is True
+    assert mock_config.auto_copy is True
+    mock_logger.info.assert_called_once_with(
+        'Auto paste enabled in config; forcing auto copy on'
+    )
+
+
+def test_toggle_auto_copy_is_blocked_while_auto_paste_enabled(mock_config):
+    """Disabling auto copy should be rejected when auto paste is on."""
+    server = BridgeServer(mock_config)
+    server._auto_copy = True
+    server._auto_paste = True
+    mock_config.auto_copy = True
+    mock_config.auto_paste = True
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    with patch('whisper_local.bridge.save_config') as mock_save:
+        with patch('whisper_local.bridge.logger') as mock_logger:
+            asyncio.run(
+                server._handle_message(
+                    Mock(),
+                    json.dumps({'type': 'toggle_auto_copy', 'enabled': False}),
+                )
+            )
+
+    assert server._auto_copy is True
+    assert mock_config.auto_copy is True
+    mock_save.assert_not_called()
+    server._broadcast.assert_awaited_once_with(
+        {
+            'type': 'toast',
+            'message': 'Auto copy remains on while auto paste is enabled',
+            'level': 'info',
+        }
+    )
+    server._broadcast_config.assert_awaited_once()
+    mock_logger.info.assert_called_once_with(
+        'Rejected auto copy disable request because auto paste is enabled'
+    )
+
+
+def test_toggle_auto_paste_enables_auto_copy(mock_config):
+    """Enabling auto paste should automatically enable auto copy."""
+    server = BridgeServer(mock_config)
+    server._auto_copy = False
+    server._auto_paste = False
+    mock_config.auto_copy = False
+    mock_config.auto_paste = False
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    with patch('whisper_local.bridge.save_config') as mock_save:
+        with patch('whisper_local.bridge.logger') as mock_logger:
+            asyncio.run(
+                server._handle_message(
+                    Mock(),
+                    json.dumps({'type': 'toggle_auto_paste', 'enabled': True}),
+                )
+            )
+
+    assert server._auto_paste is True
+    assert server._auto_copy is True
+    assert mock_config.auto_paste is True
+    assert mock_config.auto_copy is True
+    mock_save.assert_called_once_with(mock_config)
+    server._broadcast.assert_awaited_once_with(
+        {'type': 'toast', 'message': 'Auto paste on; auto copy on'}
+    )
+    server._broadcast_config.assert_awaited_once()
+    mock_logger.info.assert_called_once_with('Auto paste enabled; forcing auto copy on')
 
 
 def test_bridge_server_spawn_task():
