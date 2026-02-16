@@ -28,13 +28,18 @@ export interface ConfigContextValue {
 const [ConfigProvider, useConfig] = createContextHelper<ConfigContextValue>("Config");
 export { useConfig };
 
+/**
+ * Provides a ConfigContext to its children, exposing reactive configuration accessors and handlers that stay synchronized with backend state.
+ *
+ * The provider maintains local reactive signals for UI-driven flags (noise, VAD, output clipboard/file, hotkey mode), synchronizes them from backend.config(), and exposes action functions that send corresponding commands to the backend when invoked.
+ *
+ * @returns A JSX element that renders the ConfigProvider wrapping the given children with the computed configuration context value.
+ */
 export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Element {
   const backend = useBackend();
 
   const [noiseEnabled, setNoiseEnabled] = createSignal(true);
   const [vadEnabled, setVadEnabled] = createSignal(false);
-  const [autoCopy, setAutoCopy] = createSignal(false);
-  const [autoPaste, setAutoPaste] = createSignal(false);
   const [outputClipboard, setOutputClipboard] = createSignal(true);
   const [outputFileEnabled, setOutputFileEnabled] = createSignal(false);
   const [hotkeyMode, setHotkeyMode] = createSignal<"ptt" | "toggle">("ptt");
@@ -51,14 +56,6 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     }
   });
 
-  createEffect(() => {
-    setAutoCopy(backend.autoCopy());
-  });
-
-  createEffect(() => {
-    setAutoPaste(backend.autoPaste());
-  });
-
   function toggleNoise() {
     const newValue = !noiseEnabled();
     setNoiseEnabled(newValue);
@@ -72,14 +69,12 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
   }
 
   function toggleAutoCopy() {
-    const newValue = !autoCopy();
-    setAutoCopy(newValue);
+    const newValue = !backend.autoCopy();
     backend.send({ type: "toggle_auto_copy", enabled: newValue });
   }
 
   function toggleAutoPaste() {
-    const newValue = !autoPaste();
-    setAutoPaste(newValue);
+    const newValue = !backend.autoPaste();
     backend.send({ type: "toggle_auto_paste", enabled: newValue });
   }
 
@@ -121,8 +116,8 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     config: backend.config,
     noiseEnabled,
     vadEnabled,
-    autoCopy,
-    autoPaste,
+    autoCopy: backend.autoCopy,
+    autoPaste: backend.autoPaste,
     outputClipboard,
     outputFileEnabled,
     hotkeyMode,
