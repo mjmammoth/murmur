@@ -28,6 +28,13 @@ export interface ConfigContextValue {
 const [ConfigProvider, useConfig] = createContextHelper<ConfigContextValue>("Config");
 export { useConfig };
 
+/**
+ * Provides a ConfigContext to its children, exposing reactive configuration accessors and handlers that stay synchronized with backend state.
+ *
+ * The provider maintains local reactive signals for UI-driven flags (noise, VAD, output clipboard/file, hotkey mode), synchronizes them from backend.config(), and exposes action functions that send corresponding commands to the backend when invoked.
+ *
+ * @returns A JSX element that renders the ConfigProvider wrapping the given children with the computed configuration context value.
+ */
 export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Element {
   const backend = useBackend();
 

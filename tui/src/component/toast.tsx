@@ -3,6 +3,13 @@ import { useTerminalDimensions } from "@opentui/solid";
 import { useTheme } from "../context/theme";
 import { useToast } from "../context/toast";
 
+/**
+ * Renders a top-right toast container that displays current toast notifications.
+ *
+ * The container is visible only when there are toasts and its width is constrained by terminal dimensions. Each toast shows a colored level indicator ("error" or "info") and the message text.
+ *
+ * @returns The rendered toast container element
+ */
 export function ToastContainer(): JSX.Element {
   const { colors } = useTheme();
   const { toasts } = useToast();
