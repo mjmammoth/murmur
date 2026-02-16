@@ -1,10 +1,24 @@
 import { Show, For, type JSX } from "solid-js";
+import { useTerminalDimensions } from "@opentui/solid";
 import { useTheme } from "../context/theme";
 import { useToast } from "../context/toast";
 
+/**
+ * Renders a top-right toast container that displays current toast notifications.
+ *
+ * The container is visible only when there are toasts and its width is constrained by terminal dimensions. Each toast shows a colored level indicator ("error" or "info") and the message text.
+ *
+ * @returns The rendered toast container element
+ */
 export function ToastContainer(): JSX.Element {
   const { colors } = useTheme();
   const { toasts } = useToast();
+  const terminal = useTerminalDimensions();
+
+  const toastWidth = () => {
+    const available = Math.max(24, terminal().width - 6);
+    return Math.min(46, available);
+  };
 
   const getToastColor = (level: "info" | "error") => {
     switch (level) {
@@ -23,7 +37,7 @@ export function ToastContainer(): JSX.Element {
         right={2}
         top={2}
         flexDirection="column"
-        width={46}
+        width={toastWidth()}
       >
         <For each={toasts()}>
           {(toast) => (
@@ -33,14 +47,22 @@ export function ToastContainer(): JSX.Element {
               backgroundColor={colors().backgroundPanel}
               paddingRight={2}
               paddingY={1}
+              width="100%"
             >
               <box width={1} backgroundColor={getToastColor(toast.level)} />
-              <box paddingLeft={1}>
+              <box
+                paddingLeft={1}
+                flexDirection="column"
+                flexGrow={1}
+                flexShrink={1}
+                width="100%"
+              >
                 <text>
                   <span style={{ fg: getToastColor(toast.level) }}>
                     {toast.level === "error" ? "error" : "info"}
                   </span>
-                  <span style={{ fg: colors().textMuted }}> / </span>
+                </text>
+                <text wrapMode="word" width="100%">
                   <span style={{ fg: colors().text }}>{toast.message}</span>
                 </text>
               </box>

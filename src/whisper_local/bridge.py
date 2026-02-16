@@ -98,12 +98,12 @@ class BridgeServer:
 
     def __init__(self, config: AppConfig) -> None:
         """
-        Initialize the BridgeServer internal state from the provided configuration.
+        Initialize the BridgeServer internal runtime state and placeholders from the given configuration.
         
-        Sets up runtime flags, client sets, synchronization primitives, task registries, and placeholders for audio/transcription components; runtime capability detection is performed and a shutdown event is created.
+        Sets up client sets, recording/state flags, concurrency primitives (locks and events), background and per-model task registries, runtime capability caching, and lazy placeholders for audio/transcription/hotkey components. If the provided config enables auto_paste while auto_copy is disabled, auto_copy will be enabled on the server and the config will be updated accordingly.
         
         Parameters:
-            config (AppConfig): Application configuration used to initialize server settings (e.g., auto_copy/auto_paste and model selection).
+            config (AppConfig): Application configuration used to initialize server settings and defaults.
         """
         self.config = config
         self.clients: set[WebSocketServerProtocol] = set()
@@ -111,6 +111,11 @@ class BridgeServer:
         self._recording = False
         self._auto_copy = bool(config.auto_copy)
         self._auto_paste = bool(config.auto_paste)
+        if self._auto_paste and not self._auto_copy:
+            self._auto_copy = True
+            self.config.auto_copy = True
+            save_config(self.config)
+            logger.info("Auto paste enabled in config; forcing auto copy on")
         self._busy_started_at = 0.0
         self._transcribing_jobs = 0
         self._hotkey_blocked = False
@@ -733,7 +738,22 @@ class BridgeServer:
             elif msg_type == "toggle_vad":
                 await self._toggle_vad(data.get("enabled", True))
             elif msg_type == "toggle_auto_copy":
-                self._auto_copy = bool(data.get("enabled", not self._auto_copy))
+                requested_auto_copy = bool(data.get("enabled", not self._auto_copy))
+                if not requested_auto_copy and self._auto_paste:
+                    logger.info(
+                        "Rejected auto copy disable request because auto paste is enabled"
+                    )
+                    await self._broadcast(
+                        {
+                            "type": "toast",
+                            "message": "Auto copy remains on while auto paste is enabled",
+                            "level": "info",
+                        }
+                    )
+                    await self._broadcast_config()
+                    return
+
+                self._auto_copy = requested_auto_copy
                 self.config.auto_copy = self._auto_copy
                 persist_error: str | None = None
                 try:
@@ -742,7 +762,11 @@ class BridgeServer:
                     logger.exception("Failed to persist auto copy config")
                     persist_error = str(exc)
                 await self._broadcast(
-                    {"type": "toast", "message": f"Auto copy {'on' if self._auto_copy else 'off'}"}
+                    {
+                        "type": "toast",
+                        "message": f"Auto copy {'on' if self._auto_copy else 'off'}",
+                        "level": "success",
+                    }
                 )
                 if persist_error:
                     await self._broadcast(
@@ -756,6 +780,12 @@ class BridgeServer:
             elif msg_type == "toggle_auto_paste":
                 self._auto_paste = bool(data.get("enabled", not self._auto_paste))
                 self.config.auto_paste = self._auto_paste
+                auto_copy_forced = False
+                if self._auto_paste and not self._auto_copy:
+                    self._auto_copy = True
+                    self.config.auto_copy = True
+                    auto_copy_forced = True
+                    logger.info("Auto paste enabled; forcing auto copy on")
                 persist_error = None
                 try:
                     save_config(self.config)
@@ -763,7 +793,15 @@ class BridgeServer:
                     logger.exception("Failed to persist auto paste config")
                     persist_error = str(exc)
                 await self._broadcast(
-                    {"type": "toast", "message": f"Auto paste {'on' if self._auto_paste else 'off'}"}
+                    {
+                        "type": "toast",
+                        "message": (
+                            "Auto paste on; auto copy on"
+                            if auto_copy_forced
+                            else f"Auto paste {'on' if self._auto_paste else 'off'}"
+                        ),
+                        "level": "success",
+                    }
                 )
                 if persist_error:
                     await self._broadcast(
@@ -821,7 +859,13 @@ class BridgeServer:
                 text = data.get("text", "")
                 if text:
                     if copy_to_clipboard(text):
-                        await self._broadcast({"type": "toast", "message": "Copied to clipboard"})
+                        await self._broadcast(
+                            {
+                                "type": "toast",
+                                "message": "Copied to clipboard",
+                                "level": "success",
+                            }
+                        )
                     else:
                         await self._broadcast(
                             {
@@ -920,11 +964,19 @@ class BridgeServer:
 
         if len(valid_paths) == 1:
             await self._broadcast(
-                {"type": "toast", "message": f"Queued file transcription: {valid_paths[0].name}"}
+                {
+                    "type": "toast",
+                    "message": f"Queued file transcription: {valid_paths[0].name}",
+                    "level": "success",
+                }
             )
         else:
             await self._broadcast(
-                {"type": "toast", "message": f"Queued {len(valid_paths)} files for transcription"}
+                {
+                    "type": "toast",
+                    "message": f"Queued {len(valid_paths)} files for transcription",
+                    "level": "success",
+                }
             )
 
         async with self._file_transcription_lock:
@@ -1075,11 +1127,23 @@ class BridgeServer:
             return
 
         if final_message == "Ready":
-            await self._broadcast({"type": "toast", "message": f"Transcribed {path.name}"})
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Transcribed {path.name}",
+                    "level": "success",
+                }
+            )
             return
 
         if final_message in {"No speech detected", "No audio captured"}:
-            await self._broadcast({"type": "toast", "message": f"{path.name}: {final_message}"})
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"{path.name}: {final_message}",
+                    "level": "info",
+                }
+            )
 
     async def _toggle_noise(self, enabled: bool) -> None:
         """Toggle noise suppression."""
@@ -1087,7 +1151,13 @@ class BridgeServer:
         self.noise = RNNoiseSuppressor(enabled=enabled)
         save_config(self.config)
         state = "on" if enabled else "off"
-        await self._broadcast({"type": "toast", "message": f"Noise suppression {state}"})
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Noise suppression {state}",
+                "level": "success",
+            }
+        )
         await self._broadcast_config()
 
     async def _toggle_vad(self, enabled: bool) -> None:
@@ -1106,7 +1176,7 @@ class BridgeServer:
         )
         save_config(self.config)
         state = "on" if enabled else "off"
-        await self._broadcast({"type": "toast", "message": f"VAD {state}"})
+        await self._broadcast({"type": "toast", "message": f"VAD {state}", "level": "success"})
         await self._broadcast_config()
 
     async def _download_model(self, name: str) -> None:
@@ -1123,7 +1193,13 @@ class BridgeServer:
         async with self._model_op_lock:
             cancel_event = threading.Event()
             self._download_cancel_events[name] = cancel_event
-            await self._broadcast({"type": "toast", "message": f"Downloading {name}..."})
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Downloading {name}...",
+                    "level": "info",
+                }
+            )
             loop = asyncio.get_event_loop()
             last_percent = -1
 
@@ -1160,6 +1236,7 @@ class BridgeServer:
                         "type": "toast",
                         "message": f"Downloaded {name}",
                         "action": "download_complete",
+                        "level": "success",
                     }
                 )
                 # After a successful pull, make the downloaded model active.
@@ -1172,6 +1249,7 @@ class BridgeServer:
                             "type": "toast",
                             "message": f"Download cancelled: {name}",
                             "action": "download_cancelled",
+                            "level": "info",
                         }
                     )
                     await self._broadcast_models()
@@ -1237,7 +1315,13 @@ class BridgeServer:
             return
 
         cancel_event.set()
-        await self._broadcast({"type": "toast", "message": f"Cancelling download {model_name}..."})
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Cancelling download {model_name}...",
+                "level": "info",
+            }
+        )
 
     async def _remove_model(self, name: str) -> None:
         """
@@ -1260,6 +1344,7 @@ class BridgeServer:
                         "type": "toast",
                         "message": f"Removed {name}",
                         "action": "remove_complete",
+                        "level": "success",
                     }
                 )
                 installed_model_names = self._installed_model_names()
@@ -1270,6 +1355,7 @@ class BridgeServer:
                         {
                             "type": "toast",
                             "message": "No models installed. Download and select a model to continue.",
+                            "level": "info",
                         }
                     )
                 elif self.config.model.name not in installed_model_names:
@@ -1361,7 +1447,13 @@ class BridgeServer:
             return
 
         await self._broadcast_config()
-        await self._broadcast({"type": "toast", "message": f"Selected model set to {name}"})
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Selected model set to {name}",
+                "level": "success",
+            }
+        )
         if persist_error:
             await self._broadcast(
                 {
@@ -1504,7 +1596,13 @@ class BridgeServer:
             return
 
         await self._broadcast_config()
-        await self._broadcast({"type": "toast", "message": f"Model backend {normalized}"})
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Model backend {normalized}",
+                "level": "success",
+            }
+        )
         if persist_error:
             await self._broadcast(
                 {
@@ -1574,7 +1672,13 @@ class BridgeServer:
             return
 
         await self._broadcast_config()
-        await self._broadcast({"type": "toast", "message": f"Model device {normalized}"})
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Model device {normalized}",
+                "level": "success",
+            }
+        )
         if persist_error:
             await self._broadcast(
                 {
@@ -1661,7 +1765,13 @@ class BridgeServer:
             return
 
         await self._broadcast_config()
-        await self._broadcast({"type": "toast", "message": f"Compute type {normalized}"})
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Compute type {normalized}",
+                "level": "success",
+            }
+        )
         if persist_error:
             await self._broadcast(
                 {
@@ -1694,6 +1804,7 @@ class BridgeServer:
                     if next_language is None
                     else f"Model language {next_language}"
                 ),
+                "level": "success",
             }
         )
 
@@ -1752,7 +1863,13 @@ class BridgeServer:
         persist_error = self._persist_config("audio sample rate")
 
         await self._broadcast_config()
-        await self._broadcast({"type": "toast", "message": f"Sample rate {normalized} Hz"})
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Sample rate {normalized} Hz",
+                "level": "success",
+            }
+        )
         if persist_error:
             await self._broadcast(
                 {
@@ -1824,7 +1941,11 @@ class BridgeServer:
         persist_error = self._persist_config("vad aggressiveness")
         await self._broadcast_config()
         await self._broadcast(
-            {"type": "toast", "message": f"VAD aggressiveness {self.config.vad.aggressiveness}"}
+            {
+                "type": "toast",
+                "message": f"VAD aggressiveness {self.config.vad.aggressiveness}",
+                "level": "success",
+            }
         )
         if persist_error:
             await self._broadcast(
@@ -1847,6 +1968,7 @@ class BridgeServer:
             {
                 "type": "toast",
                 "message": f"Clipboard output {'on' if normalized else 'off'}",
+                "level": "success",
             }
         )
         if persist_error:
@@ -1870,6 +1992,7 @@ class BridgeServer:
             {
                 "type": "toast",
                 "message": f"File output {'on' if normalized else 'off'}",
+                "level": "success",
             }
         )
         if persist_error:
@@ -1901,7 +2024,13 @@ class BridgeServer:
         self.config.output.file.path = normalized
         persist_error = self._persist_config("output file path")
         await self._broadcast_config()
-        await self._broadcast({"type": "toast", "message": f"Output file path {normalized}"})
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Output file path {normalized}",
+                "level": "success",
+            }
+        )
         if persist_error:
             await self._broadcast(
                 {
@@ -1955,6 +2084,7 @@ class BridgeServer:
                     if next_path is None
                     else f"Local model path {next_path}"
                 ),
+                "level": "success",
             }
         )
         if persist_error:
@@ -1981,7 +2111,13 @@ class BridgeServer:
         persist_error = self._persist_config("theme")
 
         await self._broadcast_config()
-        await self._broadcast({"type": "toast", "message": f"Theme {normalized}"})
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Theme {normalized}",
+                "level": "success",
+            }
+        )
         if persist_error:
             await self._broadcast(
                 {
@@ -2048,7 +2184,13 @@ class BridgeServer:
             persist_error = str(exc)
 
         await self._broadcast_config()
-        await self._broadcast({"type": "toast", "message": f"Hotkey set to {hotkey}"})
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Hotkey set to {hotkey}",
+                "level": "success",
+            }
+        )
         if persist_error:
             await self._broadcast(
                 {
@@ -2084,7 +2226,13 @@ class BridgeServer:
             persist_error = str(exc)
 
         await self._broadcast_config()
-        await self._broadcast({"type": "toast", "message": f"Hotkey mode {normalized}"})
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Hotkey mode {normalized}",
+                "level": "success",
+            }
+        )
 
         if persist_error:
             await self._broadcast(

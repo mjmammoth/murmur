@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from pathlib import Path
-from unittest.mock import Mock, patch
+from time import monotonic
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -161,6 +164,94 @@ def test_bridge_server_init(mock_config):
     assert server._auto_copy is False
     assert server._auto_paste is False
     assert server._model_loaded is False
+
+
+def test_bridge_server_init_forces_auto_copy_when_auto_paste_enabled(mock_config):
+    """Auto paste startup state should always imply auto copy."""
+    mock_config.auto_copy = False
+    mock_config.auto_paste = True
+
+    with patch('whisper_local.bridge.save_config') as mock_save:
+        with patch('whisper_local.bridge.logger') as mock_logger:
+            server = BridgeServer(mock_config)
+
+    assert server._auto_paste is True
+    assert server._auto_copy is True
+    assert mock_config.auto_copy is True
+    mock_save.assert_called_once_with(mock_config)
+    mock_logger.info.assert_called_once_with(
+        'Auto paste enabled in config; forcing auto copy on'
+    )
+
+
+def test_toggle_auto_copy_is_blocked_while_auto_paste_enabled(mock_config):
+    """Disabling auto copy should be rejected when auto paste is on."""
+    server = BridgeServer(mock_config)
+    server._auto_copy = True
+    server._auto_paste = True
+    mock_config.auto_copy = True
+    mock_config.auto_paste = True
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    with patch('whisper_local.bridge.save_config') as mock_save:
+        with patch('whisper_local.bridge.logger') as mock_logger:
+            asyncio.run(
+                server._handle_message(
+                    Mock(),
+                    json.dumps({'type': 'toggle_auto_copy', 'enabled': False}),
+                )
+            )
+
+    assert server._auto_copy is True
+    assert mock_config.auto_copy is True
+    mock_save.assert_not_called()
+    server._broadcast.assert_awaited_once_with(
+        {
+            'type': 'toast',
+            'message': 'Auto copy remains on while auto paste is enabled',
+            'level': 'info',
+        }
+    )
+    server._broadcast_config.assert_awaited_once()
+    mock_logger.info.assert_called_once_with(
+        'Rejected auto copy disable request because auto paste is enabled'
+    )
+
+
+def test_toggle_auto_paste_enables_auto_copy(mock_config):
+    """Enabling auto paste should automatically enable auto copy."""
+    server = BridgeServer(mock_config)
+    server._auto_copy = False
+    server._auto_paste = False
+    mock_config.auto_copy = False
+    mock_config.auto_paste = False
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    with patch('whisper_local.bridge.save_config') as mock_save:
+        with patch('whisper_local.bridge.logger') as mock_logger:
+            asyncio.run(
+                server._handle_message(
+                    Mock(),
+                    json.dumps({'type': 'toggle_auto_paste', 'enabled': True}),
+                )
+            )
+
+    assert server._auto_paste is True
+    assert server._auto_copy is True
+    assert mock_config.auto_paste is True
+    assert mock_config.auto_copy is True
+    mock_save.assert_called_once_with(mock_config)
+    server._broadcast.assert_awaited_once_with(
+        {
+            'type': 'toast',
+            'message': 'Auto paste on; auto copy on',
+            'level': 'success',
+        }
+    )
+    server._broadcast_config.assert_awaited_once()
+    mock_logger.info.assert_called_once_with('Auto paste enabled; forcing auto copy on')
 
 
 def test_bridge_server_spawn_task():
@@ -401,7 +492,6 @@ def test_bridge_server_init_components(mock_config):
     with patch('whisper_local.bridge.AudioRecorder'), \
          patch('whisper_local.bridge.RNNoiseSuppressor'), \
          patch('whisper_local.bridge.VadProcessor'), \
-         patch('whisper_local.bridge.Transcriber'), \
          patch('whisper_local.bridge.HotkeyListener'):
 
         server._init_components()
@@ -409,7 +499,7 @@ def test_bridge_server_init_components(mock_config):
         assert server.recorder is not None
         assert server.noise is not None
         assert server.vad is not None
-        assert server.transcriber is not None
+        assert server.transcriber is None
         assert server.hotkey is not None
 
 
@@ -417,7 +507,7 @@ def test_bridge_server_detect_runtime_capabilities(mock_config):
     """Test _detect_runtime_capabilities calls detect_runtime_capabilities."""
     server = BridgeServer(mock_config)
 
-    with patch('whisper_local.bridge.detect_runtime_capabilities') as mock_detect:
+    with patch('whisper_local.transcribe.detect_runtime_capabilities') as mock_detect:
         mock_detect.return_value = {'backend': 'test'}
 
         result = server._detect_runtime_capabilities()
@@ -430,9 +520,10 @@ def test_bridge_server_refresh_runtime_capabilities_no_force_within_ttl(mock_con
     """Test _refresh_runtime_capabilities skips refresh within TTL."""
     server = BridgeServer(mock_config)
     server._runtime_capabilities = {'old': 'data'}
+    server._runtime_capabilities_updated_at = monotonic()
     server._runtime_capabilities_dirty = False
 
-    with patch('whisper_local.bridge.detect_runtime_capabilities') as mock_detect:
+    with patch('whisper_local.transcribe.detect_runtime_capabilities') as mock_detect:
         server._refresh_runtime_capabilities(force=False)
 
         # Should not call detect since within TTL
@@ -443,7 +534,7 @@ def test_bridge_server_refresh_runtime_capabilities_force(mock_config):
     """Test _refresh_runtime_capabilities forces refresh when force=True."""
     server = BridgeServer(mock_config)
 
-    with patch('whisper_local.bridge.detect_runtime_capabilities') as mock_detect:
+    with patch('whisper_local.transcribe.detect_runtime_capabilities') as mock_detect:
         mock_detect.return_value = {'new': 'data'}
 
         server._refresh_runtime_capabilities(force=True)
