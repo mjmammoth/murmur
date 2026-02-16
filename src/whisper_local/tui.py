@@ -180,6 +180,17 @@ class WhisperApp(App):
     ]
 
     def __init__(self, config: AppConfig) -> None:
+        """
+        Initialize the WhisperApp with the given application configuration and set up audio, processing, hotkey, and UI state.
+        
+        Parameters:
+            config (AppConfig): Application configuration used to configure audio recorder, noise suppression, VAD, transcriber, hotkey behavior, and persisted feature flags.
+        
+        Detailed behavior:
+            - Instantiates AudioRecorder, RNNoiseSuppressor, VadProcessor, Transcriber, and HotkeyListener according to values in `config`.
+            - Initializes runtime flags and UI/state fields used by the app (recording state, transcript entries, status text, busy spinner/timers, and download UI state).
+            - Ensures that enabling auto-paste also enables and persists auto-copy (if auto-paste is true while auto-copy is false, auto-copy will be turned on and saved to `config`).
+        """
         super().__init__()
         self.config = config
         self.recorder = AudioRecorder(sample_rate=config.audio.sample_rate)
@@ -234,10 +245,20 @@ class WhisperApp(App):
         self.push_screen(ModelManagerScreen())
 
     def action_settings(self) -> None:
+        """
+        Set the application's status message to indicate where to edit the configuration file.
+        
+        Sets the UI status text to "Edit settings in <path>", where <path> is the default configuration file path.
+        """
         config_path = default_config_path()
         self._set_status(f"Edit settings in {config_path}")
 
     def action_toggle_auto_copy(self) -> None:
+        """
+        Toggle the application's auto-copy setting, persist the change, and update the UI status.
+        
+        If auto-paste is enabled, this method prevents turning auto-copy off and leaves the setting enabled; in that case a log entry is written and the status is updated to indicate auto-copy remains on. Otherwise the auto-copy flag is flipped, the value is saved to the configuration, and the status is set to "Auto copy on" or "Auto copy off" accordingly.
+        """
         if self._auto_paste and self._auto_copy:
             logger.info("Rejected auto copy disable request because auto paste is enabled")
             self._set_status("Auto copy remains on while auto paste is enabled")
@@ -249,6 +270,11 @@ class WhisperApp(App):
         self._set_status(f"Auto copy {state}")
 
     def action_toggle_auto_paste(self) -> None:
+        """
+        Toggle the application's auto-paste setting and persist the change.
+        
+        If enabling auto-paste while auto-copy is disabled, auto-copy is forced on, the configuration is saved, and the status is set to "Auto paste on; auto copy on". Otherwise the configuration is saved and the status is set to "Auto paste on" or "Auto paste off" to reflect the new state.
+        """
         self._auto_paste = not self._auto_paste
         self.config.auto_paste = self._auto_paste
         auto_copy_forced = False
@@ -265,6 +291,11 @@ class WhisperApp(App):
             self._set_status(f"Auto paste {state}")
 
     def action_toggle_noise(self) -> None:
+        """
+        Toggle the application's noise suppression setting and apply the change.
+        
+        This flips the configured audio noise suppression enabled flag, recreates the RNNoiseSuppressor with the new setting, persists the updated configuration, and updates the UI status to indicate whether noise suppression is now on or off.
+        """
         self.config.audio.noise_suppression.enabled = not self.config.audio.noise_suppression.enabled
         self.noise = RNNoiseSuppressor(enabled=self.config.audio.noise_suppression.enabled)
         save_config(self.config)

@@ -98,12 +98,12 @@ class BridgeServer:
 
     def __init__(self, config: AppConfig) -> None:
         """
-        Initialize the BridgeServer internal state from the provided configuration.
+        Initialize the BridgeServer internal runtime state and placeholders from the given configuration.
         
-        Sets up runtime flags, client sets, synchronization primitives, task registries, and placeholders for audio/transcription components; runtime capability detection is performed and a shutdown event is created.
+        Sets up client sets, recording/state flags, concurrency primitives (locks and events), background and per-model task registries, runtime capability caching, and lazy placeholders for audio/transcription/hotkey components. If the provided config enables auto_paste while auto_copy is disabled, auto_copy will be enabled on the server and the config will be updated accordingly.
         
         Parameters:
-            config (AppConfig): Application configuration used to initialize server settings (e.g., auto_copy/auto_paste and model selection).
+            config (AppConfig): Application configuration used to initialize server settings and defaults.
         """
         self.config = config
         self.clients: set[WebSocketServerProtocol] = set()
