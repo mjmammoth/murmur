@@ -31,7 +31,7 @@ class WhisperLocal < Formula
     # Rewrite bundled dylib IDs to @loader_path so Homebrew skips relinking.
     # (Pip wheels bundle native libs with short placeholder IDs that can't
     # fit the full Cellar path in their Mach-O headers.)
-    Dir.glob(libexec/"lib/python3.12/site-packages/**/*.dylib") do |dylib|
+    Dir.glob(libexec/"lib/python3.12/site-packages/**/*.dylib", File::FNM_DOTMATCH) do |dylib|
       chmod 0644, dylib
       system "install_name_tool", "-id", "@loader_path/#{File.basename(dylib)}", dylib
     end
