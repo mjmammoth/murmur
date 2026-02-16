@@ -171,12 +171,14 @@ def test_bridge_server_init_forces_auto_copy_when_auto_paste_enabled(mock_config
     mock_config.auto_copy = False
     mock_config.auto_paste = True
 
-    with patch('whisper_local.bridge.logger') as mock_logger:
-        server = BridgeServer(mock_config)
+    with patch('whisper_local.bridge.save_config') as mock_save:
+        with patch('whisper_local.bridge.logger') as mock_logger:
+            server = BridgeServer(mock_config)
 
     assert server._auto_paste is True
     assert server._auto_copy is True
     assert mock_config.auto_copy is True
+    mock_save.assert_called_once_with(mock_config)
     mock_logger.info.assert_called_once_with(
         'Auto paste enabled in config; forcing auto copy on'
     )
@@ -242,7 +244,11 @@ def test_toggle_auto_paste_enables_auto_copy(mock_config):
     assert mock_config.auto_copy is True
     mock_save.assert_called_once_with(mock_config)
     server._broadcast.assert_awaited_once_with(
-        {'type': 'toast', 'message': 'Auto paste on; auto copy on'}
+        {
+            'type': 'toast',
+            'message': 'Auto paste on; auto copy on',
+            'level': 'success',
+        }
     )
     server._broadcast_config.assert_awaited_once()
     mock_logger.info.assert_called_once_with('Auto paste enabled; forcing auto copy on')
