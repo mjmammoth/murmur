@@ -1,10 +1,12 @@
 import { Show, For, type JSX } from "solid-js";
 import { useTheme } from "../context/theme";
 import { useToast } from "../context/toast";
+import { useBackend } from "../context/backend";
 
 export function ToastContainer(): JSX.Element {
   const { colors } = useTheme();
   const { toasts } = useToast();
+  const backend = useBackend();
 
   const getToastColor = (level: "info" | "error") => {
     switch (level) {
@@ -33,6 +35,9 @@ export function ToastContainer(): JSX.Element {
               backgroundColor={colors().backgroundPanel}
               paddingRight={2}
               paddingY={1}
+              onMouseUp={() => {
+                backend.send({ type: "copy_text", text: toast.message });
+              }}
             >
               <box width={1} backgroundColor={getToastColor(toast.level)} />
               <box paddingLeft={1}>

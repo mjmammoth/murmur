@@ -792,7 +792,7 @@ export function Settings(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>task-first controls</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1}>
+            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={() => dialog.closeDialog()}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>

@@ -14,6 +14,7 @@ export interface ModelItemProps {
   model: ModelInfo;
   selected: boolean;
   isSelectedModel: boolean;
+  onClick?: () => void;
 }
 
 export function ModelItem(props: ModelItemProps): JSX.Element {
@@ -82,6 +83,7 @@ export function ModelItem(props: ModelItemProps): JSX.Element {
       flexDirection="row"
       paddingRight={1}
       backgroundColor={bgColor()}
+      onMouseUp={props.onClick}
     >
       <box
         width={1}
