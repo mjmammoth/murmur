@@ -12,7 +12,7 @@
 2. **Speak** — audio is captured, noise-suppressed, and transcribed locally by Whisper
 3. **Text appears** — transcription auto-pastes into your active app, or copies to clipboard
 
-Everything runs on your Mac. No cloud API, no network calls, no data collection. Your voice stays on your machine, always.
+Everything runs on your machine. No cloud API, no network calls, no data collection. Your voice stays on your machine, always.
 
 ## Features
 
@@ -114,6 +114,7 @@ Defaults live in `configs/default.toml`. The app reads overrides from:
 `~/.config/whisper.local/config.toml`
 
 ## TUI key bindings
+Key bindings are visualised in the TUI by highlighted letters in function words.
 
 - `c`: copy latest transcript
 - `enter`: copy selected transcript
