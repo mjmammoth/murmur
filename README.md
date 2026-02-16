@@ -4,7 +4,7 @@
 
 > [!IMPORTANT]
 > This repo is 99.9999999% vibe-coded.
-> Literally only this disclaimer is human written.
+> Literally only this disclaimer is human-written.
 
 ## How it works
 
