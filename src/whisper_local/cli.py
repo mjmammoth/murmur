@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -17,6 +18,7 @@ from whisper_local.tui_runtime import resolve_tui_runtime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+WHISPER_CPP_BINARIES = ("whisper-cli", "whisper-cpp", "main")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -83,13 +85,11 @@ def _ensure_runtime_dependencies() -> None:
     
     If verification fails, prints the error message and exits the process with status code 1.
     """
-    try:
-        from whisper_local.transcribe import ensure_whisper_cpp_installed
-
-        ensure_whisper_cpp_installed()
-    except Exception as exc:
-        print(f"Error: {exc}")
-        sys.exit(1)
+    for binary in WHISPER_CPP_BINARIES:
+        if shutil.which(binary) is not None:
+            return
+    print("Error: whisper.cpp is required but not installed. Install with: brew install whisper-cpp")
+    sys.exit(1)
 
 
 def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
