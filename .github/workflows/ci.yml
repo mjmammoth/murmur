@@ -80,6 +80,66 @@ jobs:
           venv/bin/whisper-local --help
           venv/bin/whisper-local bridge --help
 
+      - name: Startup timing smoke
+        run: |
+          python3.12 - <<'PY'
+          from pathlib import Path
+          import os
+          import subprocess
+          import time
+
+          fakebin = Path("fakebin")
+          fakebin.mkdir(exist_ok=True)
+          shim = fakebin / "whisper-cli"
+          shim.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+          shim.chmod(0o755)
+
+          env = os.environ.copy()
+          env["PATH"] = f"{fakebin.resolve()}:{env['PATH']}"
+          env["WHISPER_LOCAL_TUI_BIN"] = "/usr/bin/true"
+
+          cmd = ["venv/bin/whisper-local", "run", "--no-status-indicator"]
+
+          def measure() -> float:
+              started = time.perf_counter()
+              completed = subprocess.run(
+                  cmd,
+                  env=env,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+                  check=False,
+              )
+              elapsed = time.perf_counter() - started
+              if completed.returncode != 0:
+                  raise SystemExit(
+                      f"startup smoke command failed with exit code {completed.returncode}"
+                  )
+              return elapsed
+
+          cold = measure()
+          warm = measure()
+          print(f"cold_start_seconds={cold:.3f}")
+          print(f"warm_start_seconds={warm:.3f}")
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as handle:
+                  handle.write("## Startup timing smoke\n")
+                  handle.write(f"- cold start: {cold:.3f}s\n")
+                  handle.write(f"- warm start: {warm:.3f}s\n")
+
+          max_cold = 20.0
+          max_warm = 10.0
+          if cold > max_cold:
+              raise SystemExit(
+                  f"Cold startup {cold:.3f}s exceeds budget {max_cold:.1f}s"
+              )
+          if warm > max_warm:
+              raise SystemExit(
+                  f"Warm startup {warm:.3f}s exceeds budget {max_warm:.1f}s"
+              )
+          PY
+
   tui_build_smoke:
     runs-on: macos-14
     steps:

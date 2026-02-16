@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import shlex
+import shutil
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -39,15 +40,11 @@ from whisper_local.model_manager import (
 )
 from whisper_local.noise import RNNoiseSuppressor
 from whisper_local.output import append_to_file, copy_to_clipboard, paste_from_clipboard
-from whisper_local.transcribe import (
-    Transcriber,
-    detect_runtime_capabilities,
-    ensure_whisper_cpp_installed,
-)
 from whisper_local.vad import VadProcessor
 
 logger = logging.getLogger(__name__)
 
+WHISPER_CPP_BINARIES = ("whisper-cli", "whisper-cpp", "main")
 MAX_DROP_FILES = 32
 MAX_DROP_FILE_BYTES = 512 * 1024 * 1024
 MAX_DROP_AUDIO_SECONDS = 4 * 60 * 60
@@ -126,9 +123,9 @@ class BridgeServer:
         self._model_reload_lock = asyncio.Lock()
         self._model_op_lock = asyncio.Lock()
         self._file_transcription_lock = asyncio.Lock()
-        self._runtime_capabilities = self._detect_runtime_capabilities()
-        self._runtime_capabilities_updated_at = monotonic()
-        self._runtime_capabilities_dirty = False
+        self._runtime_capabilities: dict[str, Any] = {}
+        self._runtime_capabilities_updated_at = 0.0
+        self._runtime_capabilities_dirty = True
         self._shutdown_requested = threading.Event()
 
         self._background_tasks: set[asyncio.Task] = set()
@@ -139,7 +136,7 @@ class BridgeServer:
         self.recorder: AudioRecorder | None = None
         self.noise: RNNoiseSuppressor | None = None
         self.vad: VadProcessor | None = None
-        self.transcriber: Transcriber | None = None
+        self.transcriber: Any | None = None
         self.hotkey: HotkeyListener | None = None
 
     def _spawn_task(self, coro) -> asyncio.Task:
@@ -249,29 +246,14 @@ class BridgeServer:
         """
         self._loop = asyncio.get_event_loop()
 
-        ensure_whisper_cpp_installed()
+        self._ensure_whisper_cpp_installed()
 
         if capture_logs:
             self._install_log_handler()
 
-        self._init_components()
-        try:
-            prune_invalid_model_caches()
-        except Exception:
-            logger.warning("Failed to prune invalid model cache entries", exc_info=True)
-        self._first_run_setup_required = not self._has_installed_models()
-
-        # Start the WebSocket server FIRST so the TUI can connect immediately,
-        # then load the model in the background while clients see the loading status.
         async with websockets.serve(self._handle_client, host, port):
             logger.info(f"Bridge server running on ws://{host}:{port}")
-            if self._first_run_setup_required:
-                await self._set_status(
-                    "connecting",
-                    "First run setup required. Download and select a model in Model Manager.",
-                )
-            else:
-                await self._load_model_async()
+            self._spawn_task(self._initialize_runtime_after_server_start())
             await asyncio.Future()  # Run forever
 
     def _install_log_handler(self) -> None:
@@ -291,19 +273,11 @@ class BridgeServer:
         logging.getLogger("asyncio").setLevel(logging.WARNING)
 
     def _init_components(self) -> None:
-        """Initialize audio and transcription components."""
+        """Initialize audio, preprocessing, and hotkey components."""
         self.recorder = AudioRecorder(sample_rate=self.config.audio.sample_rate)
         self.noise = RNNoiseSuppressor(enabled=self.config.audio.noise_suppression.enabled)
         self.vad = VadProcessor(
             enabled=self.config.vad.enabled, aggressiveness=self.config.vad.aggressiveness
-        )
-        self.transcriber = Transcriber(
-            model_name=self.config.model.name,
-            backend=self.config.model.backend,
-            device=self.config.model.device,
-            compute_type=self.config.model.compute_type,
-            model_path=self.config.model.path,
-            auto_download=self.config.model.auto_download,
         )
         self.hotkey = HotkeyListener(
             self.config.hotkey.key,
@@ -311,8 +285,30 @@ class BridgeServer:
             on_release=self._handle_hotkey_release,
         )
 
-    def _detect_runtime_capabilities(self) -> dict[str, Any]:
-        return detect_runtime_capabilities(self.config.model.backend)
+    def _create_transcriber(self) -> Any:
+        from whisper_local.transcribe import Transcriber
+
+        return Transcriber(
+            model_name=self.config.model.name,
+            backend=self.config.model.backend,
+            device=self.config.model.device,
+            compute_type=self.config.model.compute_type,
+            model_path=self.config.model.path,
+            auto_download=self.config.model.auto_download,
+        )
+
+    def _ensure_whisper_cpp_installed(self) -> None:
+        for binary in WHISPER_CPP_BINARIES:
+            if shutil.which(binary) is not None:
+                return
+        raise RuntimeError(
+            "whisper.cpp is required but not installed. Install with: brew install whisper-cpp"
+        )
+
+    def _detect_runtime_capabilities(self, selected_backend: str | None = None) -> dict[str, Any]:
+        from whisper_local.transcribe import detect_runtime_capabilities
+
+        return detect_runtime_capabilities(selected_backend or self.config.model.backend)
 
     _RUNTIME_CAPS_TTL = 30.0
 
@@ -333,6 +329,44 @@ class BridgeServer:
         self._runtime_capabilities_updated_at = monotonic()
         self._runtime_capabilities_dirty = False
 
+    async def _initialize_runtime_after_server_start(self) -> None:
+        loop = asyncio.get_event_loop()
+
+        try:
+            await loop.run_in_executor(None, self._init_components)
+        except Exception as exc:
+            logger.exception("Bridge component initialization failed")
+            await self._set_status("error", f"Startup failed: {exc}")
+            return
+
+        try:
+            await loop.run_in_executor(None, prune_invalid_model_caches)
+        except Exception:
+            logger.warning("Failed to prune invalid model cache entries", exc_info=True)
+
+        self._first_run_setup_required = not self._has_installed_models()
+
+        try:
+            runtime_capabilities = await loop.run_in_executor(
+                None,
+                self._detect_runtime_capabilities,
+                self.config.model.backend,
+            )
+            self._set_runtime_capabilities(runtime_capabilities)
+        except Exception:
+            logger.warning("Failed to detect runtime capabilities", exc_info=True)
+
+        await self._broadcast_config()
+
+        if self._first_run_setup_required:
+            await self._set_status(
+                "connecting",
+                "First run setup required. Download and select a model in Model Manager.",
+            )
+            return
+
+        await self._load_model_async()
+
     async def _load_model_async(self) -> None:
         """Load the transcription model asynchronously."""
         await self._set_status(
@@ -340,13 +374,20 @@ class BridgeServer:
             f"Loading {self.config.model.backend} model {self.config.model.name}...",
         )
         try:
-            if self.transcriber is None:
+            transcriber = self.transcriber
+            if transcriber is None:
+                transcriber = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    self._create_transcriber,
+                )
+                self.transcriber = transcriber
+            if transcriber is None:
                 raise RuntimeError("Transcriber is not initialized")
 
-            await asyncio.get_event_loop().run_in_executor(None, self.transcriber.load)
+            await asyncio.get_event_loop().run_in_executor(None, transcriber.load)
             self._model_loaded = True
             self._start_hotkey()
-            info = self.transcriber.runtime_info()
+            info = transcriber.runtime_info()
             logger.info(
                 "Transcriber ready backend=%s model=%s device=%s compute_type=%s source=%s",
                 info.get("backend", "unknown"),
@@ -451,7 +492,7 @@ class BridgeServer:
         self,
         audio,
         *,
-        transcriber: Transcriber | None = None,
+        transcriber: Any | None = None,
         language: str | None = None,
         sample_rate: int | None = None,
         source_label: str | None = None,
@@ -1346,13 +1387,9 @@ class BridgeServer:
         recordings will use the updated transcriber.
         """
         async with self._model_reload_lock:
-            next_transcriber = Transcriber(
-                model_name=self.config.model.name,
-                backend=self.config.model.backend,
-                device=self.config.model.device,
-                compute_type=self.config.model.compute_type,
-                model_path=self.config.model.path,
-                auto_download=self.config.model.auto_download,
+            next_transcriber = await asyncio.get_event_loop().run_in_executor(
+                None,
+                self._create_transcriber,
             )
             await asyncio.get_event_loop().run_in_executor(None, next_transcriber.load)
             self.transcriber = next_transcriber
@@ -1377,7 +1414,7 @@ class BridgeServer:
             await self._broadcast_config()
             return
 
-        capabilities = detect_runtime_capabilities(normalized)
+        capabilities = self._detect_runtime_capabilities(normalized)
         backend_options = capabilities.get("model", {}).get("backends", {})
         backend_state = backend_options.get(normalized, {"enabled": False, "reason": "Unsupported"})
         if not backend_state.get("enabled", False):
@@ -1446,7 +1483,7 @@ class BridgeServer:
             self.config.model.backend = previous_backend
             self.config.model.device = previous_device
             self.config.model.compute_type = previous_compute_type
-            self._set_runtime_capabilities(detect_runtime_capabilities(previous_backend))
+            self._set_runtime_capabilities(self._detect_runtime_capabilities(previous_backend))
             rollback_error = self._persist_config("model backend rollback")
             await self._broadcast_config()
             await self._broadcast(
@@ -2123,7 +2160,6 @@ class BridgeServer:
         Returns:
             dict[str, Any]: Serialized configuration payload for clients.
         """
-        self._refresh_runtime_capabilities()
         config_dict = self.config.to_dict()
         config_dict["bridge"] = {"host": "localhost", "port": 7878}
         config_dict["auto_copy"] = self._auto_copy
