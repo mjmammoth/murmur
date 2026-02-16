@@ -4,7 +4,7 @@ Local, real-time voice transcription with a Textual TUI frontend, backed by Whis
 
 > [!IMPORTANT]
 > This repo is 99.9999999% vibe-coded with Opus 4.6, codex-5.3-xhigh, using various harnesses.
-> Literally only this notification is human written.
+> Literally only this notification is human-written.
 
 ## Features
 
