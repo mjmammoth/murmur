@@ -26,26 +26,41 @@ export function ToastContainer(): JSX.Element {
   const [copyAnnouncement, setCopyAnnouncement] = createSignal("");
   let copiedIndicatorTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function handleToastCopy(toastId: number, message: string) {
-    backend.send({ type: "copy_text", text: message });
-    setCopiedToastId(toastId);
-    setCopyAnnouncement("Copied toast message to clipboard");
+  function clearCopyFeedback() {
+    setCopiedToastId(null);
+    setCopyAnnouncement("");
+    if (!copiedIndicatorTimer) return;
+    clearTimeout(copiedIndicatorTimer);
+    copiedIndicatorTimer = null;
+  }
 
+  function scheduleCopyFeedbackClear() {
     if (copiedIndicatorTimer) {
       clearTimeout(copiedIndicatorTimer);
     }
-
     copiedIndicatorTimer = setTimeout(() => {
       copiedIndicatorTimer = null;
-      setCopiedToastId((current) => (current === toastId ? null : current));
+      setCopiedToastId(null);
       setCopyAnnouncement("");
     }, 1000);
   }
 
+  function handleToastCopy(toastId: number, message: string) {
+    if (!backend.connected()) {
+      setCopiedToastId(null);
+      setCopyAnnouncement("Copy unavailable while disconnected");
+      scheduleCopyFeedbackClear();
+      return;
+    }
+
+    backend.send({ type: "copy_text", text: message });
+    setCopiedToastId(toastId);
+    setCopyAnnouncement("Copied toast message to clipboard");
+    scheduleCopyFeedbackClear();
+  }
+
   onCleanup(() => {
-    if (!copiedIndicatorTimer) return;
-    clearTimeout(copiedIndicatorTimer);
-    copiedIndicatorTimer = null;
+    clearCopyFeedback();
   });
 
   const getToastColor = (level: "info" | "error") => {
@@ -59,7 +74,7 @@ export function ToastContainer(): JSX.Element {
   };
 
   return (
-    <Show when={toasts().length > 0}>
+    <Show when={Boolean(copyAnnouncement()) || toasts().length > 0}>
       <box
         position="absolute"
         right={2}

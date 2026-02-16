@@ -1,21 +1,31 @@
 # whisper.local
 
-Local, real-time voice transcription with a Textual TUI frontend, backed by Whisper. Runs fully offline on macOS.
+**Press a key. Speak. Text appears in your app.** Local, private voice transcription — nothing leaves your machine.
 
 > [!IMPORTANT]
-> This repo is 99.9999999% vibe-coded with Opus 4.6, codex-5.3-xhigh, using various harnesses.
-> Literally only this notification is human written.
+> This repo is 99.9999999% vibe-coded.
+> Literally only this disclaimer is human written.
+
+## How it works
+
+1. **Hit F3** (or your custom hotkey) from any app — system-wide, no focus switching
+2. **Speak** — audio is captured, noise-suppressed, and transcribed locally by Whisper
+3. **Text appears** — transcription auto-pastes into your active app, or copies to clipboard
+
+Everything runs on your Mac. No cloud API, no network calls, no data collection. Your voice stays on your machine, always.
 
 ## Features
 
-- Global hotkey (PTT or toggle) for recording
-- macOS menu bar status dot (idle/recording/transcribing/success pulse)
-- Local transcription with pluggable backends (`faster-whisper` or `whisper.cpp`)
-- Textual TUI frontend with transcript history and copy actions
-- Drag-and-drop/paste audio file paths into the TUI to transcribe local files
-- Optional clipboard and file output
-- Optional RNNoise noise suppression (soft dependency)
-- Model management (list/pull/remove/select)
+- **100% local & private** — no cloud, no telemetry, no network calls
+- **Global hotkey** (push-to-talk or toggle) — works system-wide from any app
+- **Auto-paste** — transcribed text pastes directly into your active application
+- **Auto-copy** — transcription goes straight to clipboard
+- **Terminal UI** built with OpenTUI + SolidJS — transcript history, click-to-copy, theme picker
+- **Pluggable backends** — faster-whisper (CPU/CUDA) or whisper.cpp (Metal GPU on macOS)
+- **Model management** — download, remove, and select models from tiny to large-v3-turbo
+- **macOS menu bar indicator** — status dot shows recording / transcribing / idle state
+- **Noise suppression** (RNNoise) and **voice activity detection** (VAD)
+- **File transcription** — drag-and-drop or paste audio file paths
 
 ## Install (pip)
 
