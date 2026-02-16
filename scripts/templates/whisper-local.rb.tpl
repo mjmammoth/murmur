@@ -34,6 +34,7 @@ class WhisperLocal < Formula
     Dir.glob(libexec/"lib/python3.12/site-packages/**/*.dylib", File::FNM_DOTMATCH) do |dylib|
       chmod 0644, dylib
       system "install_name_tool", "-id", "@loader_path/#{File.basename(dylib)}", dylib
+      system "codesign", "--force", "--sign", "-", dylib
     end
 
     resource("whisper-local-tui").stage do
