@@ -14,6 +14,7 @@ import type {
   TranscriptEntry,
   AppStatus,
   LogEntry,
+  RuntimeCapabilities,
 } from "../types";
 
 export interface DownloadProgress {
@@ -24,6 +25,11 @@ export interface DownloadProgress {
 export interface ActiveModelOp {
   type: "pulling" | "removing";
   model: string;
+}
+
+export interface CapabilitiesResponse {
+  capabilities: RuntimeCapabilities;
+  recommended: { backend: string; device: string };
 }
 
 export interface BackendContextValue {
@@ -41,11 +47,13 @@ export interface BackendContextValue {
   configFilePath: Accessor<string>;
   downloadProgress: Accessor<DownloadProgress | null>;
   activeModelOp: Accessor<ActiveModelOp | null>;
+  capabilitiesResponse: Accessor<CapabilitiesResponse | null>;
   downloadModel: (name: string) => void;
   cancelModelDownload: (name: string) => void;
   removeModel: (name: string) => void;
   send: (message: ClientMessage) => void;
   requestConfigFile: () => void;
+  requestCapabilities: () => void;
   onTranscript: (handler: (entry: TranscriptEntry) => void) => void;
   onHotkeyPress: (handler: () => void) => void;
   onHotkeyRelease: (handler: () => void) => void;
@@ -87,6 +95,7 @@ export function BackendContextProvider(props: {
   const [configFilePath, setConfigFilePath] = createSignal("");
   const [downloadProgress, setDownloadProgress] = createSignal<DownloadProgress | null>(null);
   const [activeModelOp, setActiveModelOp] = createSignal<ActiveModelOp | null>(null);
+  const [capabilitiesResponse, setCapabilitiesResponse] = createSignal<CapabilitiesResponse | null>(null);
   let logIdCounter = 0;
 
   let ws: WebSocket | null = null;
@@ -279,6 +288,13 @@ export function BackendContextProvider(props: {
         break;
       }
 
+      case "capabilities":
+        setCapabilitiesResponse({
+          capabilities: message.capabilities,
+          recommended: message.recommended,
+        });
+        break;
+
       case "log":
         setLogs((prev) => {
           const entry: LogEntry = {
@@ -441,6 +457,10 @@ export function BackendContextProvider(props: {
     send({ type: "get_config_file" });
   }
 
+  function requestCapabilities() {
+    send({ type: "get_capabilities" });
+  }
+
   function onTranscript(handler: (entry: TranscriptEntry) => void) {
     transcriptHandlers.push(handler);
   }
@@ -484,11 +504,13 @@ export function BackendContextProvider(props: {
     configFilePath,
     downloadProgress,
     activeModelOp,
+    capabilitiesResponse,
     downloadModel,
     cancelModelDownload,
     removeModel,
     send,
     requestConfigFile,
+    requestCapabilities,
     onTranscript,
     onHotkeyPress,
     onHotkeyRelease,

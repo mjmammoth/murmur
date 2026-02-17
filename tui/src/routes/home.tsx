@@ -19,6 +19,7 @@ import { SettingsSelectModal } from "../component/settings-select-modal";
 import { ThemePickerModal } from "../component/theme-picker-modal";
 import { SettingsEditModal } from "../component/settings-edit-modal";
 import { ExitConfirmModal } from "../component/exit-confirm-modal";
+import { Welcome } from "../component/welcome";
 import { exitApp } from "../util/exit";
 import { setSigintHandler } from "../util/interrupt";
 import type { ModelManagerDialogData } from "../types";
@@ -81,12 +82,10 @@ export function Home(): JSX.Element {
     if (models.length === 0) return;
 
     const currentDialog = dialog.currentDialog();
-    const currentData = (currentDialog?.data as ModelManagerDialogData | undefined) ?? undefined;
-    if (currentDialog?.type === "model-manager" && currentData?.firstRunSetup) {
-      return;
-    }
+    if (currentDialog?.type === "welcome") return;
+    if (currentDialog?.type === "model-manager") return;
 
-    dialog.openDialog("model-manager", { firstRunSetup: true });
+    dialog.openDialog("welcome", { firstRun: true });
   });
 
   createEffect(() => {
@@ -248,6 +247,9 @@ export function Home(): JSX.Element {
       case "t":
         dialog.openDialog("theme-picker");
         break;
+      case "?":
+        dialog.openDialog("welcome", { firstRun: false });
+        break;
       case "up":
       case "k":
         transcriber.selectPrev();
@@ -350,6 +352,7 @@ export function Home(): JSX.Element {
               onLogsClick={toggleLogsPanel}
               onSettingsClick={() => dialog.openDialog("settings")}
               onThemeClick={() => dialog.openDialog("theme-picker")}
+              onHelpClick={() => dialog.openDialog("welcome", { firstRun: false })}
             />
           </box>
           <ToastContainer />
@@ -475,6 +478,19 @@ export function Home(): JSX.Element {
           backgroundColor={modalOverlayColor()}
         >
           <ExitConfirmModal />
+        </box>
+      </Show>
+
+      <Show when={dialog.currentDialog()?.type === "welcome"}>
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={modalOverlayColor()}
+        >
+          <Welcome />
         </box>
       </Show>
     </box>

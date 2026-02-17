@@ -30,6 +30,7 @@ interface FooterProps {
   onLogsClick?: () => void;
   onSettingsClick?: () => void;
   onThemeClick?: () => void;
+  onHelpClick?: () => void;
 }
 
 function KeyHint(props: KeyHintProps): JSX.Element {
@@ -266,6 +267,7 @@ export function Footer(props: FooterProps): JSX.Element {
               <box width="100%" flexDirection="row" justifyContent="flex-end" gap={2}>
                 <KeyHint keyChar="q" word="quit" onClick={props.onQuitClick} />
                 <KeyHint keyChar="l" word="logs" onClick={props.onLogsClick} />
+                <KeyHint keyChar="?" word="?help" onClick={props.onHelpClick} />
               </box>
               <box width="100%" flexDirection="row" justifyContent="flex-end" gap={2}>
                 <KeyHint keyChar="s" word="settings" onClick={props.onSettingsClick} />
@@ -278,6 +280,7 @@ export function Footer(props: FooterProps): JSX.Element {
               <KeyHint keyChar="l" word="logs" onClick={props.onLogsClick} />
               <KeyHint keyChar="s" word="settings" onClick={props.onSettingsClick} />
               <KeyHint keyChar="t" word="theme" onClick={props.onThemeClick} />
+              <KeyHint keyChar="?" word="?help" onClick={props.onHelpClick} />
             </>
           )}
         </box>

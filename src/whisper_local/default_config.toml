@@ -34,6 +34,7 @@ path = "~/transcripts.txt"
 
 [ui]
 theme = "dark"
+welcome_shown = false
 
 [bridge]
 host = "localhost"
