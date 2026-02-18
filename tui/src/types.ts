@@ -66,6 +66,7 @@ export interface BridgeConfig {
 
 export interface UiConfig {
   theme: string;
+  welcome_shown?: boolean;
 }
 
 export interface AppConfig {
@@ -143,7 +144,9 @@ export type ClientMessage =
   | { type: "list_models" }
   | { type: "get_config" }
   | { type: "get_config_file" }
-  | { type: "copy_text"; text: string };
+  | { type: "copy_text"; text: string }
+  | { type: "set_welcome_shown" }
+  | { type: "get_capabilities" };
 
 // Server -> Client messages
 export type ServerMessage =
@@ -168,7 +171,8 @@ export type ServerMessage =
     }
   | { type: "log"; level: string; message: string; timestamp: string; source: string }
   | { type: "suppress_paste_input"; duration_ms?: number }
-  | { type: "download_progress"; model: string; percent: number };
+  | { type: "download_progress"; model: string; percent: number }
+  | { type: "capabilities"; capabilities: RuntimeCapabilities; recommended: { backend: string; device: string } };
 
 // Log types
 
@@ -197,13 +201,18 @@ export type DialogType =
   | "settings-edit"
   | "hotkey"
   | "theme-picker"
-  | "exit-confirm";
+  | "exit-confirm"
+  | "welcome";
 
 export interface ModelManagerDialogData {
   returnToSettings?: boolean;
   returnSettingId?: string;
   returnFilterQuery?: string;
   firstRunSetup?: boolean;
+}
+
+export interface WelcomeDialogData {
+  firstRun?: boolean;
 }
 
 export interface ExitConfirmDialogData {

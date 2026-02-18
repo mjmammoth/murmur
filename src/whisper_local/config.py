@@ -124,11 +124,15 @@ class OutputConfig:
 @dataclass
 class UiConfig:
     theme: str = "dark"
+    welcome_shown: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UiConfig:
         theme = str(data.get("theme", "dark")).strip() or "dark"
-        return cls(theme=theme)
+        return cls(
+            theme=theme,
+            welcome_shown=bool(data.get("welcome_shown", False)),
+        )
 
 
 @dataclass

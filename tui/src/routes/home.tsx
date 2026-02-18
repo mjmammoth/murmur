@@ -19,6 +19,7 @@ import { SettingsSelectModal } from "../component/settings-select-modal";
 import { ThemePickerModal } from "../component/theme-picker-modal";
 import { SettingsEditModal } from "../component/settings-edit-modal";
 import { ExitConfirmModal } from "../component/exit-confirm-modal";
+import { Welcome } from "../component/welcome";
 import { exitApp } from "../util/exit";
 import { setSigintHandler } from "../util/interrupt";
 import type { ModelManagerDialogData } from "../types";
@@ -54,6 +55,7 @@ export function Home(): JSX.Element {
   };
   const logsTooNarrowMessage = () => "UI too narrow for logs.";
   const firstRunSetupRequired = () => Boolean(backend.config()?.first_run_setup_required);
+  const welcomeShown = () => Boolean(backend.config()?.ui?.welcome_shown);
 
   createEffect(() => {
     if (!logsVisible() && activePane() === "logs") {
@@ -75,18 +77,20 @@ export function Home(): JSX.Element {
     backend.send({ type: "list_models" });
   });
 
+  // Auto-open welcome journey when welcome_shown is false (first launch)
+  // or when first_run_setup_required (no models installed).
   createEffect(() => {
-    if (!firstRunSetupRequired()) return;
+    if (welcomeShown() && !firstRunSetupRequired()) return;
+    const cfg = backend.config();
+    if (!cfg) return;
     const models = backend.models();
     if (models.length === 0) return;
 
     const currentDialog = dialog.currentDialog();
-    const currentData = (currentDialog?.data as ModelManagerDialogData | undefined) ?? undefined;
-    if (currentDialog?.type === "model-manager" && currentData?.firstRunSetup) {
-      return;
-    }
+    if (currentDialog?.type === "welcome") return;
+    if (currentDialog?.type === "model-manager") return;
 
-    dialog.openDialog("model-manager", { firstRunSetup: true });
+    dialog.openDialog("welcome", { firstRun: !welcomeShown() || firstRunSetupRequired() });
   });
 
   createEffect(() => {
@@ -215,23 +219,14 @@ export function Home(): JSX.Element {
         requestExit();
         break;
       case "c":
-        handleCopyLatest();
+        config.toggleAutoCopy();
         break;
       case "return":
       case "enter":
         handleCopySelected();
         break;
-      case "a":
-        config.toggleAutoCopy();
-        break;
       case "p":
         config.toggleAutoPaste();
-        break;
-      case "n":
-        config.toggleNoise();
-        break;
-      case "v":
-        config.toggleVad();
         break;
       case "o":
         config.toggleHotkeyMode();
@@ -247,6 +242,9 @@ export function Home(): JSX.Element {
         break;
       case "t":
         dialog.openDialog("theme-picker");
+        break;
+      case "?":
+        dialog.openDialog("welcome", { firstRun: false });
         break;
       case "up":
       case "k":
@@ -271,15 +269,6 @@ export function Home(): JSX.Element {
     backend.send({ type: "transcribe_paste", text: pasted });
     toast.showToast("Paste received. Queueing transcription...");
   });
-
-  function handleCopyLatest() {
-    const latest = transcriber.getLatest();
-    if (!latest) {
-      toast.showToast("No transcripts yet");
-      return;
-    }
-    transcriber.copyText(latest.text);
-  }
 
   function handleCopySelected() {
     const selected = transcriber.getSelected();
@@ -330,8 +319,6 @@ export function Home(): JSX.Element {
         >
           <box flexShrink={0}>
             <Header
-              onToggleNoise={config.toggleNoise}
-              onToggleVad={config.toggleVad}
               onToggleAutoCopy={config.toggleAutoCopy}
               onToggleAutoPaste={config.toggleAutoPaste}
             />
@@ -350,6 +337,7 @@ export function Home(): JSX.Element {
               onLogsClick={toggleLogsPanel}
               onSettingsClick={() => dialog.openDialog("settings")}
               onThemeClick={() => dialog.openDialog("theme-picker")}
+              onHelpClick={() => dialog.openDialog("welcome", { firstRun: false })}
             />
           </box>
           <ToastContainer />
@@ -475,6 +463,19 @@ export function Home(): JSX.Element {
           backgroundColor={modalOverlayColor()}
         >
           <ExitConfirmModal />
+        </box>
+      </Show>
+
+      <Show when={dialog.currentDialog()?.type === "welcome"}>
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={modalOverlayColor()}
+        >
+          <Welcome />
         </box>
       </Show>
     </box>

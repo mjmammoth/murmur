@@ -876,6 +876,10 @@ class BridgeServer:
                         )
             elif msg_type == "get_config_file":
                 await self._send_config_file(websocket)
+            elif msg_type == "set_welcome_shown":
+                await self._set_welcome_shown()
+            elif msg_type == "get_capabilities":
+                await self._send_capabilities(websocket)
             elif msg_type == "transcribe_paste":
                 self._spawn_task(self._handle_transcribe_paste(data.get("text", "")))
             else:
@@ -2278,6 +2282,47 @@ class BridgeServer:
                 for m in models
             ],
         })
+
+    async def _set_welcome_shown(self) -> None:
+        """Mark the welcome journey as shown and persist to config."""
+        self.config.ui.welcome_shown = True
+        try:
+            save_config(self.config)
+        except Exception:
+            logger.exception("Failed to persist welcome_shown config")
+        await self._broadcast_config()
+
+    async def _send_capabilities(self, websocket: WebSocketServerProtocol) -> None:
+        """Send runtime capabilities with a recommended backend/device to a client."""
+        import sys
+        caps = self._runtime_capabilities or {}
+        model_caps = caps.get("model", {})
+        devices_by_backend = model_caps.get("devices_by_backend", {})
+
+        # Build recommendation
+        recommended_backend = "faster-whisper"
+        recommended_device = "cpu"
+
+        # Check for MPS (Mac with Apple Silicon)
+        wcpp_devices = devices_by_backend.get("whisper.cpp", {})
+        if sys.platform == "darwin" and wcpp_devices.get("mps", {}).get("enabled"):
+            recommended_backend = "whisper.cpp"
+            recommended_device = "mps"
+        else:
+            # Check for CUDA
+            fw_devices = devices_by_backend.get("faster-whisper", {})
+            if fw_devices.get("cuda", {}).get("enabled"):
+                recommended_backend = "faster-whisper"
+                recommended_device = "cuda"
+
+        await websocket.send(json.dumps({
+            "type": "capabilities",
+            "capabilities": caps,
+            "recommended": {
+                "backend": recommended_backend,
+                "device": recommended_device,
+            },
+        }))
 
     async def _send_config_file(self, websocket: WebSocketServerProtocol) -> None:
         """Send the raw TOML config file content to a client."""
