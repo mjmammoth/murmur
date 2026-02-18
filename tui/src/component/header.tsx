@@ -23,47 +23,7 @@ function lerpColor(from: string, to: string, t: number): string {
   );
 }
 
-interface ToggleHintProps {
-  keyChar: string;
-  label: string;
-  active: boolean;
-  onClick?: () => void;
-}
-
-/**
- * Render a compact keyboard hint showing a label with one character highlighted and its enabled state.
- *
- * @param props.keyChar - Single character to highlight within `label` (match is case-insensitive). If not found, `keyChar` is shown after the label.
- * @param props.label - Text label containing the key to highlight.
- * @param props.active - Feature state; determines whether the indicator displays "on" (active) or "off" (inactive).
- * @returns A JSX element that displays the label with the highlighted key followed by ": on" or ": off".
- */
-function ToggleHint(props: ToggleHintProps): JSX.Element {
-  const { colors } = useTheme();
-  const matchIndex = props.label.toLowerCase().indexOf(props.keyChar.toLowerCase());
-  const hasMatch = matchIndex >= 0;
-  const before = hasMatch ? props.label.slice(0, matchIndex) : `${props.label} `;
-  const key = hasMatch ? props.label[matchIndex]! : props.keyChar;
-  const after = hasMatch ? props.label.slice(matchIndex + 1) : "";
-
-  return (
-    <box onMouseUp={() => props.onClick?.()}>
-      <text>
-        <span style={{ fg: colors().textDim }}>{before}</span>
-        <span style={{ fg: colors().accent, bold: true }}>{key}</span>
-        <span style={{ fg: colors().textDim }}>{after}</span>
-        <span style={{ fg: colors().textMuted }}>:</span>
-        <span style={{ fg: props.active ? colors().success : colors().textDim }}>
-          {props.active ? " on" : " off"}
-        </span>
-      </text>
-    </box>
-  );
-}
-
 interface HeaderProps {
-  onToggleNoise?: () => void;
-  onToggleVad?: () => void;
   onToggleAutoCopy?: () => void;
   onToggleAutoPaste?: () => void;
 }
@@ -73,8 +33,8 @@ interface HeaderProps {
  *
  * The left side displays " whisper.local " as a sequence of colored tiles whose background
  * interpolates between the theme's brandStart and brandEnd based on distance from a peak
- * near the dot. The right side shows toggle hints for noise suppression (`n`), VAD (`v`),
- * auto copy (`a`), and auto paste (`p`) reflecting the current configuration signals.
+ * near the dot. The right side shows toggle hints for auto copy (`c`) and auto paste (`p`)
+ * reflecting the current configuration signals.
  *
  * @returns A JSX element containing the header UI: the animated brand strip on the left and the toggle hints on the right.
  */
@@ -116,29 +76,27 @@ export function Header(props: HeaderProps): JSX.Element {
         <box
           justifyContent="flex-end"
           flexDirection="row"
-          gap={2}
           alignItems="center"
           flexShrink={0}
         >
-          <ToggleHint
-            keyChar="n"
-            label="noise suppression"
-            active={config.noiseEnabled()}
-            onClick={props.onToggleNoise}
-          />
-          <ToggleHint keyChar="v" label="vad" active={config.vadEnabled()} onClick={props.onToggleVad} />
-          <ToggleHint
-            keyChar="a"
-            label="auto copy"
-            active={config.autoCopy()}
-            onClick={props.onToggleAutoCopy}
-          />
-          <ToggleHint
-            keyChar="p"
-            label="auto paste"
-            active={config.autoPaste()}
-            onClick={props.onToggleAutoPaste}
-          />
+          <text>
+            <span style={{ fg: colors().textDim }}>auto </span>
+          </text>
+          <box onMouseUp={() => props.onToggleAutoCopy?.()}>
+            <text>
+              <span style={{ fg: colors().accent, bold: true }}>c</span>
+              <span style={{ fg: config.autoCopy() ? colors().success : colors().textDim }}>opy</span>
+            </text>
+          </box>
+          <text>
+            <span style={{ fg: colors().textDim }}> / </span>
+          </text>
+          <box onMouseUp={() => props.onToggleAutoPaste?.()}>
+            <text>
+              <span style={{ fg: colors().accent, bold: true }}>p</span>
+              <span style={{ fg: config.autoPaste() ? colors().success : colors().textDim }}>aste</span>
+            </text>
+          </box>
         </box>
       </box>
     </box>

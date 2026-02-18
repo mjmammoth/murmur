@@ -125,27 +125,19 @@ function UIGuideStep(): JSX.Element {
         <box flexDirection="row" gap={2}>
           <box flexDirection="column" gap={0}>
             <text>
-              <span style={{ fg: colors().accent, bold: true }}>n</span>
-              <span style={{ fg: colors().textMuted }}> toggle noise suppression</span>
-            </text>
-            <text>
-              <span style={{ fg: colors().accent, bold: true }}>v</span>
-              <span style={{ fg: colors().textMuted }}> toggle voice activity detection</span>
-            </text>
-            <text>
-              <span style={{ fg: colors().accent, bold: true }}>a</span>
+              <span style={{ fg: colors().accent, bold: true }}>c</span>
               <span style={{ fg: colors().textMuted }}> toggle auto copy to clipboard</span>
             </text>
             <text>
               <span style={{ fg: colors().accent, bold: true }}>p</span>
               <span style={{ fg: colors().textMuted }}> toggle auto paste</span>
             </text>
-          </box>
-          <box flexDirection="column" gap={0}>
             <text>
               <span style={{ fg: colors().accent, bold: true }}>m</span>
               <span style={{ fg: colors().textMuted }}> model manager</span>
             </text>
+          </box>
+          <box flexDirection="column" gap={0}>
             <text>
               <span style={{ fg: colors().accent, bold: true }}>s</span>
               <span style={{ fg: colors().textMuted }}> settings</span>
@@ -186,10 +178,7 @@ function UIGuideStep(): JSX.Element {
 
 function DeviceDetectionStep(props: {
   caps: CapabilitiesResponse | null;
-  selectedBackend: string;
-  selectedDevice: string;
-  onSelectBackend: (backend: string) => void;
-  onSelectDevice: (device: string) => void;
+  onOpenSettings: () => void;
 }): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();
@@ -212,24 +201,8 @@ function DeviceDetectionStep(props: {
     return "Recommended: faster-whisper with CPU. Consider installing whisper.cpp for Metal support on Mac.";
   };
 
-  const availableBackends = createMemo(() => {
-    if (!props.caps) return [];
-    const model = props.caps.capabilities?.model;
-    if (!model?.backends) return [];
-    return Object.entries(model.backends)
-      .filter(([_, state]) => state.enabled)
-      .map(([name]) => name);
-  });
-
-  const availableDevices = createMemo(() => {
-    if (!props.caps) return [];
-    const model = props.caps.capabilities?.model;
-    if (!model?.devices_by_backend) return [];
-    const devicesForBackend = model.devices_by_backend[props.selectedBackend] ?? {};
-    return Object.entries(devicesForBackend)
-      .filter(([_, state]) => state.enabled)
-      .map(([name]) => name);
-  });
+  const currentBackend = () => backend.config()?.model.backend ?? "-";
+  const currentDevice = () => backend.config()?.model.device ?? "-";
 
   return (
     <box flexDirection="column" gap={1} paddingX={2} paddingY={1} flexShrink={0}>
@@ -249,44 +222,26 @@ function DeviceDetectionStep(props: {
 
         <box flexDirection="column" gap={0} marginTop={1}>
           <text>
-            <span style={{ fg: colors().primary, bold: true }}>Engine: </span>
-            <For each={availableBackends()}>
-              {(b) => (
-                <span style={{
-                  fg: b === props.selectedBackend ? colors().accent : colors().textMuted,
-                  bold: b === props.selectedBackend,
-                }}>
-                  {b === props.selectedBackend ? `[${b}]` : ` ${b} `}
-                  {"  "}
-                </span>
-              )}
-            </For>
+            <span style={{ fg: colors().primary, bold: true }}>Current configuration:</span>
           </text>
-          <Muted>Use left/right arrow keys to change engine selection.</Muted>
+          <text>
+            <span style={{ fg: colors().textMuted }}>Engine: </span>
+            <span style={{ fg: colors().text }}>{currentBackend()}</span>
+          </text>
+          <text>
+            <span style={{ fg: colors().textMuted }}>Device: </span>
+            <span style={{ fg: colors().text }}>{currentDevice()}</span>
+          </text>
         </box>
 
-        <box flexDirection="column" gap={0}>
-          <text>
-            <span style={{ fg: colors().primary, bold: true }}>Device: </span>
-            <For each={availableDevices()}>
-              {(d) => (
-                <span style={{
-                  fg: d === props.selectedDevice ? colors().accent : colors().textMuted,
-                  bold: d === props.selectedDevice,
-                }}>
-                  {d === props.selectedDevice ? `[${d}]` : ` ${d} `}
-                  {"  "}
-                </span>
-              )}
-            </For>
-          </text>
-          <Muted>Use up/down arrow keys to change device selection.</Muted>
+        <box marginTop={1}>
+          <CommandHint keys="s" label="open settings to change" onClick={props.onOpenSettings} />
         </box>
 
         <box marginTop={1}>
           <text>
             <span style={{ fg: colors().textDim }}>
-              You can change these later in settings (s).
+              These can also be changed anytime from settings.
             </span>
           </text>
         </box>
@@ -550,9 +505,6 @@ export function Welcome(): JSX.Element {
   const isLastStep = () => stepIndex() >= steps().length - 1;
   const isFirstStep = () => stepIndex() === 0;
 
-  // Device detection state
-  const [selectedBackend, setSelectedBackend] = createSignal("faster-whisper");
-  const [selectedDevice, setSelectedDevice] = createSignal("cpu");
   const [modelIndex, setModelIndex] = createSignal(2); // Default to "small"
 
   // Request capabilities when entering device detection step
@@ -562,11 +514,11 @@ export function Welcome(): JSX.Element {
     }
   }));
 
-  // Apply recommended settings when capabilities arrive
+  // Auto-apply recommended backend/device when capabilities arrive
   createEffect(on(() => backend.capabilitiesResponse(), (caps) => {
     if (!caps) return;
-    setSelectedBackend(caps.recommended.backend);
-    setSelectedDevice(caps.recommended.device);
+    backend.send({ type: "set_model_backend", backend: caps.recommended.backend });
+    backend.send({ type: "set_model_device", device: caps.recommended.device });
   }));
 
   // Clamp model index when models list changes
@@ -602,13 +554,6 @@ export function Welcome(): JSX.Element {
       handleClose();
       return;
     }
-
-    // When leaving device detection step, apply the chosen backend/device
-    if (currentStep() === "device-detection") {
-      backend.send({ type: "set_model_backend", backend: selectedBackend() });
-      backend.send({ type: "set_model_device", device: selectedDevice() });
-    }
-
     setStepIndex((i) => Math.min(steps().length - 1, i + 1));
   }
 
@@ -616,51 +561,19 @@ export function Welcome(): JSX.Element {
     setStepIndex((i) => Math.max(0, i - 1));
   }
 
+  function openSettingsFromWelcome() {
+    dialog.openDialog("settings");
+  }
+
   // Keyboard navigation
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "welcome") return;
 
-    // Device detection step: arrow keys change backend/device selection
-    if (currentStep() === "device-detection") {
-      const caps = backend.capabilitiesResponse();
-      if (caps) {
-        const model = caps.capabilities?.model;
-        if (key.name === "left" || key.name === "right") {
-          key.preventDefault();
-          const backends = Object.entries(model?.backends ?? {})
-            .filter(([_, s]) => s.enabled)
-            .map(([name]) => name);
-          if (backends.length > 0) {
-            const curIdx = backends.indexOf(selectedBackend());
-            const delta = key.name === "right" ? 1 : -1;
-            const nextIdx = Math.max(0, Math.min(backends.length - 1, curIdx + delta));
-            setSelectedBackend(backends[nextIdx]!);
-            // Reset device to first available for new backend
-            const devicesForBackend = model?.devices_by_backend?.[backends[nextIdx]!] ?? {};
-            const availDevices = Object.entries(devicesForBackend)
-              .filter(([_, s]) => s.enabled)
-              .map(([name]) => name);
-            if (availDevices.length > 0 && !availDevices.includes(selectedDevice())) {
-              setSelectedDevice(availDevices[0]!);
-            }
-          }
-          return;
-        }
-        if (key.name === "up" || key.name === "down") {
-          key.preventDefault();
-          const devicesForBackend = model?.devices_by_backend?.[selectedBackend()] ?? {};
-          const devices = Object.entries(devicesForBackend)
-            .filter(([_, s]) => s.enabled)
-            .map(([name]) => name);
-          if (devices.length > 0) {
-            const curIdx = devices.indexOf(selectedDevice());
-            const delta = key.name === "down" ? 1 : -1;
-            const nextIdx = Math.max(0, Math.min(devices.length - 1, curIdx + delta));
-            setSelectedDevice(devices[nextIdx]!);
-          }
-          return;
-        }
-      }
+    // Device detection step: s opens settings
+    if (currentStep() === "device-detection" && key.name === "s") {
+      key.preventDefault();
+      openSettingsFromWelcome();
+      return;
     }
 
     // Model download step: arrow keys navigate model list
@@ -713,14 +626,10 @@ export function Welcome(): JSX.Element {
         }
         break;
       case "right":
-        if (currentStep() !== "device-detection") {
-          handleNext();
-        }
+        handleNext();
         break;
       case "left":
-        if (currentStep() !== "device-detection") {
-          handleBack();
-        }
+        handleBack();
         break;
     }
   });
@@ -782,10 +691,7 @@ export function Welcome(): JSX.Element {
         <scrollbox flexGrow={1} flexShrink={1}>
           <DeviceDetectionStep
             caps={backend.capabilitiesResponse()}
-            selectedBackend={selectedBackend()}
-            selectedDevice={selectedDevice()}
-            onSelectBackend={setSelectedBackend}
-            onSelectDevice={setSelectedDevice}
+            onOpenSettings={openSettingsFromWelcome}
           />
         </scrollbox>
       </Show>
