@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
 import { useKeyHandler, useTerminalDimensions } from "@opentui/solid";
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -345,6 +345,9 @@ export function SettingsSelectModal(): JSX.Element {
     }
     dialog.closeDialog();
   }
+
+  const unregisterDismissHandler = dialog.registerDismissHandler("settings-select", closeModal);
+  onCleanup(unregisterDismissHandler);
 
   function moveSelection(delta: number) {
     const options = filteredOptions();

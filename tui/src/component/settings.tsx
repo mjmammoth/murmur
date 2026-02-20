@@ -658,6 +658,26 @@ export function Settings(): JSX.Element {
     item.activate?.();
   }
 
+  function dismissSettings() {
+    if (filterMode()) {
+      setFilterMode(false);
+      if (filterQuery().length > 0) {
+        setFilterQuery("");
+      }
+      return;
+    }
+
+    if (filterQuery().length > 0) {
+      setFilterQuery("");
+      return;
+    }
+
+    dialog.closeDialog();
+  }
+
+  const unregisterDismissHandler = dialog.registerDismissHandler("settings", dismissSettings);
+  onCleanup(unregisterDismissHandler);
+
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "settings") return;
     if (key.eventType === "release") return;
@@ -677,10 +697,7 @@ export function Settings(): JSX.Element {
         case "escape":
         case "q":
           key.preventDefault();
-          setFilterMode(false);
-          if (filterQuery().length > 0) {
-            setFilterQuery("");
-          }
+          dismissSettings();
           return;
         case "return":
         case "enter":
@@ -712,11 +729,7 @@ export function Settings(): JSX.Element {
       case "escape":
       case "q":
         key.preventDefault();
-        if (filterQuery().length > 0) {
-          setFilterQuery("");
-          return;
-        }
-        dialog.closeDialog();
+        dismissSettings();
         return;
       case "up":
       case "k":

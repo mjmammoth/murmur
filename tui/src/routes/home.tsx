@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
 import { useKeyHandler, usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid";
-import { BorderChars, RGBA, type KeyEvent } from "@opentui/core";
+import { BorderChars, RGBA, type KeyEvent, type MouseEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
 import { useConfig } from "../context/config";
@@ -284,6 +284,16 @@ export function Home(): JSX.Element {
     return RGBA.fromValues(overlay.r, overlay.g, overlay.b, colors().overlayAlpha);
   };
 
+  function dismissDialogFromBackdrop(event: MouseEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    dialog.requestDismiss();
+  }
+
+  function stopModalMouseBubble(event: MouseEvent) {
+    event.stopPropagation();
+  }
+
   return (
     <box
       flexDirection="row"
@@ -383,8 +393,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <ModelManager />
+          <box onMouseUp={stopModalMouseBubble}>
+            <ModelManager />
+          </box>
         </box>
       </Show>
 
@@ -396,8 +409,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <Settings />
+          <box onMouseUp={stopModalMouseBubble}>
+            <Settings />
+          </box>
         </box>
       </Show>
 
@@ -409,8 +425,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <HotkeyModal />
+          <box onMouseUp={stopModalMouseBubble}>
+            <HotkeyModal />
+          </box>
         </box>
       </Show>
 
@@ -422,8 +441,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <SettingsSelectModal />
+          <box onMouseUp={stopModalMouseBubble}>
+            <SettingsSelectModal />
+          </box>
         </box>
       </Show>
 
@@ -435,8 +457,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <SettingsEditModal />
+          <box onMouseUp={stopModalMouseBubble}>
+            <SettingsEditModal />
+          </box>
         </box>
       </Show>
 
@@ -448,8 +473,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <ThemePickerModal />
+          <box onMouseUp={stopModalMouseBubble}>
+            <ThemePickerModal />
+          </box>
         </box>
       </Show>
 
@@ -461,8 +489,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <ExitConfirmModal />
+          <box onMouseUp={stopModalMouseBubble}>
+            <ExitConfirmModal />
+          </box>
         </box>
       </Show>
 
@@ -474,8 +505,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <Welcome />
+          <box onMouseUp={stopModalMouseBubble}>
+            <Welcome />
+          </box>
         </box>
       </Show>
     </box>

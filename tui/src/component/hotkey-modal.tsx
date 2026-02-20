@@ -1,4 +1,4 @@
-import { createMemo, createSignal, type JSX } from "solid-js";
+import { createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import { useKeyHandler } from "@opentui/solid";
 import { type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -101,6 +101,9 @@ export function HotkeyModal(): JSX.Element {
     }
     dialog.closeDialog();
   }
+
+  const unregisterDismissHandler = dialog.registerDismissHandler("hotkey", closeModal);
+  onCleanup(unregisterDismissHandler);
 
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "hotkey") return;

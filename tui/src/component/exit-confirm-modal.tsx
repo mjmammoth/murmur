@@ -1,4 +1,4 @@
-import { createMemo, type JSX } from "solid-js";
+import { createMemo, onCleanup, type JSX } from "solid-js";
 import { useKeyHandler, useRenderer } from "@opentui/solid";
 import { type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -46,6 +46,9 @@ export function ExitConfirmModal(): JSX.Element {
   function cancelExit() {
     dialog.closeDialog();
   }
+
+  const unregisterDismissHandler = dialog.registerDismissHandler("exit-confirm", cancelExit);
+  onCleanup(unregisterDismissHandler);
 
   /**
    * Cancel the in-progress model download (if any) and exit the application.

@@ -2,6 +2,7 @@ import {
   createSignal,
   createEffect,
   createMemo,
+  onCleanup,
   onMount,
   For,
   Show,
@@ -90,6 +91,8 @@ export function ModelManager(): JSX.Element {
   }
 
   onMount(() => {
+    const unregisterDismissHandler = dialog.registerDismissHandler("model-manager", closeManager);
+    onCleanup(unregisterDismissHandler);
     backend.send({ type: "list_models" });
   });
 
@@ -192,9 +195,9 @@ export function ModelManager(): JSX.Element {
    * Perform the primary action for the currently highlighted model.
    *
    * If no model is selected, no action is taken. If the selected model is currently being downloaded,
-   * the download is cancelled. If a different model operation is active, no action is taken. If the
-   * selected model is installed, it is set as the active/selected model; otherwise a download for the
-   * model is started.
+   * the download is cancelled. If the selected model is installed, it is set as active only when no
+   * other model operation is running. Otherwise, a download for the selected model is requested and may
+   * be queued behind an active model operation.
    */
   function handlePrimaryAction() {
     const model = selectedModel();
@@ -203,8 +206,8 @@ export function ModelManager(): JSX.Element {
       handleCancelDownload();
       return;
     }
-    if (backend.activeModelOp()) return;
     if (model.installed) {
+      if (backend.activeModelOp()) return;
       handleSelect();
       return;
     }
@@ -223,14 +226,16 @@ export function ModelManager(): JSX.Element {
   }
 
   /**
-   * Starts downloading the currently selected model if one exists and no model operation is active.
+   * Starts downloading the currently selected model if one exists.
    *
-   * Clears the visible status message and requests the backend to download the selected model.
-   * If there is no selected model or another model operation is in progress, this function does nothing.
+   * Clears the visible status message and requests the backend to download the selected model. If another
+   * model operation is active, the backend queues the pull request.
    */
   function handlePull() {
     const model = selectedModel();
-    if (!model || backend.activeModelOp()) return;
+    if (!model) return;
+    const op = backend.activeModelOp();
+    if (op?.type === "pulling" && op.model === model.name) return;
     setStatusMessage("");
     backend.downloadModel(model.name);
   }

@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
 import { useKeyHandler, useTerminalDimensions } from "@opentui/solid";
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -105,6 +105,9 @@ export function ThemePickerModal(): JSX.Element {
     }
     closeModal();
   }
+
+  const unregisterDismissHandler = dialog.registerDismissHandler("theme-picker", cancelSelection);
+  onCleanup(unregisterDismissHandler);
 
   function applySelection() {
     const selected = selectedTheme();

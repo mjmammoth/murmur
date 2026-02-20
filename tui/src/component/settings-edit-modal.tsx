@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import { useKeyHandler } from "@opentui/solid";
 import type { KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -97,6 +97,9 @@ export function SettingsEditModal(): JSX.Element {
     }
     dialog.closeDialog();
   }
+
+  const unregisterDismissHandler = dialog.registerDismissHandler("settings-edit", closeModal);
+  onCleanup(unregisterDismissHandler);
 
   function applyValue() {
     const trimmed = draft().trim();

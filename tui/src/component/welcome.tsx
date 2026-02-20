@@ -2,6 +2,7 @@ import {
   createSignal,
   createMemo,
   createEffect,
+  onCleanup,
   on,
   For,
   Show,
@@ -74,9 +75,11 @@ function WelcomeStep(): JSX.Element {
       <text>
         <span style={{ fg: colors().primary, bold: true }}>Welcome to whisper.local</span>
       </text>
-      <Paragraph>Local speech-to-text transcription, entirely on your machine.</Paragraph>
-      <Paragraph>No data leaves your computer. Audio is captured, transcribed</Paragraph>
-      <Paragraph>by an AI model running locally, and the text is shown here.</Paragraph>
+      <Paragraph>
+        Local speech-to-text transcription, entirely on your machine.
+        No data leaves your computer. Audio is captured, transcribed
+        by an AI model running locally, and the text is shown here
+      </Paragraph>
       <box marginTop={1} flexDirection="column" gap={0}>
         <text>
           <span style={{ fg: colors().accent, bold: true }}>Everything in the UI is clickable.</span>
@@ -296,12 +299,14 @@ function ModelDownloadStep(props: {
 
   function handlePullOrSelect() {
     const model = selectedModel();
-    if (!model || backend.activeModelOp()) return;
+    const op = backend.activeModelOp();
+    if (!model) return;
     if (selectedModelIsPulling()) {
       backend.cancelModelDownload(model.name);
       return;
     }
     if (model.installed) {
+      if (op) return;
       backend.send({ type: "set_selected_model", name: model.name });
       return;
     }
@@ -549,6 +554,9 @@ export function Welcome(): JSX.Element {
     dialog.closeDialog();
   }
 
+  const unregisterDismissHandler = dialog.registerDismissHandler("welcome", handleClose);
+  onCleanup(unregisterDismissHandler);
+
   function handleNext() {
     if (isLastStep()) {
       handleClose();
@@ -591,11 +599,13 @@ export function Welcome(): JSX.Element {
       if (key.name === "return" || key.name === "enter") {
         key.preventDefault();
         const model = backend.models()[modelIndex()];
-        if (!model || backend.activeModelOp()) return;
-        const pulling = backend.activeModelOp()?.type === "pulling" && backend.activeModelOp()?.model === model.name;
+        const op = backend.activeModelOp();
+        if (!model) return;
+        const pulling = op?.type === "pulling" && op.model === model.name;
         if (pulling) {
           backend.cancelModelDownload(model.name);
         } else if (model.installed) {
+          if (op) return;
           backend.send({ type: "set_selected_model", name: model.name });
         } else {
           backend.downloadModel(model.name);
