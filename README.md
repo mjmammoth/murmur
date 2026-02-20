@@ -36,20 +36,11 @@ python -m pip install whisper-local
 ## Homebrew (v1 arm64)
 
 ```bash
-brew tap mjmammoth/homebrew-tap
-brew install whisper-local
+brew tap mjmammoth/tap
+brew install whisper.local
 ```
 
 Homebrew installs a prebuilt TUI binary plus Python backend. Bun is **not** required at runtime.
-
-## Required system dependency: whisper.cpp
-
-```bash
-brew install whisper-cpp
-```
-
-`whisper.local` requires a `whisper.cpp` binary at runtime. The app fails fast with an actionable message if it is missing.
-Then choose backend in Settings -> Model -> Backend.
 
 ## RNNoise (optional, recommended)
 

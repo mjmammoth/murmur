@@ -114,6 +114,21 @@ export function BackendContextProvider(props: {
   const hotkeyReleaseHandlers: (() => void)[] = [];
   const toastHandlers: ((message: string, level: "info" | "error") => void)[] = [];
 
+  function emitToast(message: string, level: "info" | "error") {
+    for (const handler of toastHandlers) {
+      handler(message, level);
+    }
+  }
+
+  function sendInternal(message: ClientMessage): boolean {
+    if (ws?.readyState === WebSocket.OPEN) {
+      applyOptimisticConfig(message);
+      ws.send(JSON.stringify(message));
+      return true;
+    }
+    return false;
+  }
+
   function connect() {
     if (unmounted) return;
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
@@ -242,9 +257,7 @@ export function BackendContextProvider(props: {
         setStatusMessage(message.message);
         setActiveModelOp(null);
         setDownloadProgress(null);
-        for (const handler of toastHandlers) {
-          handler(message.message, "error");
-        }
+        emitToast(message.message, "error");
         break;
 
       case "toast": {
@@ -265,9 +278,7 @@ export function BackendContextProvider(props: {
           setActiveModelOp(null);
           setDownloadProgress(null);
         }
-        for (const handler of toastHandlers) {
-          handler(message.message, message.level ?? "info");
-        }
+        emitToast(message.message, message.level ?? "info");
         break;
       }
 
@@ -414,16 +425,22 @@ export function BackendContextProvider(props: {
   }
 
   function send(message: ClientMessage) {
-    if (ws?.readyState === WebSocket.OPEN) {
-      applyOptimisticConfig(message);
-      ws.send(JSON.stringify(message));
-    }
+    sendInternal(message);
   }
 
   function downloadModel(name: string) {
+    const op = activeModelOp();
+    if (op) {
+      if (op.type === "pulling" && op.model === name) return;
+      const sent = sendInternal({ type: "download_model", name });
+      if (!sent) return;
+      const pendingOp = op.type === "pulling" ? `pulling ${op.model}` : `removing ${op.model}`;
+      emitToast(`Queued ${name}. It will start after ${pendingOp}.`, "info");
+      return;
+    }
     setActiveModelOp({ type: "pulling", model: name });
     setDownloadProgress({ model: name, percent: 0 });
-    send({ type: "download_model", name });
+    sendInternal({ type: "download_model", name });
   }
 
   /**

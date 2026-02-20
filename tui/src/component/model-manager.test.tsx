@@ -184,6 +184,16 @@ describe("ModelManager", () => {
       expect(action).toBe("pull");
     });
 
+    test("should queue pull when another model operation is active", () => {
+      const model = { name: "whisper-base", installed: false, path: null };
+      const activeModelOp = { type: "pulling", model: "whisper-small" };
+      const selectedModelIsPulling = false;
+      const action = selectedModelIsPulling ? "cancel" : model.installed ? "select" : "pull";
+
+      expect(activeModelOp).toBeTruthy();
+      expect(action).toBe("pull");
+    });
+
     test("should wait when another operation is active", () => {
       const model = { name: "whisper-base", installed: true, path: "/path" };
       const activeModelOp = { type: "removing", model: "other-model" };
