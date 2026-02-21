@@ -841,6 +841,16 @@ export function Welcome(): JSX.Element {
         openHardwareSettingSelector(selectedHardwareField());
         return;
       }
+  // Keyboard navigation
+  useKeyHandler((key: KeyEvent) => {
+    if (dialog.currentDialog()?.type !== "welcome") return;
+    if (key.eventType === "release" || key.repeated) return;
+
+    // Device detection step: s opens settings
+    if (currentStep() === "device-detection" && key.name === "s") {
+      key.preventDefault();
+      openSettingsFromWelcome();
+      return;
     }
 
     // Model download step: arrow keys navigate model list
@@ -859,31 +869,22 @@ export function Welcome(): JSX.Element {
         key.preventDefault();
         const model = backend.models()[modelIndex()];
         const op = backend.activeModelOp();
-        const activeRuntime = (backend.config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
         if (!model) return;
-        const pullingOp =
-          op?.type === "pulling" &&
-          op.model === model.name &&
-          op.runtime === activeRuntime
-            ? op
-            : null;
-        const queued = backend.isModelPullQueued(model.name, activeRuntime);
-        if (pullingOp) {
-          backend.cancelModelDownload(model.name, pullingOp.runtime);
-        } else if (queued) {
-          backend.cancelModelDownload(model.name, activeRuntime);
-        } else if (model.variants?.[activeRuntime]?.installed) {
+        const pulling = op?.type === "pulling" && op.model === model.name;
+        if (pulling) {
+          backend.cancelModelDownload(model.name);
+        } else if (model.installed) {
           if (op) return;
           backend.send({ type: "set_selected_model", name: model.name });
         } else {
-          backend.downloadModel(model.name, activeRuntime);
+          backend.downloadModel(model.name);
         }
         return;
       }
       if (key.name === "x") {
         const pulling = backend.activeModelOp();
         if (pulling?.type === "pulling") {
-          backend.cancelModelDownload(pulling.model, pulling.runtime);
+          backend.cancelModelDownload(pulling.model);
         }
         return;
       }
@@ -898,8 +899,8 @@ export function Welcome(): JSX.Element {
         break;
       case "return":
       case "enter":
-        // Enter is handled in step-specific flows above where needed.
-        if (currentStep() !== "model-download" && currentStep() !== "device-detection") {
+        // Enter already handled in model-download step above
+        if (currentStep() !== "model-download") {
           handleNext();
         }
         break;
