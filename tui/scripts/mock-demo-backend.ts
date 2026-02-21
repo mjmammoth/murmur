@@ -50,7 +50,13 @@ function getArg(name: string, fallback: string): string {
   return process.argv[index + 1] ?? fallback;
 }
 
-const port = Number.parseInt(getArg("--port", "8787"), 10);
+const portArg = getArg("--port", "8787");
+const parsedPort = Number(portArg);
+const port =
+  Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535 ? parsedPort : 8787;
+if (port !== parsedPort) {
+  console.warn(`Invalid --port value "${portArg}", using default 8787.`);
+}
 const theme = getArg("--theme", "dark").toLowerCase();
 
 const transcripts: DemoTranscript[] = [
@@ -166,6 +172,8 @@ function sendJson(ws: ServerWebSocket<unknown>, payload: object) {
   ws.send(JSON.stringify(payload));
 }
 
+const socketTimers = new WeakMap<ServerWebSocket<unknown>, ReturnType<typeof setTimeout>[]>();
+
 const server = Bun.serve({
   port,
   fetch(request, serverRef) {
@@ -180,11 +188,22 @@ const server = Bun.serve({
       sendJson(ws, { type: "config", config });
       sendJson(ws, { type: "models", models });
 
+      const timers: ReturnType<typeof setTimeout>[] = [];
+      socketTimers.set(ws, timers);
       transcripts.forEach((entry, index) => {
-        setTimeout(() => {
+        const timer = setTimeout(() => {
+          if (!socketTimers.has(ws)) return;
           sendJson(ws, { type: "transcript", timestamp: entry.timestamp, text: entry.text });
         }, 80 * (index + 1));
+        timers.push(timer);
       });
+    },
+    close(ws, _code, _message) {
+      const timers = socketTimers.get(ws);
+      if (timers) {
+        timers.forEach((timer) => clearTimeout(timer));
+      }
+      socketTimers.delete(ws);
     },
     message(ws, rawMessage) {
       let data: { type?: string; [key: string]: unknown } | null = null;

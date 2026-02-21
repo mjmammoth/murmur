@@ -1,8 +1,6 @@
-import { type JSX, For } from "solid-js";
+import { type JSX } from "solid-js";
 import { useTheme } from "../context/theme";
-import { lerpColor } from "../util/color";
-
-const TITLE = "whisper.local";
+import { BrandTitle } from "./brand-title";
 
 interface HeaderProps {
   onQuitClick?: () => void;
@@ -19,11 +17,6 @@ interface HeaderProps {
  */
 export function Header(props: HeaderProps): JSX.Element {
   const { colors } = useTheme();
-  const titleChars = TITLE.split("");
-  const titleStripChars = [" ", ...titleChars, " "];
-  const titleLastIndex = Math.max(1, titleStripChars.length - 1);
-  const peakIndex = Math.max(0, TITLE.indexOf(".")) + 1;
-  const maxDistanceFromPeak = Math.max(1, Math.max(peakIndex, titleLastIndex - peakIndex));
 
   return (
     <box
@@ -33,23 +26,7 @@ export function Header(props: HeaderProps): JSX.Element {
       flexShrink={0}
     >
       <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
-        <box flexDirection="row" flexShrink={0}>
-          <For each={titleStripChars}>
-            {(ch, i) => {
-              const distanceFromPeak = Math.abs(i() - peakIndex);
-              const baseIntensity = Math.max(0, 1 - distanceFromPeak / maxDistanceFromPeak);
-              const intensity = Math.pow(baseIntensity, 2.1);
-              const bgColor = lerpColor(colors().brandStart, colors().brandEnd, intensity);
-              return (
-                <box backgroundColor={bgColor}>
-                  <text>
-                    <span style={{ fg: colors().background, bold: true }}>{ch}</span>
-                  </text>
-                </box>
-              );
-            }}
-          </For>
-        </box>
+        <BrandTitle />
         <box
           justifyContent="flex-end"
           flexDirection="row"

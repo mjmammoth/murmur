@@ -14,6 +14,8 @@ def test_queue_cancel_queued_task_marks_cancelled_and_calls_task_cancel():
     result = queue.cancel("faster-whisper:small")
 
     assert result.status == "queued"
+    assert result.task is not None
+    assert result.task.state == "cancelled"
     task.cancel.assert_called_once()
 
 

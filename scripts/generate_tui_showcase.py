@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import os
 import random
 import re
@@ -26,7 +27,7 @@ OUTPUT_SVG = "svg"
 OUTPUT_PNG = "png"
 DEFAULT_PNG_SCALE = 2.0
 FONT_FAMILY = "'JetBrainsMono Nerd Font Mono', 'JetBrainsMono Nerd Font', 'JetBrains Mono', monospace"
-FONT_WOFF2_URL = "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf"
+FONT_TTF_URL = "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf"
 
 
 def _clear_capture_target(path: Path) -> None:
@@ -287,8 +288,12 @@ def _download_font(dest: Path) -> Path:
     if font_path.exists():
         return font_path
     dest.mkdir(parents=True, exist_ok=True)
-    import urllib.request
-    urllib.request.urlretrieve(FONT_WOFF2_URL, str(font_path))
+    try:
+        urllib.request.urlretrieve(FONT_TTF_URL, str(font_path))
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to download font from {FONT_TTF_URL} to {font_path}: {exc}"
+        ) from exc
     return font_path
 
 
@@ -347,6 +352,9 @@ body {{ margin: 0; padding: 0; }}
     tmp_html = repo_root / f".tmp-playwright-render-{os.getpid()}.html"
     tmp_html.write_text(html_content, encoding="utf-8")
 
+    html_url_json = json.dumps(f"file://{tmp_html.resolve().as_posix()}")
+    png_path_json = json.dumps(png_path.resolve().as_posix())
+
     js_script = f"""\
 const {{ chromium }} = require('playwright');
 (async () => {{
@@ -355,14 +363,14 @@ const {{ chromium }} = require('playwright');
     viewport: {{ width: {width}, height: {height} }},
     deviceScaleFactor: {scale},
   }});
-  await page.goto('file://{tmp_html.resolve().as_posix()}');
+  await page.goto({html_url_json});
   // Wait for font to load and render to settle.
   await page.waitForTimeout(1000);
   const svg = await page.$('svg');
   if (svg) {{
-    await svg.screenshot({{ path: '{png_path.resolve().as_posix()}', omitBackground: true }});
+    await svg.screenshot({{ path: {png_path_json}, omitBackground: true }});
   }} else {{
-    await page.screenshot({{ path: '{png_path.resolve().as_posix()}', fullPage: true, omitBackground: true }});
+    await page.screenshot({{ path: {png_path_json}, fullPage: true, omitBackground: true }});
   }}
   await browser.close();
 }})();

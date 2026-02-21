@@ -109,9 +109,10 @@ export function Footer(props: FooterProps): JSX.Element {
     if (!selected) return "-";
     const activeRuntime = config.config()?.model.runtime ?? "faster-whisper";
     const match = backend.models().find((model) => model.name === selected);
-    return match?.variants?.[activeRuntime as "faster-whisper" | "whisper.cpp"]?.installed
-      ? selected
-      : "-";
+    const variant = (
+      match?.variants as Record<string, { installed?: boolean }> | undefined
+    )?.[activeRuntime];
+    return variant?.installed ? selected : "-";
   };
   const hotkeyKey = () => config.config()?.hotkey.key ?? "-";
   const compactFooterLayout = () => availableWidth() < COMPACT_FOOTER_THRESHOLD;

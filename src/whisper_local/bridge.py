@@ -8,6 +8,7 @@ import logging
 import os
 import shlex
 import shutil
+import sys
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -664,8 +665,16 @@ class BridgeServer:
                 async with self._clipboard_output_lock:
                     should_revert_clipboard = self._auto_paste and self._auto_revert_clipboard
                     clipboard_snapshot = None
+                    clipboard_snapshot_available = False
                     if should_revert_clipboard:
-                        clipboard_snapshot = await asyncio.to_thread(capture_clipboard_snapshot)
+                        try:
+                            clipboard_snapshot = await asyncio.to_thread(capture_clipboard_snapshot)
+                            clipboard_snapshot_available = True
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to capture clipboard snapshot before auto-paste: %s",
+                                exc,
+                            )
 
                     copied_to_clipboard = copy_to_clipboard(result.text)
                     if self._auto_paste and copied_to_clipboard:
@@ -673,12 +682,26 @@ class BridgeServer:
                             {"type": "suppress_paste_input", "duration_ms": AUTO_PASTE_INPUT_SUPPRESS_MS}
                         )
                         pasted = await asyncio.to_thread(paste_from_clipboard)
-                        if should_revert_clipboard:
+                        if should_revert_clipboard and clipboard_snapshot_available:
                             if pasted:
                                 await asyncio.sleep(AUTO_REVERT_CLIPBOARD_DELAY_MS / 1000)
+                            try:
+                                await asyncio.to_thread(
+                                    restore_clipboard_snapshot, clipboard_snapshot
+                                )
+                            except Exception as exc:
+                                logger.warning(
+                                    "Failed to restore clipboard snapshot after auto-paste: %s",
+                                    exc,
+                                )
+                    elif should_revert_clipboard and clipboard_snapshot_available:
+                        try:
                             await asyncio.to_thread(restore_clipboard_snapshot, clipboard_snapshot)
-                    elif should_revert_clipboard:
-                        await asyncio.to_thread(restore_clipboard_snapshot, clipboard_snapshot)
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to restore clipboard snapshot after copy: %s",
+                                exc,
+                            )
             if self.config.output.file.enabled:
                 append_to_file(self.config.output.file.path, result.text)
             final_status = "ready"
@@ -2700,7 +2723,6 @@ class BridgeServer:
 
     async def _send_capabilities(self, websocket: WebSocketServerProtocol) -> None:
         """Send runtime capabilities with a recommended runtime/device to a client."""
-        import sys
         caps = self._runtime_capabilities or {}
         model_caps = caps.get("model", {})
         devices_by_runtime = model_caps.get("devices_by_runtime", {})

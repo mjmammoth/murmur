@@ -72,7 +72,8 @@ export function RuntimeSwitchConfirmModal(): JSX.Element {
     }
   });
 
-  if (!dialogData()) return <></>;
+  const cached = dialogData();
+  if (!cached) return <></>;
 
   return (
     <box
@@ -91,12 +92,12 @@ export function RuntimeSwitchConfirmModal(): JSX.Element {
         </text>
         <text>
           <span style={{ fg: colors().textMuted }}>Switch target: </span>
-          <span style={{ fg: colors().text }}>{dialogData()!.runtime}</span>
+          <span style={{ fg: colors().text }}>{cached.runtime}</span>
         </text>
         <text>
           <span style={{ fg: colors().textMuted }}>Model: </span>
-          <span style={{ fg: colors().text }}>{dialogData()!.model}</span>
-          <span style={{ fg: colors().textDim }}>{` (${dialogData()!.format})`}</span>
+          <span style={{ fg: colors().text }}>{cached.model}</span>
+          <span style={{ fg: colors().textDim }}>{` (${cached.format})`}</span>
         </text>
         <text>
           <span style={{ fg: colors().textMuted }}>

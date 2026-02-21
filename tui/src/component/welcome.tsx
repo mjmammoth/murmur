@@ -14,11 +14,9 @@ import { useTheme } from "../context/theme";
 import { useBackend, type CapabilitiesResponse } from "../context/backend";
 import { useDialog } from "../context/dialog";
 import { useSpinnerFrame } from "./spinner";
+import { BrandTitle } from "./brand-title";
 import { formatBytes, formatDeviceLabel } from "../util/format";
-import { lerpColor } from "../util/color";
 import type { RuntimeName, SelectSettingId, WelcomeDialogData } from "../types";
-
-const BRAND_TITLE = "whisper.local";
 
 // ---------------------------------------------------------------------------
 // Shared sub-components
@@ -152,34 +150,6 @@ function WelcomeStep(): JSX.Element {
 // ---------------------------------------------------------------------------
 // Help screen (single page for non-first-run ? press)
 // ---------------------------------------------------------------------------
-
-function BrandTitle(): JSX.Element {
-  const { colors } = useTheme();
-  const chars = BRAND_TITLE.split("");
-  const strip = [" ", ...chars, " "];
-  const lastIndex = Math.max(1, strip.length - 1);
-  const peakIndex = Math.max(0, BRAND_TITLE.indexOf(".")) + 1;
-  const maxDist = Math.max(1, Math.max(peakIndex, lastIndex - peakIndex));
-
-  return (
-    <box flexDirection="row" flexShrink={0}>
-      <For each={strip}>
-        {(ch, i) => {
-          const dist = Math.abs(i() - peakIndex);
-          const intensity = Math.pow(Math.max(0, 1 - dist / maxDist), 2.1);
-          const bgColor = lerpColor(colors().brandStart, colors().brandEnd, intensity);
-          return (
-            <box backgroundColor={bgColor}>
-              <text>
-                <span style={{ fg: colors().background, bold: true }}>{ch}</span>
-              </text>
-            </box>
-          );
-        }}
-      </For>
-    </box>
-  );
-}
 
 function HelpScreen(): JSX.Element {
   const { colors } = useTheme();

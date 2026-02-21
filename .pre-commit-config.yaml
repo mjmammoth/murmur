@@ -33,4 +33,4 @@ repos:
         entry: scripts/precommit_tui_showcase.sh
         language: system
         pass_filenames: false
-        always_run: true
+        files: ^(tui/|scripts/(generate_tui_showcase\.py|termtosvg_compat\.py)|README\.md)$

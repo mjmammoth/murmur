@@ -33,11 +33,12 @@ Everything runs on your machine. No cloud API, no network calls, no data collect
 - **File transcription** — drag-and-drop or paste audio file paths
 
 ## Get Started
+
 ### Homebrew (v1 arm64)
 
 ```bash
-brew tap mjmammoth/tap
-brew install whisper.local
+brew tap mjmammoth/homebrew-tap
+brew install whisper-local
 ```
 
 ### RNNoise (optional)

@@ -225,10 +225,16 @@ describe("ModelManager", () => {
       const model = { name: "whisper-base", installed: false, path: null };
       const activeModelOp = { type: "pulling", model: "whisper-small" };
       const selectedModelIsPulling = false;
-      const action = selectedModelIsPulling ? "cancel" : model.installed ? "select" : "pull";
+      const action = selectedModelIsPulling
+        ? "cancel"
+        : activeModelOp && activeModelOp.model !== model.name
+          ? "queue"
+          : model.installed
+            ? "select"
+            : "pull";
 
       expect(activeModelOp).toBeTruthy();
-      expect(action).toBe("pull");
+      expect(action).toBe("queue");
     });
 
     test("should wait when another operation is active", () => {

@@ -115,7 +115,7 @@ export function ExitConfirmModal(): JSX.Element {
       </box>
 
       <box paddingX={3} paddingTop={1} flexDirection="row" alignItems="center" gap={2} onMouseUp={confirmExit}>
-        <box backgroundColor={colors().accent} paddingX={1}>
+        <box backgroundColor={colors().error} paddingX={1}>
           <text>
             <span style={{ fg: colors().selectedText }}>enter/y</span>
           </text>
@@ -126,7 +126,7 @@ export function ExitConfirmModal(): JSX.Element {
       </box>
 
       <box paddingX={3} paddingTop={1} flexDirection="row" alignItems="center" gap={2} onMouseUp={cancelExit}>
-        <box backgroundColor={colors().error} paddingX={1}>
+        <box backgroundColor={colors().accent} paddingX={1}>
           <text>
             <span style={{ fg: colors().selectedText }}>esc/n</span>
           </text>

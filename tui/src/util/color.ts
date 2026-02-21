@@ -1,5 +1,31 @@
+/**
+ * Convert hex colors to RGB.
+ * Supports #rgb, #rrggbb, and #rrggbbaa (alpha ignored).
+ */
 export function hexToRgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.slice(1), 16);
+  if (!hex.startsWith("#")) {
+    throw new Error(`Invalid hex color "${hex}": missing leading "#".`);
+  }
+
+  let normalized = hex.slice(1);
+  if (normalized.length === 3) {
+    normalized = normalized
+      .split("")
+      .map((channel) => `${channel}${channel}`)
+      .join("");
+  } else if (normalized.length === 8) {
+    normalized = normalized.slice(0, 6);
+  } else if (normalized.length !== 6) {
+    throw new Error(
+      `Invalid hex color "${hex}": expected #rgb, #rrggbb, or #rrggbbaa.`,
+    );
+  }
+
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    throw new Error(`Invalid hex color "${hex}": contains non-hex characters.`);
+  }
+
+  const n = Number.parseInt(normalized, 16);
   return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
 }
 
