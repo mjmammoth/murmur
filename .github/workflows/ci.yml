@@ -140,6 +140,64 @@ jobs:
               )
           PY
 
+  brew_formula_audit:
+    needs: [python_checks, tui_build_smoke]
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download wheel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-python-dist
+          path: dist
+
+      - name: Download TUI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-tui-dist
+          path: dist/tui
+
+      - name: Render formula with local artifacts
+        run: |
+          WHEEL_PATH="$(ls dist/*.whl | head -n 1)"
+          TUI_PATH="dist/tui/whisper-local-tui-darwin-arm64.tar.gz"
+
+          WHEEL_SHA="$(shasum -a 256 "$WHEEL_PATH" | awk '{print $1}')"
+          TUI_SHA="$(shasum -a 256 "$TUI_PATH" | awk '{print $1}')"
+          VERSION="$(python -c "
+          import tomllib, pathlib
+          data = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
+          print(data['project']['version'])
+          ")"
+
+          TAP_DIR="$(mktemp -d)"
+          mkdir -p "$TAP_DIR/Formula"
+
+          python scripts/update_tap_formula.py \
+            --version "$VERSION" \
+            --wheel-url "file://$PWD/$WHEEL_PATH" \
+            --wheel-sha256 "$WHEEL_SHA" \
+            --tui-url "file://$PWD/$TUI_PATH" \
+            --tui-sha256 "$TUI_SHA" \
+            --repository "local/whisper-local" \
+            --tap-repo-path "$TAP_DIR"
+
+          echo "TAP_DIR=$TAP_DIR" >> "$GITHUB_ENV"
+          echo "FORMULA_FILE=$TAP_DIR/Formula/whisper-local.rb" >> "$GITHUB_ENV"
+
+      - name: Brew style check
+        run: brew style --formula "$FORMULA_FILE"
+
+      - name: Brew audit check
+        run: brew audit --formula "$FORMULA_FILE"
+
   tui_build_smoke:
     runs-on: macos-14
     steps:
