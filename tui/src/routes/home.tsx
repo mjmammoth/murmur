@@ -365,7 +365,7 @@ export function Home(): JSX.Element {
               width={1}
               borderStyle="single"
               border={["left"]}
-              borderColor={activePane() === "logs" ? colors().secondary : colors().borderSubtle}
+              borderColor={activePane() === "logs" ? colors().accent : colors().borderSubtle}
               customBorderChars={{
                 ...BorderChars.single,
                 vertical: activePane() === "logs" ? "┃" : "│",

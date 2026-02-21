@@ -53,9 +53,9 @@ const darkTheme: Theme = {
   label: "Dark",
   description: "Default dark palette",
   colors: {
-    primary: "#fab283",
+    primary: "#9d7cd8",
     secondary: "#5c9cf5",
-    accent: "#9d7cd8",
+    accent: "#fab283",
 
     error: "#e06c75",
     warning: "#f5a742",
@@ -97,9 +97,9 @@ const lightTheme: Theme = {
   label: "Light",
   description: "High-contrast light mode",
   colors: {
-    primary: "#9a4f16",
+    primary: "#7c3aed",
     secondary: "#2563eb",
-    accent: "#7c3aed",
+    accent: "#9a4f16",
 
     error: "#b42318",
     warning: "#b54708",
@@ -141,9 +141,9 @@ const catppuccinMochaTheme: Theme = {
   label: "Catppuccin Mocha",
   description: "Pastel dark palette",
   colors: {
-    primary: "#fab387",
+    primary: "#cba6f7",
     secondary: "#89b4fa",
-    accent: "#cba6f7",
+    accent: "#fab387",
 
     error: "#f38ba8",
     warning: "#f9e2af",
@@ -185,9 +185,9 @@ const catppuccinLatteTheme: Theme = {
   label: "Catppuccin Latte",
   description: "Pastel light palette",
   colors: {
-    primary: "#d17b49",
+    primary: "#8839ef",
     secondary: "#1e66f5",
-    accent: "#8839ef",
+    accent: "#d17b49",
 
     error: "#d20f39",
     warning: "#df8e1d",

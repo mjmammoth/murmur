@@ -112,7 +112,7 @@ export function ToastContainer(): JSX.Element {
                 <text wrapMode="word" width="100%">
                   <span style={{ fg: colors().text }}>{toast.message}</span>
                   <Show when={copiedToastId() === toast.id}>
-                    <span style={{ fg: colors().secondary, bold: true }}> copied</span>
+                    <span style={{ fg: colors().accent, bold: true }}> copied</span>
                   </Show>
                 </text>
               </box>

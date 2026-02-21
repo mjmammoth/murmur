@@ -209,7 +209,7 @@ export function ThemePickerModal(): JSX.Element {
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
@@ -259,7 +259,7 @@ export function ThemePickerModal(): JSX.Element {
                     setMouseArmedIndex(index());
                   }}
                 >
-                  <box width={1} backgroundColor={isActive() ? colors().secondary : undefined} />
+                  <box width={1} backgroundColor={isActive() ? colors().accent : undefined} />
                   <box paddingLeft={2} paddingRight={1} paddingY={1} flexDirection="column" width="100%">
                     <box flexDirection="row" justifyContent="space-between" width="100%">
                       <text>
@@ -279,7 +279,7 @@ export function ThemePickerModal(): JSX.Element {
                         <span style={{ fg: themeOption.colors?.primary ?? colors().primary }}>■■</span>
                       </text>
                       <text>
-                        <span style={{ fg: themeOption.colors?.secondary ?? colors().secondary }}>■■</span>
+                        <span style={{ fg: themeOption.colors?.secondary ?? colors().accent }}>■■</span>
                       </text>
                       <text>
                         <span style={{ fg: themeOption.colors?.accent ?? colors().accent }}>■■</span>

@@ -23,7 +23,7 @@ function CommandHint(props: { keys: string; label: string; onClick?: () => void 
 
   return (
     <box flexDirection="row" alignItems="center" gap={1} onMouseUp={() => props.onClick?.()}>
-      <box backgroundColor={colors().secondary} paddingX={1}>
+      <box backgroundColor={colors().accent} paddingX={1}>
         <text>
           <span style={{ fg: colors().selectedText }}>{props.keys}</span>
         </text>
@@ -365,7 +365,7 @@ export function ModelManager(): JSX.Element {
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
@@ -404,35 +404,6 @@ export function ModelManager(): JSX.Element {
           </text>
         </box>
       </Show>
-
-      <box paddingX={2} paddingTop={1} flexShrink={0}>
-        <box
-          flexDirection="row"
-          width="100%"
-          borderStyle="single"
-          border={["bottom"]}
-          borderColor={colors().borderSubtle}
-          paddingBottom={0}
-        >
-          <box width={MODEL_TABLE_LAYOUT.rowPrefix} />
-          <box width={MODEL_TABLE_LAYOUT.model} justifyContent="flex-start" alignItems="center">
-            <text>
-              <span style={{ fg: colors().accent, bold: true }}>Model</span>
-            </text>
-          </box>
-          <box width={MODEL_TABLE_LAYOUT.size} justifyContent="flex-end" alignItems="center">
-            <text>
-              <span style={{ fg: colors().accent, bold: true }}>Size</span>
-            </text>
-          </box>
-          <box width={MODEL_TABLE_LAYOUT.separator} />
-          <box width={MODEL_TABLE_LAYOUT.runtime} justifyContent="center" alignItems="center">
-            <text>
-              <span style={{ fg: colors().accent, bold: true }}>Downloaded</span>
-            </text>
-          </box>
-        </box>
-      </box>
 
       <scrollbox flexGrow={1} flexShrink={1} paddingY={1}>
         <box flexDirection="column">

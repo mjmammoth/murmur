@@ -82,7 +82,7 @@ export function RuntimeSwitchConfirmModal(): JSX.Element {
       </box>
 
       <box paddingX={3} paddingTop={1} flexDirection="row" alignItems="center" gap={2} onMouseUp={confirm}>
-        <box backgroundColor={colors().secondary} paddingX={1}>
+        <box backgroundColor={colors().accent} paddingX={1}>
           <text>
             <span style={{ fg: colors().selectedText }}>enter/y</span>
           </text>

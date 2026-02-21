@@ -42,7 +42,7 @@ function KeyHint(props: KeyHintProps): JSX.Element {
     <box onMouseUp={() => props.onClick?.()}>
       <text>
         <span style={{ fg: colors().textMuted }}>{before}</span>
-        <span style={{ fg: colors().accent, bold: true }}>{key}</span>
+        <span style={{ fg: colors().secondary, bold: true }}>{key}</span>
         <span style={{ fg: colors().textMuted }}>{after}</span>
       </text>
     </box>
@@ -225,7 +225,7 @@ export function Footer(props: FooterProps): JSX.Element {
                     label="model"
                     keyChar="m"
                     value={compactModel()}
-                    highlightColor={colors().secondary}
+                    highlightColor={colors().accent}
                     onClick={props.onModelClick}
                   />
                 </box>
@@ -236,7 +236,7 @@ export function Footer(props: FooterProps): JSX.Element {
                     label="hotkey"
                     keyChar="h"
                     value={compactHotkey()}
-                    highlightColor={colors().secondary}
+                    highlightColor={colors().accent}
                     onClick={props.onHotkeyClick}
                   />
                 </box>
@@ -248,14 +248,14 @@ export function Footer(props: FooterProps): JSX.Element {
                 label="model"
                 keyChar="m"
                 value={compactModel()}
-                highlightColor={colors().secondary}
+                highlightColor={colors().accent}
                 onClick={props.onModelClick}
               />
               <PairHint
                 label="hotkey"
                 keyChar="h"
                 value={compactHotkey()}
-                highlightColor={colors().secondary}
+                highlightColor={colors().accent}
                 onClick={props.onHotkeyClick}
               />
             </>

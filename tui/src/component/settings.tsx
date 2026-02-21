@@ -64,7 +64,7 @@ function LegendHint(props: { keys: string; label: string; danger?: boolean }): J
 
   return (
     <box flexDirection="row" alignItems="center" gap={1}>
-      <box backgroundColor={props.danger ? colors().error : colors().secondary} paddingX={1}>
+      <box backgroundColor={props.danger ? colors().error : colors().accent} paddingX={1}>
         <text>
           <span style={{ fg: colors().selectedText }}>{props.keys}</span>
         </text>
@@ -800,7 +800,7 @@ export function Settings(): JSX.Element {
       return active ? colors().textMuted : colors().textDim;
     }
 
-    return active ? colors().text : colors().secondary;
+    return active ? colors().text : colors().accent;
   };
 
   const descriptionText = (item: SettingItem) => {
@@ -835,7 +835,7 @@ export function Settings(): JSX.Element {
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
@@ -845,7 +845,7 @@ export function Settings(): JSX.Element {
           <span style={{ fg: colors().textDim }}>filter: </span>
           <span style={{ fg: colors().text }}>{filterQuery() || "all settings"}</span>
           <Show when={filterMode()}>
-            <span style={{ fg: colors().secondary }}> |</span>
+            <span style={{ fg: colors().accent }}> |</span>
           </Show>
         </text>
       </box>
@@ -895,7 +895,7 @@ export function Settings(): JSX.Element {
                         >
                           <box
                             width={1}
-                            backgroundColor={isActive() ? colors().secondary : undefined}
+                            backgroundColor={isActive() ? colors().accent : undefined}
                           />
                           <box paddingLeft={2} flexDirection="row" width="100%" justifyContent="space-between" gap={2}>
                             <box flexDirection="column" flexGrow={1}>

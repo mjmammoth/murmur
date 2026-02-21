@@ -155,7 +155,7 @@ export function HotkeyModal(): JSX.Element {
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>

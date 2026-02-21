@@ -9,13 +9,16 @@ import {
   type JSX,
 } from "solid-js";
 import { useKeyHandler, useTerminalDimensions } from "@opentui/solid";
-import type { KeyEvent } from "@opentui/core";
+import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend, type CapabilitiesResponse } from "../context/backend";
 import { useDialog } from "../context/dialog";
 import { useSpinnerFrame } from "./spinner";
 import { formatBytes, formatDeviceLabel } from "../util/format";
+import { lerpColor } from "../util/color";
 import type { RuntimeName, SelectSettingId, WelcomeDialogData } from "../types";
+
+const BRAND_TITLE = "whisper.local";
 
 // ---------------------------------------------------------------------------
 // Shared sub-components
@@ -25,7 +28,7 @@ function CommandHint(props: { keys: string; label: string; onClick?: () => void 
   const { colors } = useTheme();
   return (
     <box flexDirection="row" alignItems="center" gap={1} onMouseUp={() => props.onClick?.()}>
-      <box backgroundColor={colors().secondary} paddingX={1}>
+      <box backgroundColor={colors().accent} paddingX={1}>
         <text>
           <span style={{ fg: colors().selectedText }}>{props.keys}</span>
         </text>
@@ -78,11 +81,62 @@ function WelcomeStep(): JSX.Element {
       <Paragraph>
         Local speech-to-text transcription, entirely on your machine.
         No data leaves your computer. Audio is captured, transcribed
-        by an AI model running locally, and the text is shown here
+        by an OpenAI Whisper model running locally.
       </Paragraph>
+
       <box marginTop={1} flexDirection="column" gap={0}>
         <text>
-          <span style={{ fg: colors().accent, bold: true }}>Everything in the UI is clickable.</span>
+          <span style={{ fg: colors().primary, bold: true }}>How it works</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>Press the global hotkey (</span>
+          <span style={{ fg: colors().secondary, bold: true }}>F3</span>
+          <span style={{ fg: colors().text }}> by default) to </span>
+          <span style={{ fg: colors().secondary, bold: true }}>start</span>
+          <span style={{ fg: colors().text }}> recording</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>from any application. Press it again to </span>
+          <span style={{ fg: colors().secondary, bold: true }}>stop</span>
+          <span style={{ fg: colors().text }}>. Your speech</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>is transcribed and the text is automatically </span>
+          <span style={{ fg: colors().secondary, bold: true }}>copied</span>
+          <span style={{ fg: colors().text }}> to your</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>clipboard and </span>
+          <span style={{ fg: colors().secondary, bold: true }}>pasted</span>
+          <span style={{ fg: colors().text }}> into the active app.</span>
+        </text>
+      </box>
+
+      <box marginTop={1} flexDirection="column" gap={0}>
+        <text>
+          <span style={{ fg: colors().text }}>After pasting, the </span>
+          <span style={{ fg: colors().secondary, bold: true }}>clipboard is restored</span>
+          <span style={{ fg: colors().text }}> to whatever you</span>
+        </text>
+        <Paragraph>had copied before, so your workflow isn't interrupted.</Paragraph>
+      </box>
+
+      <box marginTop={1} flexDirection="column" gap={0}>
+        <text>
+          <span style={{ fg: colors().primary, bold: true }}>Status indicator</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>A </span>
+          <span style={{ fg: colors().accent, bold: true }}>menu bar icon</span>
+          <span style={{ fg: colors().text }}> shows the current state — idle, recording,</span>
+        </text>
+        <Paragraph>or transcribing — so you always know what's happening</Paragraph>
+        <Paragraph>even when this window is in the background.</Paragraph>
+      </box>
+
+      <box marginTop={1} flexDirection="column" gap={0}>
+        <text>
+          <span style={{ fg: colors().accent, bold: true }}>The UI is clickable.</span>
         </text>
         <Paragraph>Buttons, labels, toggles, status indicators - click them</Paragraph>
         <Paragraph>to interact, or use keyboard shortcuts shown below.</Paragraph>
@@ -96,36 +150,98 @@ function WelcomeStep(): JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
-// Step 2: UI Guide
+// Help screen (single page for non-first-run ? press)
 // ---------------------------------------------------------------------------
 
-function UIGuideStep(): JSX.Element {
+function BrandTitle(): JSX.Element {
+  const { colors } = useTheme();
+  const chars = BRAND_TITLE.split("");
+  const strip = [" ", ...chars, " "];
+  const lastIndex = Math.max(1, strip.length - 1);
+  const peakIndex = Math.max(0, BRAND_TITLE.indexOf(".")) + 1;
+  const maxDist = Math.max(1, Math.max(peakIndex, lastIndex - peakIndex));
+
+  return (
+    <box flexDirection="row" flexShrink={0}>
+      <For each={strip}>
+        {(ch, i) => {
+          const dist = Math.abs(i() - peakIndex);
+          const intensity = Math.pow(Math.max(0, 1 - dist / maxDist), 2.1);
+          const bgColor = lerpColor(colors().brandStart, colors().brandEnd, intensity);
+          return (
+            <box backgroundColor={bgColor}>
+              <text>
+                <span style={{ fg: colors().background, bold: true }}>{ch}</span>
+              </text>
+            </box>
+          );
+        }}
+      </For>
+    </box>
+  );
+}
+
+function HelpScreen(): JSX.Element {
   const { colors } = useTheme();
   return (
     <box flexDirection="column" gap={1} paddingX={2} paddingY={1} flexShrink={0}>
-      <SectionTitle text="How the UI works" />
+      <BrandTitle />
+      <Paragraph>
+        Local speech-to-text transcription, entirely on your machine.
+      </Paragraph>
 
-      <box flexDirection="column" gap={0}>
+      <box marginTop={1} flexDirection="column" gap={0}>
         <text>
-          <span style={{ fg: colors().text }}>Colored letters in labels are </span>
-          <span style={{ fg: colors().accent, bold: true }}>hotkeys</span>
-          <span style={{ fg: colors().text }}>.</span>
+          <span style={{ fg: colors().primary, bold: true }}>How it works</span>
         </text>
         <text>
-          <span style={{ fg: colors().text }}>For example, "</span>
+          <span style={{ fg: colors().text }}>Press the global hotkey (</span>
+          <span style={{ fg: colors().secondary, bold: true }}>F3</span>
+          <span style={{ fg: colors().text }}> by default) to </span>
+          <span style={{ fg: colors().secondary, bold: true }}>start</span>
+          <span style={{ fg: colors().text }}> recording</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>from any application. Press it again to </span>
+          <span style={{ fg: colors().secondary, bold: true }}>stop</span>
+          <span style={{ fg: colors().text }}>. Your speech</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>is transcribed and the text is automatically </span>
+          <span style={{ fg: colors().secondary, bold: true }}>copied</span>
+          <span style={{ fg: colors().text }}> to your</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>clipboard and </span>
+          <span style={{ fg: colors().secondary, bold: true }}>pasted</span>
+          <span style={{ fg: colors().text }}> into the active app.</span>
+        </text>
+      </box>
+
+      <box marginTop={1} flexDirection="column" gap={0}>
+        <text>
+          <span style={{ fg: colors().text }}>After pasting, the </span>
+          <span style={{ fg: colors().secondary, bold: true }}>clipboard is restored</span>
+          <span style={{ fg: colors().text }}> to whatever you</span>
+        </text>
+        <Paragraph>had copied before, so your workflow isn't interrupted.</Paragraph>
+      </box>
+
+      <box marginTop={1} flexDirection="column" gap={0}>
+        <text>
+          <span style={{ fg: colors().primary, bold: true }}>Keyboard shortcuts</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>Colored letters in labels are </span>
+          <span style={{ fg: colors().secondary, bold: true }}>hotkeys</span>
+          <span style={{ fg: colors().text }}> — e.g. "</span>
           <span style={{ fg: colors().accent, bold: true }}>s</span>
           <span style={{ fg: colors().textDim }}>ettings</span>
           <span style={{ fg: colors().text }}>" means press </span>
           <span style={{ fg: colors().accent, bold: true }}>s</span>
-          <span style={{ fg: colors().text }}> to open settings.</span>
+          <span style={{ fg: colors().text }}>.</span>
         </text>
-      </box>
-
-      <box flexDirection="column" gap={0} marginTop={1}>
-        <text>
-          <span style={{ fg: colors().primary, bold: true }}>Key shortcuts at a glance:</span>
-        </text>
-        <box flexDirection="row" gap={2}>
+        <box flexDirection="row" gap={2} marginTop={1}>
           <box flexDirection="column" gap={0}>
             <text>
               <span style={{ fg: colors().accent, bold: true }}>m</span>
@@ -157,41 +273,12 @@ function UIGuideStep(): JSX.Element {
         </box>
       </box>
 
-      <box flexDirection="column" gap={0} marginTop={1}>
+      <box marginTop={1} flexDirection="column" gap={0}>
         <text>
-          <span style={{ fg: colors().primary, bold: true }}>Default behavior:</span>
+          <span style={{ fg: colors().secondary, bold: true }}>The UI is clickable.</span>
         </text>
-        <text>
-          <span style={{ fg: colors().textMuted }}>Auto copy: </span>
-          <span style={{ fg: colors().accent }}>on</span>
-          <span style={{ fg: colors().textMuted }}>, </span>
-          <span style={{ fg: colors().textMuted }}>Auto paste: </span>
-          <span style={{ fg: colors().accent }}>on</span>
-          <span style={{ fg: colors().textMuted }}>, </span>
-          <span style={{ fg: colors().textMuted }}>Auto revert clipboard: </span>
-          <span style={{ fg: colors().accent }}>on</span>
-          <span style={{ fg: colors().textMuted }}>.</span>
-        </text>
-        <text>
-          <span style={{ fg: colors().textMuted }}>Hotkey mode default: </span>
-          <span style={{ fg: colors().accent }}>toggle</span>
-          <span style={{ fg: colors().textMuted }}> (press to start/stop).</span>
-        </text>
-      </box>
-
-      <box flexDirection="column" gap={0} marginTop={1}>
-        <text>
-          <span style={{ fg: colors().primary, bold: true }}>Global hotkey:</span>
-        </text>
-        <Paragraph>A system-wide hotkey (default: F3) lets you start/stop</Paragraph>
-        <Paragraph>recording from any app. Configure it with h from the main screen.</Paragraph>
-        <text>
-          <span style={{ fg: colors().textMuted }}>Two modes: </span>
-          <span style={{ fg: colors().accent }}>push-to-talk</span>
-          <span style={{ fg: colors().textMuted }}> (hold to record) or </span>
-          <span style={{ fg: colors().accent }}>toggle</span>
-          <span style={{ fg: colors().textMuted }}> (press to start/stop).</span>
-        </text>
+        <Paragraph>Buttons, labels, toggles, status indicators - click them</Paragraph>
+        <Paragraph>to interact, or use the keyboard shortcuts above.</Paragraph>
       </box>
     </box>
   );
@@ -322,7 +409,7 @@ function DeviceDetectionStep(props: {
                     <box flexDirection="row">
                       <box
                         width={1}
-                        backgroundColor={selected() ? colors().secondary : undefined}
+                        backgroundColor={selected() ? colors().accent : undefined}
                       />
                       <box paddingLeft={1}>
                         <text>
@@ -489,7 +576,7 @@ function ModelDownloadStep(props: {
               const statusColor = () => {
                 if (isPulling()) return colors().transcribing;
                 if (isQueued()) return colors().accent;
-                if (isActive()) return colors().secondary;
+                if (isActive()) return colors().accent;
                 return variant()?.installed ? colors().success : colors().textDim;
               };
 
@@ -502,7 +589,7 @@ function ModelDownloadStep(props: {
                 >
                   <box
                     width={1}
-                    backgroundColor={isSelected() ? colors().secondary : undefined}
+                    backgroundColor={isSelected() ? colors().accent : undefined}
                   />
                   <box flexDirection="row" width="100%" paddingLeft={1}>
                     <box flexGrow={1}>
@@ -553,69 +640,6 @@ function ModelDownloadStep(props: {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Step 5: Ready
-// ---------------------------------------------------------------------------
-
-function ReadyStep(props: { firstRun: boolean }): JSX.Element {
-  const { colors } = useTheme();
-  const backend = useBackend();
-
-  const modelName = () => backend.config()?.model.name ?? "-";
-  const runtimeName = () => backend.config()?.model.runtime ?? "-";
-  const device = () => formatDeviceLabel(backend.config()?.model.device);
-
-  return (
-    <box flexDirection="column" gap={1} paddingX={2} paddingY={1} flexShrink={0}>
-      <Show when={props.firstRun} fallback={
-        <SectionTitle text="Quick reference" />
-      }>
-        <text>
-          <span style={{ fg: colors().success, bold: true }}>You're all set!</span>
-        </text>
-      </Show>
-
-      <Show when={props.firstRun}>
-        <box flexDirection="column" gap={0}>
-          <text>
-            <span style={{ fg: colors().textMuted }}>Runtime: </span>
-            <span style={{ fg: colors().text }}>{runtimeName()}</span>
-          </text>
-          <text>
-            <span style={{ fg: colors().textMuted }}>Device: </span>
-            <span style={{ fg: colors().text }}>{device()}</span>
-          </text>
-          <text>
-            <span style={{ fg: colors().textMuted }}>Model: </span>
-            <span style={{ fg: colors().text }}>{modelName()}</span>
-          </text>
-        </box>
-      </Show>
-
-      <box flexDirection="column" gap={0} marginTop={1}>
-        <text>
-          <span style={{ fg: colors().primary, bold: true }}>Getting started:</span>
-        </text>
-        <text>
-          <span style={{ fg: colors().textMuted }}>Press the global hotkey (default </span>
-          <span style={{ fg: colors().accent, bold: true }}>F3</span>
-          <span style={{ fg: colors().textMuted }}>) to start recording from any app.</span>
-        </text>
-        <text>
-          <span style={{ fg: colors().textMuted }}>Or click the status indicator in the footer.</span>
-        </text>
-      </box>
-
-      <box flexDirection="column" gap={0} marginTop={1}>
-        <text>
-          <span style={{ fg: colors().textDim }}>Press </span>
-          <span style={{ fg: colors().accent, bold: true }}>?</span>
-          <span style={{ fg: colors().textDim }}> anytime to re-open this guide.</span>
-        </text>
-      </box>
-    </box>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Main Welcome component
@@ -636,9 +660,9 @@ export function Welcome(): JSX.Element {
   // Step management
   const steps = createMemo(() => {
     if (firstRun()) {
-      return ["welcome", "ui-guide", "device-detection", "model-download", "ready"] as const;
+      return ["welcome", "device-detection", "model-download"] as const;
     }
-    return ["welcome", "ui-guide", "ready"] as const;
+    return ["help"] as const;
   });
 
   const initialStepIndex = () => {
@@ -651,6 +675,8 @@ export function Welcome(): JSX.Element {
   const currentStep = () => steps()[stepIndex()] ?? "welcome";
   const isLastStep = () => stepIndex() >= steps().length - 1;
   const isFirstStep = () => stepIndex() === 0;
+
+  let contentScroll: ScrollBoxRenderable | undefined;
 
   const initialModelIndex = () => {
     const raw = Number(dialogData().resumeModelIndex ?? 2);
@@ -782,6 +808,23 @@ export function Welcome(): JSX.Element {
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "welcome") return;
 
+    // Scroll content for text-only steps (help, welcome)
+    const step = currentStep();
+    if (step === "help" || step === "welcome") {
+      if (contentScroll && !contentScroll.isDestroyed) {
+        if (key.name === "up" || key.name === "k") {
+          key.preventDefault();
+          contentScroll.scrollBy(-1, "step");
+          return;
+        }
+        if (key.name === "down" || key.name === "j") {
+          key.preventDefault();
+          contentScroll.scrollBy(1, "step");
+          return;
+        }
+      }
+    }
+
     if (currentStep() === "device-detection") {
       if (key.name === "up" || key.name === "k") {
         key.preventDefault();
@@ -891,39 +934,52 @@ export function Welcome(): JSX.Element {
             </span>
           </text>
           <box flexDirection="row" alignItems="center" gap={2}>
-            <text>
-              <span style={{ fg: colors().textMuted }}>
-                step {stepIndex() + 1} of {steps().length}
-              </span>
-            </text>
+            <Show when={steps().length > 1}>
+              <text>
+                <span style={{ fg: colors().textMuted }}>
+                  step {stepIndex() + 1} of {steps().length}
+                </span>
+              </text>
+            </Show>
             <Show when={canClose()}>
-              <box backgroundColor={colors().error} paddingX={1} onMouseUp={handleClose}>
+              <box
+                justifyContent="flex-end"
+                flexDirection="row"
+                alignItems="center"
+                flexShrink={0}
+                onMouseUp={handleClose}
+              >
+                <box backgroundColor={colors().error} paddingX={1}>
+                  <text>
+                    <span style={{ fg: colors().selectedText }}>esc/q</span>
+                  </text>
+                </box>
                 <text>
-                  <span style={{ fg: colors().selectedText }}>esc</span>
+                  <span style={{ fg: colors().textMuted }}> exit</span>
                 </text>
               </box>
             </Show>
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
 
       {/* Content – scrollable middle section, static header/footer stay fixed */}
       <Show when={currentStep() === "welcome"}>
-        <scrollbox flexGrow={1} flexShrink={1}>
+        <scrollbox flexGrow={1} flexShrink={1} ref={(r: ScrollBoxRenderable) => { contentScroll = r; }}>
           <WelcomeStep />
         </scrollbox>
       </Show>
-      <Show when={currentStep() === "ui-guide"}>
-        <scrollbox flexGrow={1} flexShrink={1}>
-          <UIGuideStep />
+      <Show when={currentStep() === "help"}>
+        <scrollbox flexGrow={1} flexShrink={1} ref={(r: ScrollBoxRenderable) => { contentScroll = r; }}>
+          <HelpScreen />
         </scrollbox>
       </Show>
       <Show when={currentStep() === "device-detection"}>
-        <scrollbox flexGrow={1} flexShrink={1}>
+        <scrollbox flexGrow={1} flexShrink={1} ref={(r: ScrollBoxRenderable) => { contentScroll = r; }}>
           <DeviceDetectionStep
             caps={backend.capabilitiesResponse()}
             selectedField={selectedHardwareField()}
@@ -945,30 +1001,27 @@ export function Welcome(): JSX.Element {
           />
         </box>
       </Show>
-      <Show when={currentStep() === "ready"}>
-        <scrollbox flexGrow={1} flexShrink={1}>
-          <ReadyStep firstRun={firstRun()} />
-        </scrollbox>
-      </Show>
 
-      {/* Footer navigation */}
-      <box paddingX={2} paddingTop={1} flexShrink={0}>
-        <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
-          <box flexDirection="row" gap={2}>
-            <Show when={!isFirstStep()}>
-              <CommandHint keys="Left" label="back" onClick={handleBack} />
-            </Show>
-            <CommandHint
-              keys={isLastStep() ? "Enter" : "Right"}
-              label={isLastStep() ? (firstRun() ? "finish" : "close") : "next"}
-              onClick={handleNext}
-            />
+      {/* Footer navigation — only shown for multi-step flows */}
+      <Show when={steps().length > 1}>
+        <box paddingX={2} paddingTop={1} flexShrink={0}>
+          <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
+            <box flexDirection="row" gap={2}>
+              <Show when={!isFirstStep()}>
+                <CommandHint keys="Left" label="back" onClick={handleBack} />
+              </Show>
+              <CommandHint
+                keys={isLastStep() ? "Enter" : "Right"}
+                label={isLastStep() ? "finish" : "next"}
+                onClick={handleNext}
+              />
+            </box>
+            <text>
+              <span style={{ fg: colors().textDim }}>{stepDots()}</span>
+            </text>
           </box>
-          <text>
-            <span style={{ fg: colors().textDim }}>{stepDots()}</span>
-          </text>
         </box>
-      </box>
+      </Show>
     </box>
   );
 }

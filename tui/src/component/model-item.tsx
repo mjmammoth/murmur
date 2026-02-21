@@ -112,14 +112,14 @@ export function ModelItem(props: ModelItemProps): JSX.Element {
       return { text: "queued", color: colors().accent };
     }
     if (variant?.installed) {
-      return { text: "●", color: colors().secondary };
+      return { text: "●", color: colors().accent };
     }
     return { text: "○", color: colors().textDim };
   };
 
   const statusToken = createMemo(runtimeToken);
   const separatorColor = () => {
-    if (props.selected) return colors().secondary;
+    if (props.selected) return colors().accent;
     if (props.isSelectedModel) return colors().success;
     return colors().borderSubtle;
   };
@@ -132,9 +132,9 @@ export function ModelItem(props: ModelItemProps): JSX.Element {
     >
       <box
         width={1}
-        backgroundColor={props.selected ? colors().secondary : undefined}
+        backgroundColor={props.selected ? colors().accent : undefined}
       />
-      <box width={MODEL_TABLE_LAYOUT.rowPrefix - 1} />
+      <box width={1} />
       <box flexDirection="row" width="100%">
         <box width={MODEL_TABLE_LAYOUT.model}>
           <text>

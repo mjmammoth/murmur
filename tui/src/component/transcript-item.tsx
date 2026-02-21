@@ -24,7 +24,7 @@ export function TranscriptItem(props: TranscriptItemProps): JSX.Element {
     >
       <box
         width={1}
-        backgroundColor={props.selected ? colors().secondary : zebraBackground()}
+        backgroundColor={props.selected ? colors().accent : zebraBackground()}
       />
       <box flexDirection="row" width="100%" paddingLeft={1}>
         <box width={10}>

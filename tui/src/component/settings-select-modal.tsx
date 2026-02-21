@@ -535,7 +535,7 @@ export function SettingsSelectModal(): JSX.Element {
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
@@ -587,7 +587,7 @@ export function SettingsSelectModal(): JSX.Element {
                     applyOption(option);
                   }}
                 >
-                  <box width={1} backgroundColor={isActive() ? colors().secondary : undefined} />
+                  <box width={1} backgroundColor={isActive() ? colors().accent : undefined} />
                   <box paddingLeft={2} flexDirection="row" width="100%" justifyContent="space-between" gap={2}>
                     <box flexDirection="column" flexGrow={1}>
                       <text>

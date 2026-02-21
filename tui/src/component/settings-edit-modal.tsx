@@ -180,7 +180,7 @@ export function SettingsEditModal(): JSX.Element {
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
@@ -198,7 +198,7 @@ export function SettingsEditModal(): JSX.Element {
             <span style={{ fg: draft() ? colors().text : colors().textDim }}>
               {draft() || placeholder()}
             </span>
-            <span style={{ fg: colors().secondary }}>|</span>
+            <span style={{ fg: colors().accent }}>|</span>
           </text>
         </box>
       </box>
@@ -212,7 +212,7 @@ export function SettingsEditModal(): JSX.Element {
       </box>
 
       <box paddingX={3} paddingTop={1} flexDirection="row" alignItems="center" gap={2}>
-        <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={applyValue}>
+        <box backgroundColor={colors().accent} paddingX={1} onMouseUp={applyValue}>
           <text>
             <span style={{ fg: colors().selectedText }}>enter</span>
           </text>

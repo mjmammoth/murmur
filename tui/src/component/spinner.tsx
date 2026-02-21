@@ -33,7 +33,7 @@ export interface SpinnerProps {
 export function Spinner(props: SpinnerProps): JSX.Element {
   const { colors } = useTheme();
   const frame = useSpinnerFrame();
-  const spinnerColor = () => props.color ?? colors().secondary;
+  const spinnerColor = () => props.color ?? colors().accent;
 
   return (
     <box>
@@ -70,7 +70,7 @@ export function Scanner(props: ScannerProps): JSX.Element {
   const { colors } = useTheme();
 
   const scannerDef = createMemo(() => {
-    const color = colors().secondary;
+    const color = colors().accent;
     return {
       frames: createFrames({
         color,
