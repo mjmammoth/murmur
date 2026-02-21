@@ -7,7 +7,7 @@
 > Literally only this disclaimer is human-written.
 
 <!-- tui-showcase:start -->
-![whisper.local TUI home across themes](docs/assets/tui-home-themes.png)
+![whisper.local TUI home across themes](docs/assets/tui-home-themes.svg)
 
 Demo transcriptions shown:
 - `Create a modern and clean diagram from the below description.`
