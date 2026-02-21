@@ -5,6 +5,12 @@ import { useTheme } from "../context/theme";
 import { useDialog } from "../context/dialog";
 import type { RuntimeSwitchConfirmDialogData } from "../types";
 
+/**
+ * Type guard that validates whether a value conforms to RuntimeSwitchConfirmDialogData.
+ *
+ * @param data - The value to validate.
+ * @returns `true` if `data` is an object whose `runtime` is either `"faster-whisper"` or `"whisper.cpp"` and whose `model` and `format` are non-empty strings, `false` otherwise.
+ */
 export function isRuntimeSwitchConfirmDialogData(
   data: unknown,
 ): data is RuntimeSwitchConfirmDialogData {
@@ -25,6 +31,11 @@ export function isRuntimeSwitchConfirmDialogData(
   );
 }
 
+/**
+ * Render a confirmation modal prompting the user to open the Model Manager to obtain model files required by a selected runtime.
+ *
+ * @returns A JSX element representing the runtime-switch confirmation modal. If the current dialog is not a runtime-switch-confirm dialog or its data is invalid, returns an empty fragment.
+ */
 export function RuntimeSwitchConfirmModal(): JSX.Element {
   const { colors } = useTheme();
   const dialog = useDialog();

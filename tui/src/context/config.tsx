@@ -31,9 +31,9 @@ const [ConfigProvider, useConfig] = createContextHelper<ConfigContextValue>("Con
 export { useConfig };
 
 /**
- * Provides a ConfigContext to its children, exposing reactive configuration accessors and handlers that stay synchronized with backend state.
+ * Provides a configuration context to its children with reactive accessors and action handlers kept in sync with the backend.
  *
- * The provider maintains local reactive signals for UI-driven flags (noise, VAD, output clipboard/file, hotkey mode), synchronizes them from backend.config(), and exposes action functions that send corresponding commands to the backend when invoked.
+ * Exposes accessors for configuration state (including noise suppression, VAD, output targets, hotkey mode, and related toggles) and functions that dispatch corresponding backend commands when invoked.
  *
  * @returns A JSX element that renders the ConfigProvider wrapping the given children with the computed configuration context value.
  */
@@ -75,16 +75,27 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     backend.send({ type: "toggle_auto_copy", enabled: newValue });
   }
 
+  /**
+   * Toggle the auto-paste setting and send the new enabled state to the backend.
+   */
   function toggleAutoPaste() {
     const newValue = !backend.autoPaste();
     backend.send({ type: "toggle_auto_paste", enabled: newValue });
   }
 
+  /**
+   * Toggle the automatic clipboard-revert setting and synchronize the change with the backend.
+   *
+   * Sends a backend command containing the new `enabled` state.
+   */
   function toggleAutoRevertClipboard() {
     const newValue = !backend.autoRevertClipboard();
     backend.send({ type: "toggle_auto_revert_clipboard", enabled: newValue });
   }
 
+  /**
+   * Toggle the hotkey mode between "ptt" and "toggle", update the local signal, and send the new mode to the backend.
+   */
   function toggleHotkeyMode() {
     const nextMode = hotkeyMode() === "ptt" ? "toggle" : "ptt";
     setHotkeyMode(nextMode);

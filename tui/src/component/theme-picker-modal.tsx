@@ -10,6 +10,16 @@ interface ThemePickerDialogData {
   returnFilterQuery?: string;
 }
 
+/**
+ * Render the theme picker modal with live preview, keyboard navigation, and mouse interactions.
+ *
+ * The modal lists available themes, previews a theme while navigating, lets the user apply the selected
+ * theme or cancel to restore the original (or a default) theme, and optionally returns to the settings
+ * dialog when closed. Keyboard shortcuts supported include up/down (or k/j) to navigate, Enter to apply,
+ * and Esc/q to cancel.
+ *
+ * @returns The modal's JSX element.
+ */
 export function ThemePickerModal(): JSX.Element {
   const { colors, themeId, availableThemes, setTheme, persistTheme } = useTheme();
   const dialog = useDialog();

@@ -44,6 +44,13 @@ interface DemoTranscript {
   text: string;
 }
 
+/**
+ * Retrieve the value of a command-line argument by name.
+ *
+ * @param name - The argument name to find (for example, `--port`).
+ * @param fallback - The value to return if the argument is not present or has no following value.
+ * @returns The value immediately following `name` in `process.argv`, or `fallback` if not found.
+ */
 function getArg(name: string, fallback: string): string {
   const index = process.argv.indexOf(name);
   if (index === -1) return fallback;
@@ -168,6 +175,11 @@ const models = [
   },
 ];
 
+/**
+ * Sends an object as JSON over the given server WebSocket.
+ *
+ * @param payload - The object to serialize and transmit to the connected client.
+ */
 function sendJson(ws: ServerWebSocket<unknown>, payload: object) {
   ws.send(JSON.stringify(payload));
 }

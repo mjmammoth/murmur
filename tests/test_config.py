@@ -48,7 +48,9 @@ auto_download = true
 
 
 def test_load_config_defaults_auto_revert_clipboard_true(tmp_path: Path) -> None:
-    """Missing auto_revert_clipboard should default to true."""
+    """
+    Verify that when a config file omits `auto_revert_clipboard`, the loaded configuration enables auto-reverting the clipboard by default.
+    """
     config_path = tmp_path / "config.toml"
     config_path.write_text(
         """

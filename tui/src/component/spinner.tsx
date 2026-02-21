@@ -30,6 +30,13 @@ export interface SpinnerProps {
   color?: string;
 }
 
+/**
+ * Render an inline spinner icon with an optional label.
+ *
+ * @param props.label - Optional text shown after the spinner.
+ * @param props.color - Optional foreground color override for the spinner; falls back to the theme accent color when omitted.
+ * @returns A JSX element containing the spinner character and, if provided, the label text.
+ */
 export function Spinner(props: SpinnerProps): JSX.Element {
   const { colors } = useTheme();
   const frame = useSpinnerFrame();
@@ -66,6 +73,12 @@ interface ScannerProps {
   active: boolean;
 }
 
+/**
+ * Renders a scanner-style spinner when active, otherwise displays a dimmed dotted fallback.
+ *
+ * @param props.active - If `true`, show the animated scanner; if `false`, show a static dimmed dots fallback.
+ * @returns A JSX element containing the scanner animation or the fallback text.
+ */
 export function Scanner(props: ScannerProps): JSX.Element {
   const { colors } = useTheme();
 

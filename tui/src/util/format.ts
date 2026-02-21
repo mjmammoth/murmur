@@ -31,7 +31,13 @@ export function formatElapsed(seconds: number): string {
 }
 
 /**
- * Truncate text to a maximum length with ellipsis.
+ * Shortens a string to a maximum length, appending an ellipsis when truncated.
+ *
+ * If truncation is necessary, the result is the first `maxLength - 3` characters of `text` followed by `"..."`.
+ *
+ * @param text - The input string to truncate
+ * @param maxLength - The maximum allowed length of the returned string, including the ellipsis when present
+ * @returns The original `text` when its length is less than or equal to `maxLength`, otherwise a truncated string ending with `"..."`
  */
 export function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) {
@@ -41,7 +47,15 @@ export function truncate(text: string, maxLength: number): string {
 }
 
 /**
- * Format model runtime device names for user-facing UI labels.
+ * Format a model runtime device name for display in the UI.
+ *
+ * Converts null or empty input to the provided fallback, normalizes common
+ * device identifiers to user-friendly labels, and otherwise returns the
+ * trimmed original text.
+ *
+ * @param value - Device identifier (may be `null` or `undefined`)
+ * @param fallback - Value to return when `value` is null, undefined, or empty
+ * @returns The user-facing device label (e.g., `"CPU"`, `"CUDA"`, `"Metal (mps)"`, or the original text)
  */
 export function formatDeviceLabel(value: string | null | undefined, fallback = "-"): string {
   if (value === null || value === undefined) return fallback;

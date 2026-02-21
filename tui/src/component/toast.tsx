@@ -5,11 +5,9 @@ import { useToast } from "../context/toast";
 import { useBackend } from "../context/backend";
 
 /**
- * Renders a top-right toast container that displays current toast notifications.
+ * Displays a top-right toast container showing current toast notifications.
  *
- * The container is visible only when there are toasts and its width is constrained by terminal dimensions. Each toast shows a colored level indicator ("error" or "info") and the message text.
- *
- * @returns The rendered toast container element
+ * @returns The toast container JSX element
  */
 export function ToastContainer(): JSX.Element {
   const { colors } = useTheme();

@@ -4,6 +4,13 @@ import { useTheme } from "../context/theme";
 import { useTranscriber } from "../context/transcriber";
 import { TranscriptItem } from "./transcript-item";
 
+/**
+ * Renders the transcripts panel containing a header, a count label, and either a scrollable list of transcript entries or a responsive empty state.
+ *
+ * The list displays each transcript entry and lets the user select an entry; selecting an entry also copies that entry's text. The empty state adapts to terminal height ("full", "compact", or "icon") to show different levels of detail.
+ *
+ * @returns A JSX element representing the transcripts panel.
+ */
 export function TranscriptList(): JSX.Element {
   const { colors } = useTheme();
   const transcriber = useTranscriber();

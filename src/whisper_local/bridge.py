@@ -109,10 +109,10 @@ class BridgeServer:
 
     def __init__(self, config: AppConfig) -> None:
         """
-        Initialize the BridgeServer internal runtime state and placeholders from the given configuration.
-
-        Sets up client sets, recording/state flags, concurrency primitives (locks and events), background and per-model task registries, runtime capability caching, and lazy placeholders for audio/transcription/hotkey components. If the provided config enables auto_paste while auto_copy is disabled, auto_copy will be enabled on the server and the config will be updated accordingly.
-
+        Initialize internal BridgeServer state and lazy component placeholders from the given configuration.
+        
+        Initializes client sets, runtime/state flags, concurrency primitives, task registries, runtime capability cache, and placeholders for audio/transcription/hotkey components. If the config enables auto_paste while auto_copy is disabled, this initializer enables auto_copy, persists the config, and logs that change.
+        
         Parameters:
             config (AppConfig): Application configuration used to initialize server settings and defaults.
         """
@@ -174,15 +174,16 @@ class BridgeServer:
 
     def _spawn_model_task(self, name: str, coro) -> asyncio.Task:
         """
-        Start and track a background task for a named model operation.
-
-        If a previous task with the same name is running, cancel it and replace it with a new task. The mapping for the name is removed when the task completes.
-
+        Start and track a named background task for model operations.
+        
+        If a previous task with the same name is running, it is cancelled and replaced. The mapping for the name is removed when the created task completes.
+        
         Parameters:
-            coro: The coroutine to schedule as the model task.
-
+            name (str): Identifier for the model task; used to ensure only one task per name is tracked.
+            coro (Coroutine): The coroutine to schedule as the model task.
+        
         Returns:
-            asyncio.Task: The created task running the provided coroutine.
+            task (asyncio.Task): The created asyncio Task running the provided coroutine.
         """
         existing = self._model_tasks.get(name)
         if existing is not None and not existing.done():
@@ -205,9 +206,27 @@ class BridgeServer:
 
     @staticmethod
     def _download_task_key(name: str, runtime: str) -> str:
+        """
+        Return a unique identifier for a model download task scoped to a runtime.
+        
+        Returns:
+            task_key (str): A string in the format "<runtime>:<model_name>" suitable for use as a download/cancellation key.
+        """
         return f"{runtime}:{name}"
 
     def _resolve_download_cancel_key(self, name: str, runtime: str | None) -> str | None:
+        """
+        Resolve the download cancellation key for a requested model download.
+        
+        Given a model identifier and optional runtime, return the concrete download task key that should be used to cancel or target a download. The function accepts an explicit task key (contains ':'), a model name (which may match one queued key), or an empty name to target the single queued download.
+        
+        Parameters:
+        	name (str): Model name, explicit download key, or empty string to target the single queued download.
+        	runtime (str | None): Optional runtime name to disambiguate per-runtime variants; may be None.
+        
+        Returns:
+        	str | None: The resolved download task key string, or `None` if no unique key could be determined.
+        """
         model_name = str(name or "").strip()
         runtime_name = str(runtime or "").strip()
 
@@ -227,10 +246,10 @@ class BridgeServer:
 
     def _client_path(self, websocket: WebSocketServerProtocol) -> str:
         """
-        Resolve the connection path for a client WebSocket across different websockets library versions.
-
+        Resolve the HTTP request path for a client WebSocket across different websockets library versions.
+        
         Returns:
-            str: The connection path string, or an empty string if it cannot be determined.
+            The connection path for the client, or an empty string if it cannot be determined.
         """
         # websockets <=13 exposes `.path` directly.
         legacy_path = getattr(websocket, "path", None)
@@ -260,9 +279,24 @@ class BridgeServer:
         return any(client not in self._passive_clients for client in self.clients)
 
     def _active_client_count(self) -> int:
+        """
+        Count connected clients that are not marked as passive.
+        
+        Returns:
+            int: Number of active (non-passive) connected clients.
+        """
         return sum(1 for client in self.clients if client not in self._passive_clients)
 
     def _installed_model_names(self, runtime: str | None = None) -> list[str]:
+        """
+        Return the names of models that are installed for the specified runtime.
+        
+        Parameters:
+            runtime (str | None): Runtime name to filter installed models by. If None, the configured model runtime is used; the value will be normalized before checking per-runtime variants.
+        
+        Returns:
+            list[str]: List of installed model names for the resolved runtime.
+        """
         target_runtime = normalize_runtime_name(runtime or self.config.model.runtime)
         installed: list[str] = []
         for model in list_installed_models():
@@ -277,6 +311,15 @@ class BridgeServer:
         return installed
 
     def _has_installed_models(self, runtime: str | None = None) -> bool:
+        """
+        Return whether there is at least one installed model for the given runtime.
+        
+        Parameters:
+            runtime (str | None): Runtime name to filter installed models by. If `None`, consider all runtimes.
+        
+        Returns:
+            bool: `True` if one or more installed models exist for the specified scope, `False` otherwise.
+        """
         return bool(self._installed_model_names(runtime=runtime))
 
     async def start(
@@ -337,6 +380,12 @@ class BridgeServer:
         )
 
     def _create_transcriber(self) -> Any:
+        """
+        Create a Transcriber using the bridge server's current model configuration.
+        
+        Returns:
+            transcriber: A Transcriber initialized with the configured model name, runtime, device, compute_type, and model path.
+        """
         from whisper_local.transcribe import Transcriber
 
         return Transcriber(
@@ -348,6 +397,12 @@ class BridgeServer:
         )
 
     def _ensure_whisper_cpp_installed(self) -> None:
+        """
+        Ensure that a whisper.cpp binary is available on the system PATH.
+        
+        Raises:
+            RuntimeError: If none of the expected whisper.cpp binaries are found; the error message suggests installing via Homebrew.
+        """
         for binary in WHISPER_CPP_BINARIES:
             if shutil.which(binary) is not None:
                 return
@@ -356,6 +411,15 @@ class BridgeServer:
         )
 
     def _detect_runtime_capabilities(self, selected_runtime: str | None = None) -> dict[str, Any]:
+        """
+        Detects the capabilities of a runtime and returns a capabilities mapping.
+        
+        Parameters:
+        	selected_runtime (str | None): Optional runtime name to probe. If omitted, uses the runtime configured in self.config.model.runtime.
+        
+        Returns:
+        	capabilities (dict[str, Any]): A mapping of capability keys to detected values for the probed runtime.
+        """
         from whisper_local.transcribe import detect_runtime_capabilities
 
         return detect_runtime_capabilities(selected_runtime or self.config.model.runtime)
@@ -380,6 +444,11 @@ class BridgeServer:
         self._runtime_capabilities_dirty = False
 
     async def _initialize_runtime_after_server_start(self) -> None:
+        """
+        Perform post-start initialization of runtime components, detect runtime capabilities, ensure a model is selected/available, and trigger model loading.
+        
+        Initializes lazily-created components, prunes invalid model caches, detects and caches runtime capabilities, and broadcasts current configuration to clients. If no installed models are found this marks first-run setup as required and updates status; if the configured model is unavailable it selects a suitable installed fallback, persists that change, notifies clients, and then starts asynchronous model loading.
+        """
         loop = asyncio.get_event_loop()
 
         try:
@@ -454,7 +523,11 @@ class BridgeServer:
         await self._load_model_async()
 
     async def _load_model_async(self) -> None:
-        """Load the transcription model asynchronously."""
+        """
+        Load and initialize the configured transcription model and prepare the bridge for transcription.
+        
+        Loads and initializes the transcriber for the current model/runtime, marks the model as loaded, starts the hotkey listener if applicable, logs runtime and model information, and updates the bridge status to "ready" on success. On failure, updates the bridge status to "error" with the failure details.
+        """
         await self._set_status(
             "downloading",
             f"Loading {self.config.model.runtime} model {self.config.model.name}...",
@@ -583,7 +656,22 @@ class BridgeServer:
         sample_rate: int | None = None,
         source_label: str | None = None,
     ) -> tuple[str, str]:
-        """Process recorded audio through noise/vad/transcription pipeline."""
+        """
+        Process a block of audio through optional noise suppression, optional VAD trimming, and transcription, then emit resulting UI events and outputs.
+        
+        Parameters:
+            audio (array-like): 1-D audio samples to transcribe.
+            transcriber (optional): Transcriber instance to use instead of the server's current transcriber.
+            language (optional str): Language override for transcription (use None for auto-detect).
+            sample_rate (optional int): Sample rate of `audio`; if omitted uses configured sample rate.
+            source_label (optional str): Human-readable source identifier included in error toasts.
+        
+        Returns:
+            tuple[str, str]: A (status, message) pair describing the final job outcome. `status` is `"ready"` on success or `"error"` on failure; `message` contains a short human-readable result or error description.
+        
+        Notes:
+            - Side effects include broadcasting transcript and toast messages to connected clients, copying/pasting/restoring the clipboard according to configuration, appending output to a file when enabled, and updating internal transcription job state.
+        """
         final_status = "ready"
         final_message = "Ready"
         pipeline_started = monotonic()
@@ -766,7 +854,16 @@ class BridgeServer:
     async def _set_status(
         self, status: str, message: str, elapsed: float | None = None
     ) -> None:
-        """Update and broadcast status."""
+        """
+        Set the server status and broadcast a corresponding "status" message to connected clients.
+        
+        Updates the internal status and status message, then sends a payload with keys "type", "status", and "message". If `elapsed` is provided it is included (converted to an integer); otherwise, when `status` is "transcribing" or "downloading" and a busy start time exists, an elapsed value is computed from that start time and included.
+        
+        Parameters:
+            status: A short status identifier to set.
+            message: Human-readable status message to include in the broadcast.
+            elapsed: Optional elapsed time in seconds to include in the status payload; when omitted a computed elapsed value may be added for active transcribing/downloading states.
+        """
         self._status = status
         self._status_message = message
         msg: dict[str, Any] = {"type": "status", "status": status, "message": message}
@@ -777,7 +874,12 @@ class BridgeServer:
         await self._broadcast(msg)
 
     def _mirror_toast_to_logger(self, message: dict[str, Any]) -> None:
-        """Mirror backend toast events to logger with optional toast metadata."""
+        """
+        Log toast-type messages to the module logger, including optional metadata.
+        
+        Parameters:
+            message (dict[str, Any]): A message payload; if its `"type"` is `"toast"` and it contains a non-empty `"message"` string, the function logs that text at the level given by `"level"` (defaults to `"info"`). If present, `"action"`, `"runtime"`, and `"model"` values are appended as `(<key>=<value>, ...)`.
+        """
         if message.get("type") != "toast":
             return
         text = message.get("message")
@@ -1392,12 +1494,14 @@ class BridgeServer:
         activate_runtime: str | None = None,
     ) -> None:
         """
-        Download and activate a model while broadcasting progress and status updates to connected clients.
-
-        This method pulls the specified model, broadcasts incremental download progress (0–100) and toast messages for start, completion, cancellation, or failure, and on success sets the downloaded model as the selected model and refreshes the model list. The download is cooperatively cancellable via the server's per-model cancel event and respects the server shutdown signal.
-
+        Download the named model for a specified runtime, broadcast incremental progress and toasts to connected clients, and activate or select the model on success.
+        
+        This operation is cooperatively cancellable (via per-model cancel events and the server shutdown signal). On success it broadcasts a final 100% progress event and a success toast, updates model lists, and either activates the model for a provided activation runtime or selects it for the current runtime. On cancellation or failure it broadcasts appropriate toasts and updates the download queue state.
+        
         Parameters:
-            name (str): Name of the model to download.
+            name (str): Model identifier to download.
+            runtime (str | None): Runtime name to download the model for; if omitted, uses the server's configured model runtime.
+            activate_runtime (str | None): If provided, persist the downloaded model as the selected model for this runtime and attempt to set that runtime as active after download.
         """
         if not name:
             return
@@ -1437,6 +1541,12 @@ class BridgeServer:
             last_percent = -1
 
             def on_progress(percent: int) -> None:
+                """
+                Broadcast incremental download progress for a specific model/runtime, clamping values and avoiding redundant updates.
+                
+                Parameters:
+                    percent (int): Reported progress value; will be clamped to the range 0–99 and only broadcast when it changes from the last sent value.
+                """
                 nonlocal last_percent
                 # Keep in-flight progress below 100; reserve 100 for true completion.
                 percent = max(0, min(percent, 99))
@@ -1546,16 +1656,13 @@ class BridgeServer:
 
     async def _cancel_model_download(self, name: str, runtime: Any = None) -> None:
         """
-        Request cancellation of an in-progress model download.
-
-        If `name` is empty and exactly one download is active or queued, that download will be cancelled.
-        If no active download matches `name`, an error toast with message
-        "No active download matches request" is broadcast to clients.
-        If a cancellation is already in progress for the named model, this is a no-op.
-        Otherwise the method signals cancellation for the model and broadcasts a toast indicating the cancellation.
-
+        Cancel a queued or in-progress model download.
+        
+        Resolves the download key for the given model (or infers a single active/queued download when `name` is empty), signals cancellation to the download queue, and broadcasts a toast describing the outcome (e.g., cancelling, cancelled queued download, or no matching download).
+        
         Parameters:
-            name (str): The model name to cancel; may be an empty string to infer a single active download.
+            name (str): Model name to cancel; may be an empty string to target a single active/queued download.
+            runtime (Any): Optional runtime identifier used to resolve per-runtime downloads; when omitted, resolution may infer or default the runtime.
         """
         no_active_download_message = "No active download matches request"
         resolved_key = self._resolve_download_cancel_key(str(name or ""), runtime=str(runtime or ""))
@@ -1618,6 +1725,11 @@ class BridgeServer:
         )
 
     async def _cancel_all_model_downloads(self) -> None:
+        """
+        Cancel all in-progress and queued model downloads and notify connected clients.
+        
+        Calls the internal download queue to cancel every scheduled download. For each cancelled entry, broadcasts a toast to connected clients indicating whether a queued download was cancelled or an active download is being cancelled.
+        """
         results = self._download_queue.cancel_all()
         for result in results:
             snapshot = result.task
@@ -1648,12 +1760,13 @@ class BridgeServer:
 
     async def _remove_model(self, name: str, runtime: str | None = None) -> None:
         """
-        Remove the installed model identified by `name` and notify connected clients of the outcome.
-
-        If removal succeeds, broadcasts a success toast, refreshes the installed model list, enters first-run setup and notifies clients if no models remain, or selects a fallback model if the removed model was the current selection. On failure, broadcasts an error toast describing the failure.
-
+        Remove an installed model and broadcast the result to connected clients.
+        
+        Removes the model identified by `name` for the given `runtime` (or the server's current model runtime if `runtime` is None). On success broadcasts a success toast, refreshes the installed model list, and then either enters first-run setup and notifies clients if no models remain, or selects a fallback model if the removed model was the current selection. On failure broadcasts an error toast containing the failure message.
+        
         Parameters:
-            name (str): The name of the model to remove. If empty, no action is taken.
+            name (str): The name of the model to remove. If empty, the function returns without action.
+            runtime (str | None): Optional runtime name to scope removal; when None the configured model runtime is used.
         """
         if not name:
             return
@@ -1717,7 +1830,11 @@ class BridgeServer:
         await self._broadcast_config()
 
     async def _set_selected_model(self, name: str) -> None:
-        """Set selected model."""
+        """
+        Change the application's selected model, apply it by reloading the transcriber, and persist the configuration.
+        
+        If the model name is unknown or not installed for the current runtime, a client-facing error toast is broadcast and no change is made. On success, the new selection is broadcast to clients with a success toast. If reloading the transcriber fails, the previous model selection is restored, clients are notified of the failure, and a rollback save is attempted. If persisting the new selection or the rollback fails, an error toast describing the save failure is broadcast.
+        """
         if not name:
             return
 
@@ -1806,11 +1923,10 @@ class BridgeServer:
         return None
 
     async def _reload_transcriber(self) -> None:
-        """Load a fresh transcriber from current model config and swap it in.
-
-        In-flight transcriptions capture their transcriber reference before
-        this swap occurs, so they complete with the previous model. New
-        recordings will use the updated transcriber.
+        """
+        Load a new transcriber from the current model configuration and atomically replace the active transcriber.
+        
+        This updates internal state to mark a model as loaded, clears first-run setup, refreshes cached runtime capabilities, and — if there are active clients — (re)starts the hotkey listener. Ongoing transcription jobs continue using the transcriber instance they captured before this swap; new recordings use the updated transcriber. If no recording or transcribing jobs remain, the server status is set to "ready".
         """
         async with self._model_reload_lock:
             next_transcriber = await asyncio.get_event_loop().run_in_executor(
@@ -1832,6 +1948,15 @@ class BridgeServer:
         runtime_name: str,
         allow_missing_variant_prompt: bool = True,
     ) -> None:
+        """
+        Set the configured model runtime and attempt to apply it, broadcasting status and UI prompts as needed.
+        
+        Validates the requested runtime, probes runtime capabilities, and ensures the currently selected model has a compatible variant for that runtime. If the runtime is unsupported or the required model variant is missing, broadcasts appropriate toast messages and (optionally) a UI prompt to download the variant. When a runtime change is applied, normalizes device and compute_type to supported values, persists the config, and attempts to reload the transcriber; on reload failure the previous model runtime/device/compute settings are restored and persisted. Broadcasts configuration and success or error toasts throughout the process.
+        
+        Parameters:
+            runtime_name (str): The name of the runtime to switch to (will be normalized and validated).
+            allow_missing_variant_prompt (bool): If True, send a UI prompt requesting download of a missing per-runtime model variant; if False, only emit an error toast when the variant is absent.
+        """
         normalized = normalize_runtime_name(runtime_name)
         if normalized not in SUPPORTED_RUNTIMES:
             await self._broadcast(
@@ -1994,6 +2119,17 @@ class BridgeServer:
         device: str,
         compute_type: str,
     ) -> tuple[str, str]:
+        """
+        Normalize and validate a requested device and compute type against a runtime's capabilities.
+        
+        Parameters:
+            capabilities (dict[str, Any]): Runtime capability info; expected to include a `"model"` mapping with `"devices"` and `"compute_types_by_device"`.
+            device (str): Requested device name (e.g., "cpu", "cuda"); may be normalized and/or replaced with a supported fallback.
+            compute_type (str): Requested compute type (e.g., "int8", "float32"); will be normalized and adjusted to a supported type for the selected device.
+        
+        Returns:
+            tuple[str, str]: A (device, compute_type) pair normalized to values supported by the runtime.
+        """
         runtime_model = capabilities.get("model", {})
         runtime_devices = runtime_model.get("devices", {})
         normalized_device = str(device).strip().lower() or "cpu"
@@ -2030,6 +2166,12 @@ class BridgeServer:
         return normalized_device, normalized_compute_type
 
     async def _set_model_device(self, device: str) -> None:
+        """
+        Apply a new model device setting (one of "cpu", "cuda", or "mps"), persist the change, and reload the transcriber; broadcasts config and user-facing toasts and rolls back the setting if reload fails.
+        
+        Parameters:
+            device (str): Desired model execution device; accepted values are "cpu", "cuda", or "mps". If the device is invalid or unsupported by the current runtime, the change is rejected and an error toast is broadcast.
+        """
         self._refresh_runtime_capabilities(force=True)
         normalized = str(device).strip().lower()
         if normalized not in {"cpu", "cuda", "mps"}:
@@ -2682,7 +2824,14 @@ class BridgeServer:
             )
 
     async def _send_models(self, websocket: WebSocketServerProtocol) -> None:
-        """Send model list to a client."""
+        """
+        Send the current installed models to the connected client.
+        
+        Sends a JSON message with type "models" and a serialized list of installed models.
+        
+        Parameters:
+            websocket (WebSocketServerProtocol): The client's websocket to which the message will be sent.
+        """
         models = list_installed_models()
         await websocket.send(
             json.dumps({
@@ -2700,6 +2849,23 @@ class BridgeServer:
         })
 
     def _serialize_models(self, models: list[Any]) -> list[dict[str, Any]]:
+        """
+        Serialize model objects into a JSON-serializable list containing per-runtime variant metadata.
+        
+        Parameters:
+            models (list[Any]): Iterable of model objects. Each model is expected to have a `name` attribute and a `variants` mapping keyed by runtime name; each variant should expose `runtime`, `format`, `installed`, `path`, `size_bytes`, and `size_estimated`.
+        
+        Returns:
+            list[dict[str, Any]]: A list where each element is a dict with:
+                - "name" (str): model name
+                - "variants" (dict): mapping from runtime name to a dict with keys:
+                    - "runtime" (str)
+                    - "format" (str)
+                    - "installed" (bool)
+                    - "path" (str or None)
+                    - "size_bytes" (int or None)
+                    - "size_estimated" (bool)
+        """
         payload: list[dict[str, Any]] = []
         for model in models:
             variants: dict[str, Any] = {}
@@ -2719,7 +2885,11 @@ class BridgeServer:
         return payload
 
     async def _set_welcome_shown(self) -> None:
-        """Mark the welcome journey as shown and persist to config."""
+        """
+        Mark the welcome journey as shown in the app configuration and broadcast the updated config to connected clients.
+        
+        Attempts to persist the change to disk; if persistence fails, the error is logged.
+        """
         self.config.ui.welcome_shown = True
         try:
             save_config(self.config)
@@ -2728,7 +2898,11 @@ class BridgeServer:
         await self._broadcast_config()
 
     async def _send_capabilities(self, websocket: WebSocketServerProtocol) -> None:
-        """Send runtime capabilities with a recommended runtime/device to a client."""
+        """
+        Send current runtime capabilities and a recommended runtime/device to a connected client.
+        
+        The recommendation prefers Apple Silicon MPS on macOS when available, otherwise prefers CUDA if present, and falls back to CPU with the "faster-whisper" runtime.
+        """
         caps = self._runtime_capabilities or {}
         model_caps = caps.get("model", {})
         devices_by_runtime = model_caps.get("devices_by_runtime", {})
@@ -2780,12 +2954,12 @@ class BridgeServer:
 
     def _config_payload(self) -> dict[str, Any]:
         """
-        Build the configuration payload used to synchronize state with connected clients.
-
-        Refreshes cached runtime capability information and returns a dictionary containing the serialized application config extended with bridge connection info and runtime/UI flags such as `auto_copy`, `auto_paste`, `first_run_setup_required`, and `runtime` capabilities.
-
+        Construct the configuration payload sent to connected clients.
+        
+        The payload contains the serialized application config extended with bridge connection info and UI/runtime flags.
+        
         Returns:
-            dict[str, Any]: Serialized configuration payload for clients.
+            dict[str, Any]: Serialized configuration payload including bridge info and flags such as `auto_copy`, `auto_paste`, `auto_revert_clipboard`, `first_run_setup_required`, and `runtime` capabilities.
         """
         config_dict = self.config.to_dict()
         config_dict["bridge"] = {"host": "localhost", "port": 7878}

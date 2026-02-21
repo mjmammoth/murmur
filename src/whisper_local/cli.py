@@ -176,12 +176,14 @@ def _restore_terminal_state() -> None:
 
 def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
     """
-    Run the bridge server and the terminal user interface (TUI) together and coordinate their startup and shutdown.
+    Start and coordinate the bridge server and the TypeScript TUI, managing their lifecycle and cleanup.
+    
+    Starts the bridge in a background thread, launches the TUI as a subprocess, optionally starts the platform status indicator (macOS only), and ensures graceful shutdown, error handling, and terminal state restoration on exit.
     
     Parameters:
-        host: Network interface or hostname used by both the bridge server and the TUI.
-        port: TCP port used by both the bridge server and the TUI.
-        status_indicator: If True, attempt to start the platform status indicator (macOS only); may be ignored on other platforms.
+        host (str): Network interface or hostname used by both the bridge and the TUI.
+        port (int): TCP port used by both the bridge and the TUI.
+        status_indicator (bool): If True, attempt to start the platform status indicator; may be ignored on non‑macOS platforms.
     """
     _ensure_runtime_dependencies()
 

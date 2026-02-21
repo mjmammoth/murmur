@@ -9,6 +9,16 @@ export interface TranscriptItemProps {
   onClick?: () => void;
 }
 
+/**
+ * Renders a single transcript entry row with a zebra-striped background and a left selection indicator.
+ *
+ * @param props - Component props including:
+ *   - entry: transcript data with `timestamp` and `text`.
+ *   - selected: whether the item is selected (controls the left indicator color).
+ *   - index: zero-based position used to choose the zebra background.
+ *   - onClick: optional mouse-up click handler.
+ * @returns The JSX element for the transcript item row.
+ */
 export function TranscriptItem(props: TranscriptItemProps): JSX.Element {
   const { colors } = useTheme();
 

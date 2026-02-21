@@ -66,6 +66,16 @@ function formatHotkeyFromEvent(key: KeyEvent): { hotkey: string | null; error?: 
   return { hotkey: parts.join("+") };
 }
 
+/**
+ * Render a modal UI that captures a keyboard combination and sets the application's hotkey.
+ *
+ * The modal displays the current hotkey, listens for key combinations (ignoring modifier-only inputs and repeated/release events),
+ * sends a { type: "set_hotkey", hotkey } message to the backend when a valid combo is captured, and shows capture status or errors.
+ * Pressing Escape or "q" closes the modal. If opened with dialog data indicating a return to settings, closing will reopen the settings dialog
+ * with the provided selectedSettingId or filterQuery.
+ *
+ * @returns The modal element used to capture and set a new hotkey
+ */
 export function HotkeyModal(): JSX.Element {
   const { colors } = useTheme();
   const dialog = useDialog();

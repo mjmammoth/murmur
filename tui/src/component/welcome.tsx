@@ -20,7 +20,14 @@ import type { RuntimeName, SelectSettingId, WelcomeDialogData } from "../types";
 
 // ---------------------------------------------------------------------------
 // Shared sub-components
-// ---------------------------------------------------------------------------
+/**
+ * Renders a compact clickable key hint showing a styled key sequence and its label.
+ *
+ * @param keys - The key sequence text to display (for example, "Enter" or "Ctrl+K").
+ * @param label - The descriptive text shown alongside the key sequence.
+ * @param onClick - Optional callback invoked when the hint is clicked.
+ * @returns The rendered CommandHint JSX element.
+ */
 
 function CommandHint(props: { keys: string; label: string; onClick?: () => void }): JSX.Element {
   const { colors } = useTheme();
@@ -67,7 +74,11 @@ function Muted(props: { children: string }): JSX.Element {
 
 // ---------------------------------------------------------------------------
 // Step 1: Welcome
-// ---------------------------------------------------------------------------
+/**
+ * Render the initial welcome step for the onboarding flow, describing product features, how to start/stop recording, clipboard behavior, status indicator, and basic UI interaction hints.
+ *
+ * @returns The JSX element containing the welcome step UI.
+ */
 
 function WelcomeStep(): JSX.Element {
   const { colors } = useTheme();
@@ -149,7 +160,13 @@ function WelcomeStep(): JSX.Element {
 
 // ---------------------------------------------------------------------------
 // Help screen (single page for non-first-run ? press)
-// ---------------------------------------------------------------------------
+/**
+ * Renders the Help/About screen showing branding, how the app works, clipboard behavior, keyboard shortcuts, and that the UI is clickable.
+ *
+ * This component displays explanatory text and shortcut hints used in the onboarding/help flow.
+ *
+ * @returns A JSX.Element containing the help screen content
+ */
 
 function HelpScreen(): JSX.Element {
   const { colors } = useTheme();
@@ -260,6 +277,16 @@ function HelpScreen(): JSX.Element {
 
 type HardwareSettingField = "runtime" | "device";
 
+/**
+ * Render the device-detection onboarding step showing detected hardware, a recommended runtime/device, and editable runtime/device rows.
+ *
+ * @param props - Component props.
+ * @param props.caps - Backend capabilities response or `null` while detection is in progress.
+ * @param props.selectedField - Which hardware field (`"runtime"` or `"device"`) is currently selected.
+ * @param props.onSelectField - Callback invoked with a field when the user selects it.
+ * @param props.onOpenSelector - Callback invoked to open the selector UI for the given field.
+ * @returns The JSX element for the device-detection step UI.
+ */
 function DeviceDetectionStep(props: {
   caps: CapabilitiesResponse | null;
   selectedField: HardwareSettingField;
@@ -427,6 +454,15 @@ const MODEL_DESCRIPTIONS: Record<string, string> = {
   "large-v3-turbo": "Near-best accuracy with better speed than large.",
 };
 
+/**
+ * Render the "Download a model" step UI used to browse, download, cancel, and select speech-recognition models.
+ *
+ * Displays the available models and their per-runtime status (pulled, pulling, queued, selected), shows size and description for the selected model, and exposes a primary action that pulls, cancels, or selects the highlighted model.
+ *
+ * @param selectedModelIndex - Index of the currently highlighted model in the models list
+ * @param onSelectModel - Callback invoked with the index when a model row is clicked or selected
+ * @returns The JSX element that renders the model download and selection UI
+ */
 function ModelDownloadStep(props: {
   selectedModelIndex: number;
   onSelectModel: (index: number) => void;
@@ -613,7 +649,17 @@ function ModelDownloadStep(props: {
 
 // ---------------------------------------------------------------------------
 // Main Welcome component
-// ---------------------------------------------------------------------------
+/**
+ * Render the multi-step Welcome/onboarding modal that guides first-run setup (runtime, device, model)
+ * and provides a help view for returning users.
+ *
+ * The component drives a step-based flow (welcome, device-detection, model-download or help),
+ * manages step and selection state, handles keyboard navigation and scrolling, and interacts
+ * with the backend and dialog system to request capabilities, open setting selectors, apply
+ * recommended hardware, start/cancel model downloads, and persist resume/first-run state.
+ *
+ * @returns The Welcome dialog modal element to mount in the UI
+ */
 
 export function Welcome(): JSX.Element {
   const { colors } = useTheme();
@@ -682,6 +728,11 @@ export function Welcome(): JSX.Element {
     return null;
   });
 
+  /**
+   * Construct the resume payload for the Welcome dialog capturing its current UI state.
+   *
+   * @returns An object containing the current `firstRun` flag, `resumeStepIndex`, `resumeModelIndex`, and `recommendationAutoApplied` status
+   */
   function buildWelcomeResumeData(): WelcomeDialogData {
     return {
       firstRun: firstRun(),
@@ -691,6 +742,11 @@ export function Welcome(): JSX.Element {
     };
   }
 
+  /**
+   * Opens the settings selector for the given hardware field and prepares resume data so the welcome dialog can be restored after the selector closes.
+   *
+   * @param field - Which hardware setting to edit: `"runtime"` opens the runtime selector, `"device"` opens the device selector.
+   */
   function openHardwareSettingSelector(field: HardwareSettingField) {
     const settingId: SelectSettingId = field === "runtime" ? "model.runtime" : "model.device";
     dialog.openDialog("settings-select", {
@@ -751,6 +807,11 @@ export function Welcome(): JSX.Element {
     return true;
   }
 
+  /**
+   * Close the welcome dialog when allowed, handling first-run bookkeeping.
+   *
+   * If the dialog can be closed, notifies the backend that the welcome was shown when this is the first run, then closes the dialog.
+   */
   function handleClose() {
     if (!canClose()) return;
     if (firstRun()) {
@@ -762,6 +823,9 @@ export function Welcome(): JSX.Element {
   const unregisterDismissHandler = dialog.registerDismissHandler("welcome", handleClose);
   onCleanup(unregisterDismissHandler);
 
+  /**
+   * Advance the onboarding to the next step, or close the dialog if currently on the final step.
+   */
   function handleNext() {
     if (isLastStep()) {
       handleClose();
@@ -770,6 +834,11 @@ export function Welcome(): JSX.Element {
     setStepIndex((i) => Math.min(steps().length - 1, i + 1));
   }
 
+  /**
+   * Move the current onboarding step one position backward.
+   *
+   * Clamps the step index to a minimum of 0 so the index never becomes negative.
+   */
   function handleBack() {
     setStepIndex((i) => Math.max(0, i - 1));
   }

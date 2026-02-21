@@ -7,13 +7,12 @@ interface HeaderProps {
 }
 
 /**
- * Render the application header with an animated brand color strip and a quit hint.
+ * Render the application header with the brand title on the left and an escape/quit hint on the right.
  *
- * The left side displays " whisper.local " as a sequence of colored tiles whose background
- * interpolates between the theme's brandStart and brandEnd based on distance from a peak
- * near the dot. The right side shows the `esc/q` exit hint.
+ * The right-side hint invokes the provided callback when clicked (mouse-up).
  *
- * @returns A JSX element containing the header UI: the animated brand strip on the left and the exit hint on the right.
+ * @param props.onQuitClick - Optional callback invoked on mouse-up of the exit hint.
+ * @returns The header JSX element containing the brand title and an "esc/q" exit hint.
  */
 export function Header(props: HeaderProps): JSX.Element {
   const { colors } = useTheme();
