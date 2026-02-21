@@ -21,8 +21,12 @@ def test_queue_cancel_queued_task_marks_cancelled_and_calls_task_cancel():
 
 def test_queue_cancel_running_task_sets_active_status():
     queue = SerialModelTaskQueue()
-    queue.enqueue_download("whisper.cpp:base", model="base", runtime="whisper.cpp")
-    queue.mark_running("whisper.cpp:base")
+    queue_task = Mock()
+    queue_task.done.return_value = False
+    queue.enqueue_download(
+        "whisper.cpp:base", model="base", runtime="whisper.cpp", task=queue_task
+    )
+    queue.mark_running("whisper.cpp:base", task=queue_task)
 
     result = queue.cancel("whisper.cpp:base")
 
@@ -43,8 +47,10 @@ def test_queue_resolve_single_candidate_only_when_one_pending():
 def test_queue_cancel_completed_task_reports_terminal_status():
     queue = SerialModelTaskQueue()
     key = "faster-whisper:small"
-    queue.enqueue_download(key, model="small", runtime="faster-whisper")
-    queue.mark_completed(key)
+    queue_task = Mock()
+    queue_task.done.return_value = False
+    queue.enqueue_download(key, model="small", runtime="faster-whisper", task=queue_task)
+    queue.mark_completed(key, task=queue_task)
 
     result = queue.cancel(key)
 
@@ -56,8 +62,10 @@ def test_queue_cancel_completed_task_reports_terminal_status():
 def test_queue_cancel_failed_task_reports_terminal_status():
     queue = SerialModelTaskQueue()
     key = "faster-whisper:small"
-    queue.enqueue_download(key, model="small", runtime="faster-whisper")
-    queue.mark_failed(key)
+    queue_task = Mock()
+    queue_task.done.return_value = False
+    queue.enqueue_download(key, model="small", runtime="faster-whisper", task=queue_task)
+    queue.mark_failed(key, task=queue_task)
 
     result = queue.cancel(key)
 
