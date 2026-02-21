@@ -114,7 +114,7 @@ def test_build_parser_models_pull():
     assert args.name == 'tiny'
 
 
-def test_build_parser_models_pull_with_backend():
+def test_build_parser_models_pull_with_runtime():
     """Test 'models pull' supports runtime variant selection."""
     parser = cli.build_parser()
     args = parser.parse_args(['models', 'pull', 'tiny', '--runtime', 'whisper.cpp'])
@@ -131,7 +131,7 @@ def test_build_parser_models_remove():
     assert args.name == 'base'
 
 
-def test_build_parser_models_remove_with_backend():
+def test_build_parser_models_remove_with_runtime():
     """Test 'models remove' supports runtime variant selection."""
     parser = cli.build_parser()
     args = parser.parse_args(['models', 'remove', 'base', '--runtime', 'whisper.cpp'])
@@ -341,7 +341,7 @@ def test_main_models_list(mock_list_models, monkeypatch, capsys):
 
 
 @patch('whisper_local.model_manager.list_installed_models')
-def test_main_models_list_backend_variants(mock_list_models, monkeypatch, capsys):
+def test_main_models_list_runtime_variants(mock_list_models, monkeypatch, capsys):
     """Test models list prints per-runtime variant states when available."""
     monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'list'])
 
