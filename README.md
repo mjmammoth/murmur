@@ -32,46 +32,39 @@ Everything runs on your machine. No cloud API, no network calls, no data collect
 - Optional **Noise suppression** (RNNoise) and **voice activity detection** (VAD)
 - **File transcription** — drag-and-drop or paste audio file paths
 
-## Install (pip)
-
-```bash
-python -m pip install whisper-local
-```
-
-## Homebrew (v1 arm64)
+## Get Started
+### Homebrew (v1 arm64)
 
 ```bash
 brew tap mjmammoth/tap
 brew install whisper.local
 ```
 
-## RNNoise (optional)
+### RNNoise (optional)
 
 ```bash
 brew install --cask rnnoise
 ```
 
-## Run
+### Run
 
 ```bash
 whisper.local
 ```
 
-Use `whisper.local run --no-status-indicator` to disable the macOS menu bar indicator.
-
-## macOS permissions
-
-Global hotkeys require Input Monitoring permission for your terminal or app host.
-Auto-paste uses System Events and requires Accessibility permission for the terminal or app running whisper.local. Grant permission in **System Settings → Privacy & Security → Accessibility** — add Terminal (or your Python/app launcher) to the allowed apps list. Without this permission, auto-paste will fail silently or report a permission error.
-When auto-paste is enabled, `auto_revert_clipboard` defaults to `true`, so the clipboard returns to its previous value after paste.
-
-## Hotkey
+### Hotkey
 
 Default hotkey is `f3`. Configure it through the TUI (by pressing 'h') or in the config file:
 `~/.config/whisper.local/config.toml`
 Supported keys: letters, digits, space, return, tab, escape, and function keys `f1`-`f12`.
 
-## Model downloading
+### macOS permissions
+
+Global hotkeys require **Input Monitoring** permission for your terminal or app host.
+Auto-paste uses System Events and requires the **Accessibility** permission for the terminal or app running whisper.local.
+
+
+### Model downloading
 
 Model files are runtime-specific, and so changing runtimes necessitates downloading models again.
 - `faster-whisper` uses CTranslate2 artifacts
@@ -90,20 +83,6 @@ whisper.local models select small
 - `faster-whisper`: CPU/CUDA (mps falls back to CPU)
 - `whisper.cpp`: CPU + Metal (`mps`) when available
 
-Unavailable runtime/device options are shown disabled with an inline reason in Settings.
-
-## Benchmark logging
-
-Logs include per-job benchmark details (runtime, model size, input audio length, RNNoise/VAD states,
-transcribe time, total pipeline time, and realtime factor) so you can compare runtime performance.
-
-## Configuration
-
-Runtime defaults live in `src/whisper_local/default_config.toml`.
-`configs/default.toml` is the contributor-facing mirror used for documentation/workflow parity.
-The app reads overrides from:
-`~/.config/whisper.local/config.toml`
-
 ## TUI key bindings
 Key bindings are visualised in the TUI by highlighted letters in function words.
 
@@ -115,11 +94,3 @@ Key bindings are visualised in the TUI by highlighted letters in function words.
 - `t`: theme picker
 - drag/drop (paste path): transcribe audio file(s)
 - `q`: quit
-
-## Homebrew notes (Developer/Release operators — not for end users)
-
-- Formula wrapper sets `WHISPER_LOCAL_TUI_BIN` to the packaged `whisper-local-tui` executable.
-- Homebrew formula dependencies are installed by brew, including `whisper-cpp`.
-- Python optional extras (for example `whisper-local[rnnoise]`) are not auto-installed unless requested.
-- Optional RNNoise support remains best-effort because cask-provided plugins are not always directly loadable.
-- Release operators should follow `RELEASE_BREW_V1.md`.
