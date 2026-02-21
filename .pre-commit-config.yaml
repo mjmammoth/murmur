@@ -28,3 +28,9 @@ repos:
         entry: bunx tsc --noEmit -p tui/tsconfig.json
         language: system
         pass_filenames: false
+      - id: tui-showcase-refresh
+        name: TUI showcase refresh (Ghostty)
+        entry: scripts/precommit_tui_showcase.sh
+        language: system
+        pass_filenames: false
+        always_run: true

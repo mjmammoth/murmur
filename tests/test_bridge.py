@@ -1234,6 +1234,82 @@ def test_websocket_log_handler_handles_emit_errors():
     handler.emit(record)
 
 
+def test_broadcast_mirrors_info_toast_to_logger(mock_config):
+    server = BridgeServer(mock_config)
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(
+            server._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Model download queued",
+                    "level": "info",
+                    "action": "download_queued",
+                    "runtime": "faster-whisper",
+                    "model": "tiny",
+                }
+            )
+        )
+
+    mock_logger.info.assert_called_once_with(
+        "toast: %s%s",
+        "Model download queued",
+        " (action=download_queued, runtime=faster-whisper, model=tiny)",
+    )
+    mock_logger.error.assert_not_called()
+
+
+def test_broadcast_mirrors_success_toast_to_info_logger(mock_config):
+    server = BridgeServer(mock_config)
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(
+            server._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Auto paste on; auto copy on",
+                    "level": "success",
+                }
+            )
+        )
+
+    mock_logger.info.assert_called_once_with("toast: %s%s", "Auto paste on; auto copy on", "")
+    mock_logger.error.assert_not_called()
+
+
+def test_broadcast_mirrors_error_toast_to_error_logger(mock_config):
+    server = BridgeServer(mock_config)
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(
+            server._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Failed to persist setting",
+                    "level": "error",
+                }
+            )
+        )
+
+    mock_logger.error.assert_called_once_with("toast: %s%s", "Failed to persist setting", "")
+    mock_logger.info.assert_not_called()
+
+
+def test_broadcast_does_not_log_non_toast_messages(mock_config):
+    server = BridgeServer(mock_config)
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(server._broadcast({"type": "status", "status": "ready", "message": "Ready"}))
+
+    mock_logger.info.assert_not_called()
+    mock_logger.error.assert_not_called()
+
+
+def test_broadcast_ignores_empty_toast_message(mock_config):
+    server = BridgeServer(mock_config)
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(server._broadcast({"type": "toast", "message": "   ", "level": "info"}))
+
+    mock_logger.info.assert_not_called()
+    mock_logger.error.assert_not_called()
+
+
 def test_constants_defined():
     """Test that bridge constants are defined."""
     from whisper_local.bridge import (

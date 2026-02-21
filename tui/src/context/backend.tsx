@@ -17,6 +17,7 @@ import type {
   LogEntry,
   RuntimeCapabilities,
 } from "../types";
+import { appendLogWithLimit, formatClientLogTimestamp } from "./backend-log";
 
 export interface DownloadProgress {
   model: string;
@@ -47,6 +48,7 @@ export interface BackendContextValue {
   autoPaste: Accessor<boolean>;
   autoRevertClipboard: Accessor<boolean>;
   logs: Accessor<LogEntry[]>;
+  appendClientLog: (entry: { level: string; message: string; source?: string }) => void;
   configFileContent: Accessor<string>;
   configFilePath: Accessor<string>;
   downloadProgress: Accessor<DownloadProgress | null>;
@@ -172,6 +174,19 @@ export function BackendContextProvider(props: {
     for (const handler of runtimeSwitchRequiredHandlers) {
       handler(payload);
     }
+  }
+
+  function appendClientLog(entry: { level: string; message: string; source?: string }) {
+    setLogs((prev) => {
+      const nextEntry: LogEntry = {
+        id: logIdCounter++,
+        level: entry.level,
+        message: entry.message,
+        timestamp: formatClientLogTimestamp(),
+        source: entry.source ?? "tui.ui",
+      };
+      return appendLogWithLimit(prev, nextEntry);
+    });
   }
 
   function sendInternal(message: ClientMessage): boolean {
@@ -412,9 +427,7 @@ export function BackendContextProvider(props: {
             timestamp: message.timestamp,
             source: message.source,
           };
-          const next = [...prev, entry];
-          // Keep last 200 log entries
-          return next.length > 200 ? next.slice(-200) : next;
+          return appendLogWithLimit(prev, entry);
         });
         break;
     }
@@ -662,6 +675,7 @@ export function BackendContextProvider(props: {
     autoPaste,
     autoRevertClipboard,
     logs,
+    appendClientLog,
     configFileContent,
     configFilePath,
     downloadProgress,

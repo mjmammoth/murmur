@@ -2,11 +2,17 @@ import { createSignal, onMount, type JSX, type Accessor } from "solid-js";
 import { createContextHelper } from "./helper";
 import { useBackend } from "./backend";
 import type { Toast } from "../types";
+import {
+  shouldLogToast,
+  shouldMirrorToastLog,
+  toastLogDedupeKey,
+  type ToastMeta,
+} from "./toast-log";
 
 export interface ToastContextValue {
   toasts: Accessor<Toast[]>;
-  showToast: (message: string) => void;
-  showError: (message: string) => void;
+  showToast: (message: string, meta?: ToastMeta) => void;
+  showError: (message: string, meta?: ToastMeta) => void;
 }
 
 const [ToastProvider, useToast] = createContextHelper<ToastContextValue>("Toast");
@@ -19,10 +25,24 @@ export function ToastContextProvider(props: { children: JSX.Element }): JSX.Elem
 
   const [toasts, setToasts] = createSignal<Toast[]>([]);
   let nextId = 0;
+  const lastLogAtByKey = new Map<string, number>();
 
-  function addToast(message: string, level: "info" | "error") {
+  function addToast(message: string, level: "info" | "error", meta?: ToastMeta) {
     const id = nextId++;
     setToasts((prev) => [...prev, { id, message, level }]);
+
+    if (shouldLogToast(meta)) {
+      const source = meta?.source ?? "ui.toast";
+      const key = toastLogDedupeKey(level, message, { ...meta, source });
+      const now = Date.now();
+      if (shouldMirrorToastLog(lastLogAtByKey, key, now)) {
+        backend.appendClientLog({
+          level: level === "error" ? "ERROR" : "INFO",
+          message,
+          source,
+        });
+      }
+    }
 
     // Auto-dismiss
     setTimeout(() => {
@@ -30,18 +50,18 @@ export function ToastContextProvider(props: { children: JSX.Element }): JSX.Elem
     }, TOAST_DURATION);
   }
 
-  function showToast(message: string) {
-    addToast(message, "info");
+  function showToast(message: string, meta?: ToastMeta) {
+    addToast(message, "info", meta);
   }
 
-  function showError(message: string) {
-    addToast(message, "error");
+  function showError(message: string, meta?: ToastMeta) {
+    addToast(message, "error", meta);
   }
 
   // Listen for toast messages from backend
   onMount(() => {
     backend.onToast((message, level) => {
-      addToast(message, level);
+      addToast(message, level, { log: false, source: "backend.toast" });
     });
   });
 

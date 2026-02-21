@@ -6,6 +6,15 @@
 > This repo is 99.9999999% vibe-coded.
 > Literally only this disclaimer is human-written.
 
+<!-- tui-showcase:start -->
+![whisper.local TUI home across themes](docs/assets/tui-home-themes.png)
+
+Demo transcriptions shown:
+- `Create a modern and clean diagram from the below description.`
+- `In GCP, I am trying to get an App Engine deployment of my static docs hosted with a custom domain.`
+- `Check the objective infrastructure repo; I am trying to build to Cloud Run and route traffic safely.`
+<!-- tui-showcase:end -->
+
 ## How it works
 
 1. **Hit F3** (or your custom hotkey) from any app — system-wide, no focus switching
@@ -18,14 +27,14 @@ Everything runs on your machine. No cloud API, no network calls, no data collect
 
 - **100% local & private** — no cloud, no telemetry, no network calls
 - **Global hotkey** (push-to-talk or toggle) — works system-wide from any app
+- **Auto-copy** — transcription goes straight to clipboard
 - **Auto-paste** — transcribed text pastes directly into your active application
 - **Auto-revert clipboard** — after auto-paste, previous clipboard content is restored by default
-- **Auto-copy** — transcription goes straight to clipboard
 - **Terminal UI** built with OpenTUI + SolidJS — transcript history, click-to-copy, theme picker
-- **Pluggable runtimes** — faster-whisper (CPU/CUDA) or whisper.cpp (Metal GPU on macOS)
-- **Model management** — download, remove, and select models from tiny to large-v3-turbo
+- **Pluggable runtimes** — faster-whisper (CPU/CUDA) or whisper.cpp (CPU/Metal GPU on macOS)
+- **Model management** — download, remove, and select OpenAI Whisper models from tiny to large-v3-turbo
 - **macOS menu bar indicator** — status dot shows recording / transcribing / idle state
-- **Noise suppression** (RNNoise) and **voice activity detection** (VAD)
+- Optional **Noise suppression** (RNNoise) and **voice activity detection** (VAD)
 - **File transcription** — drag-and-drop or paste audio file paths
 
 ## Install (pip)
@@ -41,22 +50,11 @@ brew tap mjmammoth/tap
 brew install whisper.local
 ```
 
-Homebrew installs a prebuilt TUI binary plus Python backend. Bun is **not** required at runtime.
-
-## RNNoise (optional, recommended)
+## RNNoise (optional)
 
 ```bash
 brew install --cask rnnoise
 ```
-
-For Python runtime integration, also install:
-
-```bash
-python -m pip install "whisper-local[rnnoise]"
-```
-
-The Homebrew cask provides Audio Unit/VST plugins; those are not always directly loadable via ctypes.
-If RNNoise still is not available, the app continues without noise suppression.
 
 ## Run
 
@@ -64,9 +62,7 @@ If RNNoise still is not available, the app continues without noise suppression.
 whisper.local
 ```
 
-`whisper-local` also works as an alias.
 Use `whisper.local run --no-status-indicator` to disable the macOS menu bar indicator.
-For local contributors running from source, set `WHISPER_LOCAL_DEV_USE_BUN=1` (Bun is a JavaScript/TypeScript runtime) to use Bun-backed TUI dev mode.
 
 ## macOS permissions
 
@@ -76,22 +72,15 @@ When auto-paste is enabled, `auto_revert_clipboard` defaults to `true`, so the c
 
 ## Hotkey
 
-Default hotkey is `f3`. Configure it in the config file:
+Default hotkey is `f3`. Configure it through the TUI (by pressing 'h') or in the config file:
 `~/.config/whisper.local/config.toml`
 Supported keys: letters, digits, space, return, tab, escape, and function keys `f1`-`f12`.
 
 ## Model downloading
 
-Model files are runtime-specific:
+Model files are runtime-specific, and so changing runtimes necessitates downloading models again.
 - `faster-whisper` uses CTranslate2 artifacts
 - `whisper.cpp` uses `ggml-*.bin` artifacts
-
-Model Manager shows install status for both runtimes per model.
-`Enter` downloads/selects the currently active runtime variant by default.
-
-Runtime switches that need a missing model variant now prompt you to confirm:
-1. confirm runtime switch requirement
-2. confirm download in Model Manager for the selected model/runtime variant
 
 You can also prefetch from CLI:
 

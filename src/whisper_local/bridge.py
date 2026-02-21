@@ -109,9 +109,9 @@ class BridgeServer:
     def __init__(self, config: AppConfig) -> None:
         """
         Initialize the BridgeServer internal runtime state and placeholders from the given configuration.
-        
+
         Sets up client sets, recording/state flags, concurrency primitives (locks and events), background and per-model task registries, runtime capability caching, and lazy placeholders for audio/transcription/hotkey components. If the provided config enables auto_paste while auto_copy is disabled, auto_copy will be enabled on the server and the config will be updated accordingly.
-        
+
         Parameters:
             config (AppConfig): Application configuration used to initialize server settings and defaults.
         """
@@ -174,12 +174,12 @@ class BridgeServer:
     def _spawn_model_task(self, name: str, coro) -> asyncio.Task:
         """
         Start and track a background task for a named model operation.
-        
+
         If a previous task with the same name is running, cancel it and replace it with a new task. The mapping for the name is removed when the task completes.
-        
+
         Parameters:
             coro: The coroutine to schedule as the model task.
-        
+
         Returns:
             asyncio.Task: The created task running the provided coroutine.
         """
@@ -192,7 +192,7 @@ class BridgeServer:
         def _cleanup(_t: asyncio.Task) -> None:
             """
             Remove the tracked model task entry when the completed task matches the recorded task for that model.
-            
+
             Parameters:
                 _t (asyncio.Task): The completed task; if it is the same object as the currently stored task for the associated model name, the task entry is removed.
             """
@@ -227,7 +227,7 @@ class BridgeServer:
     def _client_path(self, websocket: WebSocketServerProtocol) -> str:
         """
         Resolve the connection path for a client WebSocket across different websockets library versions.
-        
+
         Returns:
             str: The connection path string, or an empty string if it cannot be determined.
         """
@@ -286,9 +286,9 @@ class BridgeServer:
     ) -> None:
         """
         Start the bridge WebSocket server, initialize runtime components, and begin model loading.
-        
+
         Binds to the given host and port, initializes audio/transcription components and runtime state, prunes model caches, determines whether first-run setup is required, and either sets the first-run status or triggers asynchronous model loading. Runs until the server is shut down.
-        
+
         Parameters:
             host (str): Hostname or IP address to bind the WebSocket server to.
             port (int): TCP port to listen on for incoming WebSocket connections.
@@ -753,8 +753,33 @@ class BridgeServer:
             msg["elapsed"] = int(monotonic() - self._busy_started_at)
         await self._broadcast(msg)
 
+    def _mirror_toast_to_logger(self, message: dict[str, Any]) -> None:
+        """Mirror backend toast events to logger with optional toast metadata."""
+        if message.get("type") != "toast":
+            return
+        text = message.get("message")
+        if not isinstance(text, str) or not text.strip():
+            return
+
+        level = str(message.get("level") or "info").lower()
+        metadata_parts: list[str] = []
+        for key in ("action", "runtime", "model"):
+            value = message.get(key)
+            if value is None:
+                continue
+            as_text = str(value).strip()
+            if as_text:
+                metadata_parts.append(f"{key}={as_text}")
+        suffix = f" ({', '.join(metadata_parts)})" if metadata_parts else ""
+
+        if level == "error":
+            logger.error("toast: %s%s", text, suffix)
+            return
+        logger.info("toast: %s%s", text, suffix)
+
     async def _broadcast(self, message: dict[str, Any]) -> None:
         """Send message to all connected clients."""
+        self._mirror_toast_to_logger(message)
         if not self.clients:
             return
         data = json.dumps(message)
@@ -810,9 +835,9 @@ class BridgeServer:
     ) -> None:
         """
         Dispatch a JSON-encoded control message from a client to the appropriate bridge handler.
-        
+
         Parses the provided message and routes it by the top-level "type" field to perform actions such as recording control, model management (download, cancel, remove, select), runtime/device/compute configuration, audio/VAD/noise toggles, hotkey and theme updates, clipboard/file output changes, requests for model/config data, and initiating transcription from pasted text or files. Direct replies are sent to the given websocket when required; other responses are broadcast to connected clients. Invalid JSON or unknown message types are ignored.
-        
+
         Parameters:
             websocket (WebSocketServerProtocol): The client's WebSocket connection used for direct replies when applicable.
             message (str): A JSON-encoded message string that must include a top-level "type" field and any type-specific payload.
@@ -1317,10 +1342,10 @@ class BridgeServer:
     async def _toggle_vad(self, enabled: bool) -> None:
         """
         Enable or disable voice activity detection (VAD) and persist the change.
-        
+
         Parameters:
             enabled (bool): `True` to enable VAD, `False` to disable it.
-        
+
         Notes:
             This updates the in-memory VAD processor, saves the configuration, and notifies connected clients with a toast and an updated config broadcast.
         """
@@ -1341,9 +1366,9 @@ class BridgeServer:
     ) -> None:
         """
         Download and activate a model while broadcasting progress and status updates to connected clients.
-        
+
         This method pulls the specified model, broadcasts incremental download progress (0–100) and toast messages for start, completion, cancellation, or failure, and on success sets the downloaded model as the selected model and refreshes the model list. The download is cooperatively cancellable via the server's per-model cancel event and respects the server shutdown signal.
-        
+
         Parameters:
             name (str): Name of the model to download.
         """
@@ -1493,13 +1518,13 @@ class BridgeServer:
     async def _cancel_model_download(self, name: str, runtime: Any = None) -> None:
         """
         Request cancellation of an in-progress model download.
-        
+
         If `name` is empty and exactly one download is active or queued, that download will be cancelled.
         If no active download matches `name`, an error toast with message
         "No active download matches request" is broadcast to clients.
         If a cancellation is already in progress for the named model, this is a no-op.
         Otherwise the method signals cancellation for the model and broadcasts a toast indicating the cancellation.
-        
+
         Parameters:
             name (str): The model name to cancel; may be an empty string to infer a single active download.
         """
@@ -1595,9 +1620,9 @@ class BridgeServer:
     async def _remove_model(self, name: str, runtime: str | None = None) -> None:
         """
         Remove the installed model identified by `name` and notify connected clients of the outcome.
-        
+
         If removal succeeds, broadcasts a success toast, refreshes the installed model list, enters first-run setup and notifies clients if no models remain, or selects a fallback model if the removed model was the current selection. On failure, broadcasts an error toast describing the failure.
-        
+
         Parameters:
             name (str): The name of the model to remove. If empty, no action is taken.
         """
@@ -2729,9 +2754,9 @@ class BridgeServer:
     def _config_payload(self) -> dict[str, Any]:
         """
         Build the configuration payload used to synchronize state with connected clients.
-        
+
         Refreshes cached runtime capability information and returns a dictionary containing the serialized application config extended with bridge connection info and runtime/UI flags such as `auto_copy`, `auto_paste`, `first_run_setup_required`, and `runtime` capabilities.
-        
+
         Returns:
             dict[str, Any]: Serialized configuration payload for clients.
         """
@@ -2747,7 +2772,7 @@ class BridgeServer:
     def shutdown(self) -> None:
         """
         Initiates server shutdown and releases runtime resources.
-        
+
         Signals shutdown, cancels any in-progress model downloads, stops the audio recorder if active, stops the global hotkey listener if running, and closes the noise suppression component.
         """
         self._shutdown_requested.set()
@@ -2779,9 +2804,9 @@ def run_bridge(
 ) -> None:
     """
     Start and run the WebSocket bridge server and its event loop until shutdown.
-    
+
     Creates a BridgeServer using the provided AppConfig (or the loaded default) and runs it listening on the given host and port. The function runs the server loop until interrupted (e.g., Ctrl+C) and ensures the server is shut down and cleaned up on exit.
-    
+
     Parameters:
         config (AppConfig | None): Optional application configuration. If omitted, the configuration is loaded from the default location.
         host (str): Hostname or IP address to bind the server to.

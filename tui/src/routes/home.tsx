@@ -66,7 +66,7 @@ export function Home(): JSX.Element {
   createEffect(() => {
     const currentlyVisible = logsVisible();
     if (previousLogsVisible && !currentlyVisible && showLogs() && !canShowLogs()) {
-      toast.showToast(logsTooNarrowMessage());
+      toast.showToast(logsTooNarrowMessage(), { dedupeKey: "logs-too-narrow" });
     }
     previousLogsVisible = currentlyVisible;
   });
@@ -125,7 +125,7 @@ export function Home(): JSX.Element {
     setShowLogs((prev) => {
       const next = !prev;
       if (next && !canShowLogs()) {
-        toast.showToast(logsTooNarrowMessage());
+        toast.showToast(logsTooNarrowMessage(), { dedupeKey: "logs-too-narrow" });
       }
       setActivePane(next && canShowLogs() ? "logs" : "main");
       return next;
@@ -147,12 +147,14 @@ export function Home(): JSX.Element {
     }
 
     if (status === "connecting") {
-      toast.showToast("Still connecting to backend.");
+      toast.showToast("Still connecting to backend.", { dedupeKey: "status-connecting-click" });
       return;
     }
 
     if (status === "transcribing" || status === "downloading") {
-      toast.showToast("Busy right now. Try again when ready.");
+      toast.showToast("Busy right now. Try again when ready.", {
+        dedupeKey: "status-busy-click",
+      });
       return;
     }
 

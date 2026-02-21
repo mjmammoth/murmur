@@ -24,18 +24,25 @@ function restoreTerminalState() {
   }
 }
 
-process.on("exit", restoreTerminalState);
-process.on("SIGINT", () => {
-  if (handleSigint()) {
-    return;
-  }
-  restoreTerminalState();
-  process.exit(0);
-});
-process.on("SIGTERM", () => {
-  restoreTerminalState();
-  process.exit(0);
-});
+const captureSeconds = Number.parseFloat(
+  process.env.WHISPER_LOCAL_TUI_CAPTURE_SECONDS ?? "",
+);
+const captureMode = Number.isFinite(captureSeconds) && captureSeconds > 0;
+
+if (!captureMode) {
+  process.on("exit", restoreTerminalState);
+  process.on("SIGINT", () => {
+    if (handleSigint()) {
+      return;
+    }
+    restoreTerminalState();
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    restoreTerminalState();
+    process.exit(0);
+  });
+}
 
 // Parse command line arguments for host/port
 const args = process.argv.slice(2);
@@ -52,13 +59,11 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 
-const captureSeconds = Number.parseFloat(
-  process.env.WHISPER_LOCAL_TUI_CAPTURE_SECONDS ?? "",
-);
-if (Number.isFinite(captureSeconds) && captureSeconds > 0) {
+if (captureMode) {
   setTimeout(() => {
-    restoreTerminalState();
-    process.exit(0);
+    // Capture mode intentionally exits abruptly so the final captured frame
+    // remains the rendered UI instead of terminal-reset cleanup output.
+    process.kill(process.pid, "SIGKILL");
   }, captureSeconds * 1000);
 }
 
