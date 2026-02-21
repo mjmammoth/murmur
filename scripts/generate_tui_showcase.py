@@ -474,6 +474,18 @@ def _svg_dimensions(svg_text: str) -> tuple[int, int]:
     return max(width, 1), max(height, 1)
 
 
+def _extract_svg_canvas_color(svg_text: str) -> str:
+    # Prefer the first painted row color in the rendered frame; this represents
+    # the actual theme canvas color better than termtosvg's default `.background`.
+    match = re.search(
+        r"<g>\s*<rect[^>]*\bx=\"0\"[^>]*\by=\"0\"[^>]*\bfill=\"([^\"]+)\"",
+        svg_text,
+    )
+    if match:
+        return match.group(1)
+    return "#0c0c0c"
+
+
 def compose_stacked_svg(theme_svgs: list[tuple[str, Path]], output_path: Path) -> None:
     theme_to_svg = {theme: path for theme, path in theme_svgs}
     ordered_themes = [theme for theme in THEMES if theme in theme_to_svg and theme != "dark"]
@@ -486,6 +498,7 @@ def compose_stacked_svg(theme_svgs: list[tuple[str, Path]], output_path: Path) -
     ordered_paths = [theme_to_svg[theme] for theme in ordered_themes]
     svg_texts = [path.read_text(encoding="utf-8", errors="ignore") for path in ordered_paths]
     dimensions = [_svg_dimensions(text) for text in svg_texts]
+    canvas_colors = [_extract_svg_canvas_color(text) for text in svg_texts]
 
     target_width = min(width for width, _ in dimensions)
     x_step = 56
@@ -508,13 +521,18 @@ def compose_stacked_svg(theme_svgs: list[tuple[str, Path]], output_path: Path) -
         '<?xml version="1.0" encoding="UTF-8"?>',
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{canvas_w}" height="{canvas_h}" viewBox="0 0 {canvas_w} {canvas_h}">',
     ]
-    for i, (svg_text, (width, height)) in enumerate(zip(svg_texts, scaled_sizes)):
+    for i, (svg_text, (width, height), canvas_color) in enumerate(
+        zip(svg_texts, scaled_sizes, canvas_colors)
+    ):
         x = 30 + i * x_step
         y = 24 + i * y_step
         encoded = base64.b64encode(svg_text.encode("utf-8")).decode("ascii")
         lines.append(
+            f'<rect x="{x}" y="{y}" width="{width}" height="{height}" fill="{canvas_color}"/>'
+        )
+        lines.append(
             f'<image x="{x}" y="{y}" width="{width}" height="{height}" '
-            f'href="data:image/svg+xml;base64,{encoded}"/>'
+            f'preserveAspectRatio="none" href="data:image/svg+xml;base64,{encoded}"/>'
         )
     lines.append("</svg>")
 
