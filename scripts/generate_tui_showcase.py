@@ -15,28 +15,16 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from PIL import Image, ImageFilter
-
 THEMES = ["dark", "catppuccin-mocha", "light"]
 CAPTURE_GEOMETRY = "120x32"
 DEFAULT_CAPTURE_SECONDS = 4.0
-DEFAULT_SNAPSHOT_DELAY = 2.6
 README_START = "<!-- tui-showcase:start -->"
 README_END = "<!-- tui-showcase:end -->"
-RENDERER_AUTO = "auto"
-RENDERER_TERMTOSVG = "termtosvg"
-RENDERER_GHOSTTY = "ghostty"
-DEFAULT_FONT_FAMILY = (
-    "'JetBrainsMono Nerd Font Mono', 'JetBrainsMono Nerd Font', "
-    "'JetBrains Mono', 'DejaVu Sans Mono', monospace"
-)
-DEFAULT_FONT_SIZE_PX = 14
-
-TRANSCRIPT_LINES = [
-    "Create a modern and clean diagram from the below description.",
-    "In GCP, I am trying to get an App Engine deployment of my static docs hosted with a custom domain.",
-    "Check the objective infrastructure repo; I am trying to build to Cloud Run and route traffic safely.",
-]
+OUTPUT_SVG = "svg"
+OUTPUT_PNG = "png"
+DEFAULT_PNG_SCALE = 2.0
+FONT_FAMILY = "'JetBrainsMono Nerd Font Mono', 'JetBrainsMono Nerd Font', 'JetBrains Mono', monospace"
+FONT_WOFF2_URL = "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf"
 
 
 def _clear_capture_target(path: Path) -> None:
@@ -56,27 +44,24 @@ def _resolve_svg_capture(path: Path) -> Path:
         candidates = [candidate for candidate in path.rglob("*.svg") if candidate.is_file()]
         if candidates:
             candidates.sort(key=lambda candidate: candidate.name)
-            # Prefer the earliest frame with maximal transcript coverage and
-            # item count. This avoids selecting teardown tail frames.
-            transcript_markers = [line[:48].strip() for line in TRANSCRIPT_LINES]
+            # Prefer the earliest frame with content and maximal item count.
+            # This avoids selecting teardown tail frames.
             best_candidate: Path | None = None
-            best_score: tuple[int, int] | None = None
+            best_score: int | None = None
             best_index = 10**9
             for index, candidate in enumerate(candidates):
                 text = candidate.read_text(encoding="utf-8", errors="ignore")
                 if "Ready" not in text or "large-v3-turbo" not in text:
                     continue
-                transcript_matches = sum(1 for marker in transcript_markers if marker and marker in text)
                 items_match = re.search(r"(\d+)\s+items?", text)
                 item_count = int(items_match.group(1)) if items_match else 0
-                score = (transcript_matches, item_count)
                 if (
                     best_score is None
-                    or score > best_score
-                    or (score == best_score and index < best_index)
+                    or item_count > best_score
+                    or (item_count == best_score and index < best_index)
                 ):
                     best_candidate = candidate
-                    best_score = score
+                    best_score = item_count
                     best_index = index
             if best_candidate is not None:
                 return best_candidate
@@ -114,14 +99,6 @@ def _pick_port() -> int:
     except PermissionError:
         # Some restricted environments disallow local binds during port probing.
         return random.randint(20000, 59999)
-
-
-def _resolve_renderer(renderer: str) -> str:
-    if renderer != RENDERER_AUTO:
-        return renderer
-    if sys.platform == "darwin" and os.environ.get("TERM_PROGRAM", "").lower() == "ghostty":
-        return RENDERER_GHOSTTY
-    return RENDERER_TERMTOSVG
 
 
 def _start_mock_backend(repo_root: Path, theme: str, port: int) -> subprocess.Popen[str]:
@@ -165,71 +142,6 @@ def _stop_process(process: subprocess.Popen[str] | None) -> None:
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait(timeout=5)
-
-
-def _set_terminal_title(title: str) -> None:
-    if not sys.stdout.isatty():
-        return
-    # OSC 0 sets the terminal window title in common terminal emulators.
-    sys.stdout.write(f"\033]0;{title}\007")
-    sys.stdout.flush()
-
-
-def _front_ghostty_window_id(
-    *,
-    title_token: str | None = None,
-    max_attempts: int = 12,
-    retry_delay: float = 0.15,
-) -> int:
-    try:
-        from Quartz import (
-            CGWindowListCopyWindowInfo,
-            kCGNullWindowID,
-            kCGWindowListOptionOnScreenOnly,
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            "Ghostty renderer requires pyobjc Quartz bindings. "
-            "Install with: python3 -m pip install pyobjc-framework-Quartz"
-        ) from exc
-
-    for _ in range(max_attempts):
-        windows = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID) or []
-        fallback_window_id: int | None = None
-        for window in windows:
-            owner_name = str(window.get("kCGWindowOwnerName", "")).lower()
-            layer = int(window.get("kCGWindowLayer", 1))
-            if owner_name != "ghostty" or layer != 0:
-                continue
-            window_id = window.get("kCGWindowNumber")
-            if window_id is None:
-                continue
-            window_id = int(window_id)
-            if fallback_window_id is None:
-                fallback_window_id = window_id
-            if title_token:
-                name = str(window.get("kCGWindowName", ""))
-                if title_token in name:
-                    return window_id
-            else:
-                return window_id
-        if title_token and fallback_window_id is not None:
-            # Keep polling briefly for the title propagation.
-            time.sleep(retry_delay)
-            continue
-        if fallback_window_id is not None:
-            return fallback_window_id
-        time.sleep(retry_delay)
-
-    if title_token:
-        raise RuntimeError(
-            "Could not find the Ghostty window for this capture session. "
-            "Run the command from the Ghostty window you want to capture."
-        )
-    raise RuntimeError(
-        "Could not find an on-screen Ghostty window. "
-        "Keep a Ghostty window visible and focused while generating screenshots."
-    )
 
 
 def _looks_blank_capture(svg_path: Path) -> bool:
@@ -311,146 +223,6 @@ def run_capture_termtosvg(
     return rendered_svg
 
 
-def run_capture_ghostty(
-    repo_root: Path,
-    theme: str,
-    port: int,
-    png_path: Path,
-    capture_seconds: float,
-    snapshot_delay: float,
-) -> None:
-    bun_path = shutil.which("bun")
-    if not bun_path:
-        raise RuntimeError("Could not find 'bun' on PATH. Install Bun and ensure it is in PATH.")
-
-    term_program = os.environ.get("TERM_PROGRAM", "").lower()
-    in_tmux = bool(os.environ.get("TMUX"))
-    if term_program != "ghostty" and not in_tmux:
-        raise RuntimeError(
-            "Ghostty renderer requires running this command from Ghostty "
-            "(or tmux inside Ghostty)."
-        )
-
-    title_token = f"whisper-local-capture-{os.getpid()}-{theme}"
-    _set_terminal_title(title_token)
-    # Give the terminal a moment to apply the title before querying windows.
-    time.sleep(0.1)
-    window_id = _front_ghostty_window_id(title_token=None if in_tmux else title_token)
-    capture_env = os.environ.copy()
-    capture_env["WHISPER_LOCAL_TUI_CAPTURE_SECONDS"] = f"{capture_seconds:.2f}"
-    tui_cmd = [
-        bun_path,
-        "run",
-        "src/index.tsx",
-        "--",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(port),
-    ]
-
-    screenshot_cmd = [
-        "sh",
-        "-c",
-        f"sleep {snapshot_delay:.2f}; screencapture -x -o -l {window_id} '{png_path}'",
-    ]
-
-    _clear_capture_target(png_path)
-    server = _start_mock_backend(repo_root=repo_root, theme=theme, port=port)
-    screenshot_proc: subprocess.Popen[str] | None = None
-    try:
-        screenshot_proc = subprocess.Popen(screenshot_cmd, cwd=repo_root, env=capture_env)
-        completed = subprocess.run(
-            tui_cmd,
-            cwd=repo_root / "tui",
-            env=capture_env,
-            check=False,
-        )
-        # Capture mode exits with SIGKILL by design so the terminal reset sequence
-        # does not overwrite the frame being screenshotted.
-        if completed.returncode not in (0, -9):
-            raise RuntimeError(
-                f"TUI process failed during Ghostty capture (exit={completed.returncode})"
-            )
-        if screenshot_proc.wait(timeout=max(6.0, capture_seconds + 2.0)) != 0:
-            raise RuntimeError("Failed to capture Ghostty window screenshot.")
-    finally:
-        _stop_process(screenshot_proc)
-        _stop_process(server)
-
-    if not png_path.exists():
-        raise RuntimeError(f"Ghostty screenshot not created: {png_path}")
-
-
-def svg_to_png(
-    svg_path: Path,
-    png_path: Path,
-    font_family: str,
-    font_size_px: int,
-    preserve_text_length: bool,
-) -> None:
-    import cairosvg
-
-    svg_text = svg_path.read_text(encoding="utf-8", errors="ignore")
-    svg_text = re.sub(
-        r"font-family:\s*'[^']*',\s*monospace;",
-        f"font-family: {font_family};",
-        svg_text,
-    )
-    svg_text = re.sub(
-        r"font-size:\s*\d+(?:\.\d+)?px;",
-        f"font-size: {font_size_px}px;",
-        svg_text,
-    )
-    if not preserve_text_length:
-        # textLength can force awkward inter-character spacing when font metrics
-        # differ from termtosvg's default assumptions.
-        svg_text = re.sub(r'\stextLength="[^"]+"', "", svg_text)
-    cairosvg.svg2png(bytestring=svg_text.encode("utf-8"), write_to=str(png_path))
-
-
-def compose_stacked_image(png_paths: list[Path], output_path: Path) -> None:
-    cards = [Image.open(path).convert("RGBA") for path in png_paths]
-    try:
-        resized = []
-        target_width = min(card.width for card in cards)
-        for card in cards:
-            if card.width == target_width:
-                resized.append(card)
-                continue
-            target_height = int(card.height * (target_width / card.width))
-            resized.append(card.resize((target_width, target_height), Image.Resampling.LANCZOS))
-
-        x_step = 56
-        y_step = 40
-        shadow_blur = 12
-        border = 2
-
-        max_w = max(img.width for img in resized)
-        max_h = max(img.height for img in resized)
-        canvas_w = max_w + x_step * (len(resized) - 1) + 80
-        canvas_h = max_h + y_step * (len(resized) - 1) + 80
-
-        canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-
-        for i, card in enumerate(resized):
-            x = 30 + i * x_step
-            y = 24 + i * y_step
-
-            framed = Image.new("RGBA", (card.width + border * 2, card.height + border * 2), (16, 16, 16, 255))
-            framed.paste(card, (border, border))
-
-            shadow = Image.new("RGBA", framed.size, (0, 0, 0, 150)).filter(ImageFilter.GaussianBlur(shadow_blur))
-            canvas.alpha_composite(shadow, dest=(x + 8, y + 10))
-            canvas.alpha_composite(framed, dest=(x, y))
-
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        canvas.save(output_path)
-    finally:
-        for card in cards:
-            card.close()
-
-
 def _svg_dimensions(svg_text: str) -> tuple[int, int]:
     root = ET.fromstring(svg_text)
     view_box = root.attrib.get("viewBox", "")
@@ -484,6 +256,115 @@ def _extract_svg_canvas_color(svg_text: str) -> str:
     if match:
         return match.group(1)
     return "#0c0c0c"
+
+
+def _download_font(dest: Path) -> Path:
+    """Download JetBrainsMono Nerd Font if not already cached."""
+    font_path = dest / "JetBrainsMonoNerdFontMono-Regular.ttf"
+    if font_path.exists():
+        return font_path
+    dest.mkdir(parents=True, exist_ok=True)
+    import urllib.request
+    urllib.request.urlretrieve(FONT_WOFF2_URL, str(font_path))
+    return font_path
+
+
+def render_svg_to_png(svg_path: Path, png_path: Path, png_scale: float, repo_root: Path) -> None:
+    """Render SVG to PNG using Playwright headless Chromium for browser-accurate output."""
+    scale = max(1.0, png_scale)
+    png_path.parent.mkdir(parents=True, exist_ok=True)
+
+    svg_text = svg_path.read_text(encoding="utf-8", errors="ignore")
+    width, height = _svg_dimensions(svg_text)
+
+    # Patch font-family in the SVG to use JetBrains Mono Nerd Font.
+    svg_text = re.sub(
+        r"font-family:\s*'[^']*',\s*monospace;",
+        f"font-family: {FONT_FAMILY};",
+        svg_text,
+    )
+
+    # Download font for environments where it's not system-installed (CI).
+    font_cache = repo_root / ".font-cache"
+    font_path = _download_font(font_cache)
+
+    # Create an HTML wrapper with @font-face so Chromium loads the font
+    # regardless of whether it's installed on the system.
+    html_content = f"""\
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+@font-face {{
+  font-family: 'JetBrainsMono Nerd Font Mono';
+  src: url('file://{font_path.resolve().as_posix()}') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}}
+@font-face {{
+  font-family: 'JetBrainsMono Nerd Font';
+  src: url('file://{font_path.resolve().as_posix()}') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}}
+@font-face {{
+  font-family: 'JetBrains Mono';
+  src: url('file://{font_path.resolve().as_posix()}') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}}
+body {{ margin: 0; padding: 0; }}
+</style>
+</head>
+<body>
+{svg_text}
+</body>
+</html>
+"""
+    tmp_html = repo_root / f".tmp-playwright-render-{os.getpid()}.html"
+    tmp_html.write_text(html_content, encoding="utf-8")
+
+    js_script = f"""\
+const {{ chromium }} = require('playwright');
+(async () => {{
+  const browser = await chromium.launch();
+  const page = await browser.newPage({{
+    viewport: {{ width: {width}, height: {height} }},
+    deviceScaleFactor: {scale},
+  }});
+  await page.goto('file://{tmp_html.resolve().as_posix()}');
+  // Wait for font to load and render to settle.
+  await page.waitForTimeout(1000);
+  const svg = await page.$('svg');
+  if (svg) {{
+    await svg.screenshot({{ path: '{png_path.resolve().as_posix()}', omitBackground: true }});
+  }} else {{
+    await page.screenshot({{ path: '{png_path.resolve().as_posix()}', fullPage: true, omitBackground: true }});
+  }}
+  await browser.close();
+}})();
+"""
+    tmp_js = repo_root / f".tmp-playwright-render-{os.getpid()}.cjs"
+    tmp_js.write_text(js_script, encoding="utf-8")
+
+    try:
+        node = shutil.which("node")
+        if not node:
+            raise RuntimeError("node not found on PATH.")
+        result = subprocess.run(
+            [node, str(tmp_js)],
+            cwd=repo_root,
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Playwright render failed (exit={result.returncode}).\n{result.stderr[:1000]}"
+            )
+        if not png_path.exists():
+            raise RuntimeError(f"Playwright did not produce output file: {png_path}")
+    finally:
+        tmp_js.unlink(missing_ok=True)
+        tmp_html.unlink(missing_ok=True)
 
 
 def compose_stacked_svg(theme_svgs: list[tuple[str, Path]], output_path: Path) -> None:
@@ -544,11 +425,7 @@ def update_readme(readme_path: Path, image_path: Path) -> None:
     rel_image = image_path.as_posix()
     block = (
         f"{README_START}\n"
-        f"![whisper.local TUI home across themes]({rel_image})\n\n"
-        "Demo transcriptions shown:\n"
-        f"- `{TRANSCRIPT_LINES[0]}`\n"
-        f"- `{TRANSCRIPT_LINES[1]}`\n"
-        f"- `{TRANSCRIPT_LINES[2]}`\n"
+        f"![whisper.local TUI home across themes]({rel_image})\n"
         f"{README_END}"
     )
 
@@ -580,45 +457,34 @@ def main() -> int:
     )
     parser.add_argument("--readme", default="README.md", help="README path")
     parser.add_argument(
-        "--renderer",
-        choices=[RENDERER_AUTO, RENDERER_GHOSTTY, RENDERER_TERMTOSVG],
-        default=os.environ.get("WHISPER_LOCAL_SHOWCASE_RENDERER", RENDERER_AUTO),
-        help="Capture renderer: auto, ghostty (real window screenshot), or termtosvg",
-    )
-    parser.add_argument(
         "--capture-seconds",
         default=float(os.environ.get("WHISPER_LOCAL_SHOWCASE_CAPTURE_SECONDS", str(DEFAULT_CAPTURE_SECONDS))),
         type=float,
         help="Seconds to keep TUI alive during each capture",
     )
     parser.add_argument(
-        "--snapshot-delay",
-        default=float(os.environ.get("WHISPER_LOCAL_SHOWCASE_SNAPSHOT_DELAY", str(DEFAULT_SNAPSHOT_DELAY))),
+        "--output-format",
+        choices=[OUTPUT_SVG, OUTPUT_PNG],
+        default=os.environ.get("WHISPER_LOCAL_SHOWCASE_OUTPUT_FORMAT", OUTPUT_PNG),
+        help=(
+            "Final showcase file format. "
+            "'png' avoids GitHub SVG renderer differences; "
+            "'svg' preserves vector output."
+        ),
+    )
+    parser.add_argument(
+        "--png-scale",
+        default=float(os.environ.get("WHISPER_LOCAL_SHOWCASE_PNG_SCALE", str(DEFAULT_PNG_SCALE))),
         type=float,
-        help="Delay before taking Ghostty window screenshot",
-    )
-    parser.add_argument(
-        "--font-family",
-        default=os.environ.get("WHISPER_LOCAL_SHOWCASE_FONT_FAMILY", DEFAULT_FONT_FAMILY),
-        help="CSS font-family used when rasterizing captured SVGs",
-    )
-    parser.add_argument(
-        "--font-size",
-        default=os.environ.get("WHISPER_LOCAL_SHOWCASE_FONT_SIZE", str(DEFAULT_FONT_SIZE_PX)),
-        type=int,
-        help="Font size in px used when rasterizing captured SVGs",
-    )
-    parser.add_argument(
-        "--preserve-text-length",
-        action="store_true",
-        help="Keep termtosvg textLength attributes (default removes them for cleaner spacing)",
+        help="Rasterization scale for PNG output (higher is sharper, larger file).",
     )
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
     assets_dir = (repo_root / args.assets_dir).resolve()
     readme_path = (repo_root / args.readme).resolve()
-    renderer = _resolve_renderer(args.renderer)
+    output_format = args.output_format
+    png_scale = max(1.0, args.png_scale)
 
     assets_dir.mkdir(parents=True, exist_ok=True)
 
@@ -632,38 +498,22 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="whisper-local-showcase-") as temp_dir:
         capture_dir = Path(temp_dir)
-        theme_pngs: list[Path] = []
         theme_svgs: list[tuple[str, Path]] = []
         for theme in THEMES:
             svg_path = capture_dir / f"home-{theme}.svg"
-            png_path = capture_dir / f"home-{theme}.png"
             attempts = 0
             capture_seconds = max(1.0, args.capture_seconds)
-            snapshot_delay = max(0.8, min(args.snapshot_delay, max(1.2, capture_seconds - 0.6)))
             while True:
                 attempts += 1
                 try:
-                    if renderer == RENDERER_GHOSTTY:
-                        _clear_capture_target(svg_path)
-                        run_capture_ghostty(
-                            repo_root=repo_root,
-                            theme=theme,
-                            port=_pick_port(),
-                            png_path=png_path,
-                            capture_seconds=capture_seconds,
-                            snapshot_delay=snapshot_delay,
-                        )
-                        theme_pngs.append(png_path)
-                    else:
-                        _clear_capture_target(png_path)
-                        rendered_svg = run_capture_termtosvg(
-                            repo_root=repo_root,
-                            theme=theme,
-                            port=_pick_port(),
-                            svg_path=svg_path,
-                            capture_seconds=capture_seconds,
-                        )
-                        theme_svgs.append((theme, rendered_svg))
+                    rendered_svg = run_capture_termtosvg(
+                        repo_root=repo_root,
+                        theme=theme,
+                        port=_pick_port(),
+                        svg_path=svg_path,
+                        capture_seconds=capture_seconds,
+                    )
+                    theme_svgs.append((theme, rendered_svg))
                     break
                 except RuntimeError as exc:
                     message = str(exc)
@@ -672,26 +522,32 @@ def main() -> int:
                     if (
                         "EADDRINUSE" in message
                         or "Blank capture frame detected" in message
-                        or "Failed to capture Ghostty window screenshot" in message
                     ):
                         capture_seconds = min(capture_seconds + 1.0, 10.0)
-                        snapshot_delay = min(snapshot_delay + 0.5, max(1.2, capture_seconds - 0.3))
                         continue
                     raise
 
-        if renderer == RENDERER_TERMTOSVG and theme_svgs:
+        stacked_svg = capture_dir / "tui-home-themes.svg"
+        _clear_capture_target(stacked_svg)
+        compose_stacked_svg(theme_svgs, stacked_svg)
+
+        if output_format == OUTPUT_SVG:
             _clear_capture_target(final_png)
+            _clear_capture_target(final_svg)
+            shutil.copy2(stacked_svg, final_svg)
             stacked = final_svg
-            compose_stacked_svg(theme_svgs, stacked)
         else:
             _clear_capture_target(final_svg)
+            _clear_capture_target(final_png)
+            render_svg_to_png(stacked_svg, final_png, png_scale=png_scale, repo_root=repo_root)
             stacked = final_png
-            compose_stacked_image(theme_pngs, stacked)
 
     update_readme(readme_path, stacked.relative_to(repo_root))
 
     print("Generated:")
     print(f"- {stacked.relative_to(repo_root)}")
+    if output_format == OUTPUT_PNG:
+        print(f"PNG rasterizer: playwright (scale={png_scale:.2f}x)")
     print(f"Updated README: {readme_path.relative_to(repo_root)}")
     return 0
 

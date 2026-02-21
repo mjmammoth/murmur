@@ -7,12 +7,7 @@
 > Literally only this disclaimer is human-written.
 
 <!-- tui-showcase:start -->
-![whisper.local TUI home across themes](docs/assets/tui-home-themes.svg)
-
-Demo transcriptions shown:
-- `Create a modern and clean diagram from the below description.`
-- `In GCP, I am trying to get an App Engine deployment of my static docs hosted with a custom domain.`
-- `Check the objective infrastructure repo; I am trying to build to Cloud Run and route traffic safely.`
+![whisper.local TUI home across themes](docs/assets/tui-home-themes.png)
 <!-- tui-showcase:end -->
 
 ## How it works

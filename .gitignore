@@ -31,3 +31,5 @@ node_modules/
 # Generated TUI showcase intermediates
 docs/readme-assets/
 docs/assets/home-*
+.font-cache/
+.tmp-playwright-render-*

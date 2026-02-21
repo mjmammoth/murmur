@@ -60,27 +60,27 @@ const transcripts: DemoTranscript[] = [
   },
   {
     timestamp: "08:26:20",
-    text: "In GCP, I am trying to get an App Engine deployment of my static docs hosted with a custom domain.",
+    text: "How do I deploy my static docs using a custom domain via App Engine in GCP.",
   },
   {
     timestamp: "06:30:17",
-    text: "I added records one by one in Cloud DNS and now I need to confirm the exact mapping strategy.",
+    text: "Which DNS records do I need to add?",
   },
   {
     timestamp: "09:18:15",
-    text: "Now the domains are certified, but I still need a stable service-level setup for production.",
+    text: "Now the domains are certified, but both are pointing to the same App Engine service, how do I correctly route a custom domain to the non-default service?",
   },
   {
     timestamp: "09:20:06",
-    text: "Check the objective infrastructure repo; I am trying to build to Cloud Run and route traffic safely.",
+    text: "Check the current repo, what does it achieve?",
   },
   {
     timestamp: "09:20:36",
-    text: "This specific App Engine service is not the default one and that changes the DNS requirements.",
+    text: "Generate a development how-to document that guides beginner developers.",
   },
   {
     timestamp: "09:25:14",
-    text: "I already have two A records and two AAAA records configured for the apex and IPv6.",
+    text: "Invest 100 dollars and grow it to 1 million. Make no mistakes.",
   },
 ];
 

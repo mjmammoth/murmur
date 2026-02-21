@@ -29,7 +29,7 @@ repos:
         language: system
         pass_filenames: false
       - id: tui-showcase-refresh
-        name: TUI showcase refresh (Ghostty)
+        name: TUI showcase refresh
         entry: scripts/precommit_tui_showcase.sh
         language: system
         pass_filenames: false
