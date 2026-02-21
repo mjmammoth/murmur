@@ -52,5 +52,15 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 
+const captureSeconds = Number.parseFloat(
+  process.env.WHISPER_LOCAL_TUI_CAPTURE_SECONDS ?? "",
+);
+if (Number.isFinite(captureSeconds) && captureSeconds > 0) {
+  setTimeout(() => {
+    restoreTerminalState();
+    process.exit(0);
+  }, captureSeconds * 1000);
+}
+
 // Render the app
 render(() => <App host={host} port={port} />);

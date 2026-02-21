@@ -123,12 +123,7 @@ The app reads overrides from:
 ## TUI key bindings
 Key bindings are visualised in the TUI by highlighted letters in function words.
 
-- `c`: copy latest transcript
 - `enter`: copy selected transcript
-- `a`: toggle auto-copy
-- `p`: toggle auto-paste
-- `n`: toggle noise suppression
-- `v`: toggle VAD
 - `o`: toggle hotkey mode (ptt/toggle)
 - `h`: hotkey modal
 - `m`: model manager

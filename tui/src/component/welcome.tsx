@@ -128,16 +128,16 @@ function UIGuideStep(): JSX.Element {
         <box flexDirection="row" gap={2}>
           <box flexDirection="column" gap={0}>
             <text>
-              <span style={{ fg: colors().accent, bold: true }}>c</span>
-              <span style={{ fg: colors().textMuted }}> toggle auto copy to clipboard</span>
-            </text>
-            <text>
-              <span style={{ fg: colors().accent, bold: true }}>p</span>
-              <span style={{ fg: colors().textMuted }}> toggle auto paste</span>
-            </text>
-            <text>
               <span style={{ fg: colors().accent, bold: true }}>m</span>
               <span style={{ fg: colors().textMuted }}> model manager</span>
+            </text>
+            <text>
+              <span style={{ fg: colors().accent, bold: true }}>q</span>
+              <span style={{ fg: colors().textMuted }}> exit app</span>
+            </text>
+            <text>
+              <span style={{ fg: colors().accent, bold: true }}>?</span>
+              <span style={{ fg: colors().textMuted }}> open help</span>
             </text>
           </box>
           <box flexDirection="column" gap={0}>

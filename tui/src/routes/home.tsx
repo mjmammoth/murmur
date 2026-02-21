@@ -229,15 +229,9 @@ export function Home(): JSX.Element {
       case "q":
         requestExit();
         break;
-      case "c":
-        config.toggleAutoCopy();
-        break;
       case "return":
       case "enter":
         handleCopySelected();
-        break;
-      case "p":
-        config.toggleAutoPaste();
         break;
       case "o":
         config.toggleHotkeyMode();

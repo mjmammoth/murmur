@@ -9,14 +9,14 @@ device = "cpu"
 compute_type = "int8"
 
 [hotkey]
-mode = "ptt"
+mode = "toggle"
 key = "f3"
 
 [audio]
 sample_rate = 48000
 
 [audio.noise_suppression]
-enabled = true
+enabled = false
 level = 2
 
 [vad]

@@ -153,32 +153,11 @@ describe("Home", () => {
       expect(shouldQuit).toBe(true);
     });
 
-    test("should handle c for copy latest", () => {
-      const keyName = "c";
-      const shouldCopy = keyName === "c";
-
-      expect(shouldCopy).toBe(true);
-    });
-
     test("should handle enter for copy selected", () => {
       const keyName = "return";
       const shouldCopySelected = keyName === "return" || keyName === "enter";
 
       expect(shouldCopySelected).toBe(true);
-    });
-
-    test("should handle a for auto copy toggle", () => {
-      const keyName = "a";
-      const shouldToggleAutoCopy = keyName === "a";
-
-      expect(shouldToggleAutoCopy).toBe(true);
-    });
-
-    test("should handle p for auto paste toggle", () => {
-      const keyName = "p";
-      const shouldToggleAutoPaste = keyName === "p";
-
-      expect(shouldToggleAutoPaste).toBe(true);
     });
 
     test("should handle n for noise toggle", () => {
