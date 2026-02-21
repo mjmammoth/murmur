@@ -50,13 +50,12 @@ export function Header(props: HeaderProps): JSX.Element {
             }}
           </For>
         </box>
-
         <box
           justifyContent="flex-end"
           flexDirection="row"
           alignItems="center"
           flexShrink={0}
-          onMouseUp={() => props.onQuitClick?.()}
+          onMouseUp={props.onQuitClick}
         >
           <box backgroundColor={colors().error} paddingX={1}>
             <text>
