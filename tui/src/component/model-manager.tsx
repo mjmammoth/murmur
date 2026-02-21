@@ -223,6 +223,7 @@ export function ModelManager(): JSX.Element {
           confirmPendingSwitchDownload();
           return;
       }
+      return;
     }
 
     if (removeHotkeys.includes(keyName as (typeof removeHotkeys)[number])) {
