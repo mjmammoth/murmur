@@ -174,13 +174,6 @@ describe("Home", () => {
       expect(shouldToggleVad).toBe(true);
     });
 
-    test("should handle o for hotkey mode toggle", () => {
-      const keyName = "o";
-      const shouldToggleMode = keyName === "o";
-
-      expect(shouldToggleMode).toBe(true);
-    });
-
     test("should handle m for model manager", () => {
       const keyName = "m";
       const shouldOpenModels = keyName === "m";

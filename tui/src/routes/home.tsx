@@ -3,7 +3,6 @@ import { useKeyHandler, usePaste, useRenderer, useTerminalDimensions } from "@op
 import { BorderChars, RGBA, type KeyEvent, type MouseEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
-import { useConfig } from "../context/config";
 import { useTranscriber } from "../context/transcriber";
 import { useDialog } from "../context/dialog";
 import { useToast } from "../context/toast";
@@ -39,7 +38,6 @@ export function Home(): JSX.Element {
   const renderer = useRenderer();
   const terminal = useTerminalDimensions();
   const backend = useBackend();
-  const config = useConfig();
   const transcriber = useTranscriber();
   const dialog = useDialog();
   const toast = useToast();
@@ -233,9 +231,6 @@ export function Home(): JSX.Element {
       case "enter":
         handleCopySelected();
         break;
-      case "o":
-        config.toggleHotkeyMode();
-        break;
       case "m":
         dialog.openDialog("model-manager");
         break;
@@ -344,7 +339,6 @@ export function Home(): JSX.Element {
               onStatusClick={toggleRecordingFromStatusClick}
               onModelClick={() => dialog.openDialog("model-manager")}
               onHotkeyClick={() => dialog.openDialog("hotkey")}
-              onModeClick={config.toggleHotkeyMode}
               onQuitClick={requestExit}
               onLogsClick={toggleLogsPanel}
               onSettingsClick={() => dialog.openDialog("settings")}

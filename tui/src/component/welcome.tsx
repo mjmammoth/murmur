@@ -159,6 +159,28 @@ function UIGuideStep(): JSX.Element {
 
       <box flexDirection="column" gap={0} marginTop={1}>
         <text>
+          <span style={{ fg: colors().primary, bold: true }}>Default behavior:</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().textMuted }}>Auto copy: </span>
+          <span style={{ fg: colors().accent }}>on</span>
+          <span style={{ fg: colors().textMuted }}>, </span>
+          <span style={{ fg: colors().textMuted }}>Auto paste: </span>
+          <span style={{ fg: colors().accent }}>on</span>
+          <span style={{ fg: colors().textMuted }}>, </span>
+          <span style={{ fg: colors().textMuted }}>Auto revert clipboard: </span>
+          <span style={{ fg: colors().accent }}>on</span>
+          <span style={{ fg: colors().textMuted }}>.</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().textMuted }}>Hotkey mode default: </span>
+          <span style={{ fg: colors().accent }}>push-to-talk</span>
+          <span style={{ fg: colors().textMuted }}> (hold to record).</span>
+        </text>
+      </box>
+
+      <box flexDirection="column" gap={0} marginTop={1}>
+        <text>
           <span style={{ fg: colors().primary, bold: true }}>Global hotkey:</span>
         </text>
         <Paragraph>A system-wide hotkey (default: F3) lets you start/stop</Paragraph>
