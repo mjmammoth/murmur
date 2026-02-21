@@ -170,7 +170,7 @@ const server = Bun.serve({
   port,
   fetch(request, serverRef) {
     if (serverRef.upgrade(request)) {
-      return;
+      return undefined;
     }
     return new Response("whisper.local demo backend", { status: 200 });
   },
