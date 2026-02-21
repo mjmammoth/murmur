@@ -25,6 +25,16 @@ class ModelConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ModelConfig:
+        """
+        Construct a ModelConfig from a dictionary of configuration values.
+        
+        Parameters:
+            data (dict[str, Any]): Mapping containing optional keys: "name", "runtime", "device",
+                "compute_type", "path", and "language". Missing keys are replaced with defaults.
+        
+        Returns:
+            ModelConfig: Instance populated from `data`. The `runtime` value is normalized before assignment.
+        """
         return cls(
             name=data.get("name", "small"),
             runtime=normalize_runtime_name(str(data.get("runtime", "faster-whisper"))),
@@ -146,6 +156,12 @@ class AppConfig:
     auto_revert_clipboard: bool = True
 
     def to_dict(self) -> dict[str, Any]:
+        """
+        Produce a dictionary representation of the AppConfig with file paths and model fields normalized for serialization.
+        
+        Returns:
+            dict: Configuration data where output.file.path is a string and model.runtime, model.path, and model.language reflect the AppConfig's current values.
+        """
         data = asdict(self)
         data["output"]["file"]["path"] = str(self.output.file.path)
         data["model"]["runtime"] = self.model.runtime
@@ -158,7 +174,12 @@ SUPPORTED_RUNTIMES = ("faster-whisper", "whisper.cpp")
 
 
 def normalize_runtime_name(name: str) -> str:
-    """Normalize a runtime name to a canonical form."""
+    """
+    Normalize a runtime identifier to a canonical runtime name.
+    
+    Returns:
+        The canonical runtime name: returns the matching value from SUPPORTED_RUNTIMES when provided, `'whisper.cpp'` for the inputs `'whispercpp'`, `'whisper_cpp'`, or `'whisper-cpp'`, and `'faster-whisper'` for any unknown input.
+    """
     normalized = (name or "").strip().lower()
     if normalized in SUPPORTED_RUNTIMES:
         return normalized
@@ -188,6 +209,15 @@ def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]
 
 
 def load_config(path: Path | None = None) -> AppConfig:
+    """
+    Load application configuration by merging built-in defaults with an optional user TOML file.
+    
+    Parameters:
+        path (Path | None): Optional path to a TOML configuration file. If None, the default config path is used. If the file does not exist, only built-in defaults are used.
+    
+    Returns:
+        AppConfig: The merged application configuration. The returned object has user values overriding defaults where provided, and file paths (model.path and output.file.path) expanded to user paths.
+    """
     default_data = _load_default_config()
     config_path = path or default_config_path()
     if config_path.exists():

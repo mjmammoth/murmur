@@ -1,6 +1,11 @@
 /**
- * Convert hex colors to RGB.
- * Supports #rgb, #rrggbb, and #rrggbbaa (alpha ignored).
+ * Convert a hex color string to an RGB triple.
+ *
+ * Supports `#rgb`, `#rrggbb`, and `#rrggbbaa` (alpha component is ignored).
+ *
+ * @param hex - The input hex color string (must start with `#`)
+ * @returns A tuple `[r, g, b]` where each component is an integer in the range 0–255
+ * @throws Error if the string does not start with `#`, if it isn't a supported length after `#` normalization, or if it contains non-hex characters
  */
 export function hexToRgb(hex: string): [number, number, number] {
   if (!hex.startsWith("#")) {
@@ -29,10 +34,26 @@ export function hexToRgb(hex: string): [number, number, number] {
   return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
 }
 
+/**
+ * Convert RGB component values to a 6-digit hex color string with a leading `#`.
+ *
+ * @param r - Red component (0–255)
+ * @param g - Green component (0–255)
+ * @param b - Blue component (0–255)
+ * @returns A string in the format `#rrggbb`
+ */
 export function rgbToHex(r: number, g: number, b: number): string {
   return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
 }
 
+/**
+ * Linearly interpolates between two hex color values.
+ *
+ * @param from - Starting color as a hex string (`#rgb`, `#rrggbb`, or `#rrggbbaa`)
+ * @param to - Ending color as a hex string (`#rgb`, `#rrggbb`, or `#rrggbbaa`)
+ * @param t - Interpolation factor in the range 0 to 1 where 0 yields `from` and 1 yields `to`
+ * @returns A hex color string in the format `#rrggbb` representing the interpolated color
+ */
 export function lerpColor(from: string, to: string, t: number): string {
   const [r1, g1, b1] = hexToRgb(from);
   const [r2, g2, b2] = hexToRgb(to);

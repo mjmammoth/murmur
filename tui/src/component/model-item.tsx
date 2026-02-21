@@ -25,6 +25,12 @@ export interface ModelItemProps {
   onClick?: () => void;
 }
 
+/**
+ * Render a single model row with name, aligned size, and runtime/status token.
+ *
+ * @param props - Props for the model row (`ModelItemProps`), including the model info, selection state, and optional click handler.
+ * @returns A JSX element representing the model row with columns for model name, size, and runtime status, including visual selection and separator styling.
+ */
 export function ModelItem(props: ModelItemProps): JSX.Element {
   const { colors, theme } = useTheme();
   const backend = useBackend();

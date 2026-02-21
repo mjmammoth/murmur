@@ -19,6 +19,15 @@ function isPrintableKey(key: KeyEvent): boolean {
   return key.name.length === 1;
 }
 
+/**
+ * Renders the settings edit modal UI for editing a single configuration value.
+ *
+ * The modal displays the current draft value, accepts keyboard and mouse input to edit it,
+ * validates and applies changes to the configuration, and closes or navigates back to the
+ * settings list according to the dialog data.
+ *
+ * @returns The JSX element for the settings edit modal
+ */
 export function SettingsEditModal(): JSX.Element {
   const { colors } = useTheme();
   const dialog = useDialog();

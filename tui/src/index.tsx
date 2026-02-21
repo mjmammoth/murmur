@@ -4,6 +4,11 @@ import { handleSigint } from "./util/interrupt";
 
 let terminalRestored = false;
 
+/**
+ * Restore the terminal to a normal state for shutdown.
+ *
+ * This function is idempotent and does nothing after the first call. It attempts to disable stdin raw mode and reset terminal modes (mouse tracking, cursor visibility, and text style); any errors encountered during these attempts are ignored.
+ */
 function restoreTerminalState() {
   if (terminalRestored) return;
   terminalRestored = true;

@@ -99,9 +99,9 @@ export function Home(): JSX.Element {
   });
 
   /**
-   * Prompt for confirmation when a model is actively being pulled, otherwise exit the application.
+   * Request application exit, prompting for confirmation if a model download is in progress.
    *
-   * If a model pull operation is in progress and the exit-confirm dialog is not already open, opens the exit-confirm dialog for that model; in all other cases, exits the app immediately.
+   * If a model download is active and the exit-confirm dialog is not already open, opens the exit-confirm dialog with the model and runtime information; otherwise exits the application immediately.
    */
   function requestExit() {
     const activeOp = backend.activeModelOp();
@@ -127,6 +127,11 @@ export function Home(): JSX.Element {
     });
   });
 
+  /**
+   * Toggles the visibility of the logs panel and updates the active pane.
+   *
+   * If enabling the logs panel when the UI width is insufficient, shows a toast indicating the UI is too narrow for logs. When logs are visible and the UI can show them, sets the active pane to `"logs"`, otherwise sets it to `"main"`.
+   */
   function toggleLogsPanel() {
     setShowLogs((prev) => {
       const next = !prev;
@@ -138,6 +143,13 @@ export function Home(): JSX.Element {
     });
   }
 
+  /**
+   * Toggle recording based on the transcriber's current status.
+   *
+   * Sends a `start_recording` or `stop_recording` command to the backend when allowed;
+   * shows a descriptive toast if recording cannot be started or stopped due to the current status
+   * (e.g., connecting, transcribing, downloading, or error). Does nothing when a modal dialog is open.
+   */
   function toggleRecordingFromStatusClick() {
     if (dialog.isOpen()) return;
 
@@ -292,12 +304,28 @@ export function Home(): JSX.Element {
     return RGBA.fromValues(overlay.r, overlay.g, overlay.b, colors().overlayAlpha);
   };
 
+  /**
+   * Dismisses the currently open dialog when the backdrop is left-clicked.
+   *
+   * Ignores non-left clicks; for a left-button click it prevents the default mouse behavior
+   * and requests the dialog to be dismissed.
+   *
+   * @param event - The mouse event from the backdrop; only left-button clicks trigger dismissal.
+   */
   function dismissDialogFromBackdrop(event: MouseEvent) {
     if (event.button !== 0) return;
     event.preventDefault();
     dialog.requestDismiss();
   }
 
+  /**
+   * Prevents mouse events inside a modal from bubbling to parent elements.
+   *
+   * Stops propagation of the provided mouse event so clicks within modal content
+   * do not trigger backdrop handlers (for example, dialog dismissal).
+   *
+   * @param event - The mouse event to stop from propagating
+   */
   function stopModalMouseBubble(event: MouseEvent) {
     event.stopPropagation();
   }

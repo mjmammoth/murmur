@@ -55,11 +55,25 @@ function withFallback(value: string | number | null | undefined, fallback = "-")
   return text.length > 0 ? text : fallback;
 }
 
+/**
+ * Determines whether a key event represents a single printable character with no modifier keys pressed.
+ *
+ * @param key - The key event to evaluate (inspected for modifier flags and the key name).
+ * @returns `true` if the event corresponds to a single-character printable key and no Ctrl/Meta/Option modifiers are active, `false` otherwise.
+ */
 function isPrintableKey(key: KeyEvent): boolean {
   if (key.ctrl || key.meta || key.option) return false;
   return key.name.length === 1;
 }
 
+/**
+ * Render a compact legend item consisting of a highlighted key box and an explanatory label.
+ *
+ * @param keys - Text shown inside the highlighted key box (e.g., "Esc", "/").
+ * @param label - Explanatory text displayed to the right of the key box.
+ * @param danger - When true use the error color for the key box instead of the accent color.
+ * @returns A JSX element containing a colored key box with `keys` and a muted `label`.
+ */
 function LegendHint(props: { keys: string; label: string; danger?: boolean }): JSX.Element {
   const { colors } = useTheme();
 
@@ -77,6 +91,15 @@ function LegendHint(props: { keys: string; label: string; danger?: boolean }): J
   );
 }
 
+/**
+ * Render the Settings dialog UI with sectioned items, filtering, keyboard navigation, and per-item actions.
+ *
+ * The component displays grouped setting rows (toggles, selectors, editors, read-only values), supports typing-based filtering, arrow/vim navigation,
+ * activation/toggling of interactive items, and automatic scrolling to keep the selected item visible. It integrates with app contexts for theme,
+ * configuration, backend actions, and dialogs (opening selectors/editors and returning to settings).
+ *
+ * @returns A JSX.Element representing the settings dialog UI
+ */
 export function Settings(): JSX.Element {
   const { colors, theme } = useTheme();
   const config = useConfig();

@@ -79,6 +79,13 @@ function isPrintableKey(key: KeyEvent): boolean {
   return key.name.length === 1;
 }
 
+/**
+ * Render a modal that lets the user choose a configuration option (model runtime, device, compute type, model language, audio sample rate, or VAD aggressiveness).
+ *
+ * The modal displays context-sensitive option lists, supports filtering when picking a language, keyboard navigation (arrow/j/k, enter, esc/q), mouse selection, and will apply the chosen option by sending commands to the backend or updating the config before closing or navigating back to the originating dialog.
+ *
+ * @returns A JSX element representing the settings selection modal
+ */
 export function SettingsSelectModal(): JSX.Element {
   const { colors } = useTheme();
   const dialog = useDialog();

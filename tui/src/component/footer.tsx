@@ -31,6 +31,16 @@ interface FooterProps {
   onHelpClick?: () => void;
 }
 
+/**
+ * Render a word with a highlighted key character for a keyboard hint.
+ *
+ * Displays `word` with the first occurrence of `keyChar` highlighted (bold and using the theme's secondary color) and the rest of the text muted. Calls `onClick` when the hint is clicked.
+ *
+ * @param props.keyChar - The character to highlight within `word`.
+ * @param props.word - The word to render; the first case-insensitive match of `keyChar` will be highlighted.
+ * @param props.onClick - Optional click handler invoked on mouse up.
+ * @returns A JSX element containing the rendered hint with the highlighted character.
+ */
 function KeyHint(props: KeyHintProps): JSX.Element {
   const { colors } = useTheme();
   const idx = Math.max(0, props.word.toLowerCase().indexOf(props.keyChar.toLowerCase()));
@@ -91,6 +101,22 @@ function truncateLabel(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 3)}...`;
 }
 
+/**
+ * Render the application footer bar showing current transcriber status, model and hotkey hints, and action shortcuts.
+ *
+ * The footer adapts its layout to the available width (compact vs. normal) and highlights relevant characters for keyboard hints.
+ *
+ * @param props - Component properties.
+ * @param props.availableWidth - Optional override for the available width used to compute responsive layout; falls back to terminal width when omitted.
+ * @param props.onStatusClick - Optional handler invoked when the status area is clicked.
+ * @param props.onModelClick - Optional handler invoked when the model hint is clicked.
+ * @param props.onHotkeyClick - Optional handler invoked when the hotkey hint is clicked.
+ * @param props.onLogsClick - Optional handler invoked when the logs hint is clicked.
+ * @param props.onSettingsClick - Optional handler invoked when the settings hint is clicked.
+ * @param props.onThemeClick - Optional handler invoked when the theme hint is clicked.
+ * @param props.onHelpClick - Optional handler invoked when the help hint is clicked.
+ * @returns The footer JSX element.
+ */
 export function Footer(props: FooterProps): JSX.Element {
   const COMPACT_FOOTER_THRESHOLD = 118;
   const RIGHT_COMPACT_HINT_ROW_WIDTH = Math.max(

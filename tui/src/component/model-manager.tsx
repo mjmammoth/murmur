@@ -19,6 +19,14 @@ import { useSpinnerFrame } from "./spinner";
 import type { RuntimeName, ModelManagerDialogData } from "../types";
 import { removeHotkeys } from "./model-manager-config";
 
+/**
+ * Renders a horizontal command hint with a colored key badge and accompanying label.
+ *
+ * @param keys - The shortcut key text displayed inside the colored badge (e.g., "Enter", "P").
+ * @param label - The descriptive label shown next to the key badge.
+ * @param onClick - Optional callback invoked when the hint is clicked.
+ * @returns A JSX element containing a colored key badge and its label laid out horizontally.
+ */
 function CommandHint(props: { keys: string; label: string; onClick?: () => void }): JSX.Element {
   const { colors } = useTheme();
 
@@ -36,6 +44,11 @@ function CommandHint(props: { keys: string; label: string; onClick?: () => void 
   );
 }
 
+/**
+ * Render the Models manager dialog allowing browsing, downloading, selecting, and removing local models while handling runtime-switch confirmations and keyboard shortcuts.
+ *
+ * @returns The JSX element for the Model Manager dialog
+ */
 export function ModelManager(): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();

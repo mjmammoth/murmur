@@ -49,7 +49,9 @@ export function ExitConfirmModal(): JSX.Element {
   });
 
   /**
-   * Closes the currently open dialog in the dialog context.
+   * Close the active exit-confirm dialog without exiting the application.
+   *
+   * This simply dismisses the currently open dialog in the dialog context.
    */
   function cancelExit() {
     dialog.closeDialog();

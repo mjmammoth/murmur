@@ -21,6 +21,12 @@ class ClipboardSnapshot:
 
 
 def _clipboard_text_snapshot() -> str | None:
+    """
+    Capture a best-effort plain-text snapshot of the system clipboard.
+    
+    Returns:
+        The clipboard text as a string if available, `None` otherwise.
+    """
     try:
         return pyperclip.paste()
     except pyperclip.PyperclipException as exc:
@@ -29,6 +35,14 @@ def _clipboard_text_snapshot() -> str | None:
 
 
 def _clipboard_macos_snapshot() -> list[dict[str, bytes]] | None:
+    """
+    Capture a best-effort snapshot of the macOS system pasteboard, returning raw data for each pasteboard item.
+    
+    If not running on macOS or if pasteboard access (AppKit) is unavailable or fails, returns None. If the pasteboard is accessible but contains no items, returns an empty list.
+    
+    Returns:
+        list[dict[str, bytes]] | None: A list where each element is a mapping from pasteboard type identifier (string) to the raw bytes payload for that item, or None when macOS pasteboard access is unsupported or failed.
+    """
     if sys.platform != "darwin":
         return None
 
@@ -70,6 +84,16 @@ def _clipboard_macos_snapshot() -> list[dict[str, bytes]] | None:
 
 
 def _restore_macos_snapshot(items: list[dict[str, bytes]]) -> bool:
+    """
+    Restore the macOS pasteboard from a list of pasteboard item payloads.
+    
+    Parameters:
+        items (list[dict[str, bytes]]): A list of pasteboard items; each item is a mapping from pasteboard type identifier
+            (e.g., a UTI or pasteboard type string) to its raw bytes payload.
+    
+    Returns:
+        bool: `True` if the pasteboard was successfully written, `False` otherwise (including when not running on macOS).
+    """
     if sys.platform != "darwin":
         return False
 
@@ -100,6 +124,14 @@ def _restore_macos_snapshot(items: list[dict[str, bytes]]) -> bool:
 
 
 def capture_clipboard_snapshot() -> ClipboardSnapshot:
+    """
+    Capture a best-effort snapshot of the current clipboard contents.
+    
+    The returned snapshot includes macOS-specific pasteboard items when available and a plain-text snapshot when obtainable.
+    
+    Returns:
+        snapshot (ClipboardSnapshot): Snapshot with `macos_items` set to a list of dicts mapping pasteboard types to bytes when available (or `None` on non-macOS or failure), and `text` set to the clipboard text string when available (or `None` if unavailable).
+    """
     return ClipboardSnapshot(
         macos_items=_clipboard_macos_snapshot(),
         text=_clipboard_text_snapshot(),
@@ -107,6 +139,17 @@ def capture_clipboard_snapshot() -> ClipboardSnapshot:
 
 
 def restore_clipboard_snapshot(snapshot: ClipboardSnapshot | None) -> bool:
+    """
+    Restore a previously captured clipboard snapshot, preferring macOS pasteboard items when available.
+    
+    If the snapshot contains macOS-specific pasteboard items and they are successfully restored, the function returns `True`. If no macOS items are restored but a text snapshot is present, the function restores the text to the clipboard. A `None` snapshot or any restoration failure results in `False`.
+    
+    Parameters:
+        snapshot (ClipboardSnapshot | None): The snapshot to restore; may contain macOS pasteboard items and/or a plain-text snapshot.
+    
+    Returns:
+        bool: `True` if the clipboard was restored, `False` otherwise.
+    """
     if snapshot is None:
         return False
 
@@ -125,6 +168,12 @@ def restore_clipboard_snapshot(snapshot: ClipboardSnapshot | None) -> bool:
 
 
 def copy_to_clipboard(text: str) -> bool:
+    """
+    Copy the given text into the system clipboard.
+    
+    Returns:
+        True if the text was successfully copied, False if the copy failed (for example, when the clipboard is unavailable).
+    """
     try:
         pyperclip.copy(text)
         return True
@@ -134,10 +183,14 @@ def copy_to_clipboard(text: str) -> bool:
 
 
 def paste_from_clipboard() -> bool:
-    """Paste current clipboard contents into the focused macOS app.
-
-    Requires macOS Accessibility permission (System Settings → Privacy & Security → Accessibility)
-    for the terminal or app running whisper.local to allow osascript to simulate Cmd+V.
+    """
+    Paste current clipboard contents into the focused macOS application.
+    
+    This requires macOS Accessibility permission for the calling terminal or application
+    (System Settings → Privacy & Security → Accessibility) so osascript can simulate Command+V.
+    
+    Returns:
+        `true` if the paste simulation succeeded, `false` otherwise.
     """
     if sys.platform != "darwin":
         logger.warning("Auto paste is currently supported only on macOS")

@@ -19,6 +19,17 @@ export interface DialogContextValue {
 const [DialogProvider, useDialog] = createContextHelper<DialogContextValue>("Dialog");
 export { useDialog };
 
+/**
+ * Provides a Dialog context to its subtree and manages dialog visibility and dismissal behavior.
+ *
+ * The provider exposes the current dialog state and helpers to open and close dialogs, request a dismissal
+ * (which will invoke a registered dismiss handler for the active dialog type if present), and register a
+ * one-shot dismiss handler for a specific dialog type.
+ *
+ * @param props - Component props.
+ * @param props.children - The subtree that will receive the dialog context.
+ * @returns A JSX element that renders the Dialog context provider wrapping `children`.
+ */
 export function DialogContextProvider(props: { children: JSX.Element }): JSX.Element {
   const [currentDialog, setCurrentDialog] = createSignal<DialogState | null>(null);
   const [dismissRegistration, setDismissRegistration] = createSignal<DialogDismissRegistration | null>(null);

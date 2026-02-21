@@ -19,7 +19,21 @@ from whisper_local.config import AppConfig
 
 @pytest.fixture
 def mock_config():
-    """Create a mock AppConfig."""
+    """
+    Provide a Mock AppConfig preconfigured with typical test defaults.
+    
+    The returned Mock mimics an AppConfig instance used by tests and includes preset values:
+    - top-level flags: auto_copy=False, auto_paste=False, auto_revert_clipboard=True
+    - audio: sample_rate=16000, noise_suppression.enabled=False
+    - vad: enabled=False, aggressiveness=2
+    - model: name='tiny', runtime='faster-whisper', device='cpu', compute_type='int8', path=None, language=None
+    - hotkey: key='f3', mode='ptt'
+    - ui: theme='default'
+    - output: clipboard=False, file.enabled=False, file.path=Path('/tmp/output.txt')
+    
+    Returns:
+        Mock: A Mock object spec'd as AppConfig with the above attributes.
+    """
     config = Mock(spec=AppConfig)
     config.auto_copy = False
     config.auto_paste = False
@@ -322,6 +336,17 @@ def test_process_audio_auto_paste_reverts_clipboard_in_order(mock_config):
     snapshot = object()
 
     async def fake_to_thread(func, *args, **kwargs):
+        """
+        Invoke a synchronous callable directly from async code.
+        
+        Parameters:
+            func (callable): The function or callable to invoke.
+            *args: Positional arguments forwarded to `func`.
+            **kwargs: Keyword arguments forwarded to `func`.
+        
+        Returns:
+            The value returned by calling `func(*args, **kwargs)`.
+        """
         return func(*args, **kwargs)
 
     with patch("whisper_local.bridge.capture_clipboard_snapshot") as mock_capture, patch(
@@ -380,6 +405,17 @@ def test_process_audio_auto_paste_without_revert_does_not_restore(mock_config):
     transcriber.runtime_info.return_value = {}
 
     async def fake_to_thread(func, *args, **kwargs):
+        """
+        Invoke a synchronous callable directly from async code.
+        
+        Parameters:
+            func (callable): The function or callable to invoke.
+            *args: Positional arguments forwarded to `func`.
+            **kwargs: Keyword arguments forwarded to `func`.
+        
+        Returns:
+            The value returned by calling `func(*args, **kwargs)`.
+        """
         return func(*args, **kwargs)
 
     with patch("whisper_local.bridge.capture_clipboard_snapshot") as mock_capture, patch(
@@ -425,6 +461,17 @@ def test_process_audio_auto_paste_revert_attempted_when_paste_fails(mock_config)
     transcriber.runtime_info.return_value = {}
 
     async def fake_to_thread(func, *args, **kwargs):
+        """
+        Invoke a synchronous callable directly from async code.
+        
+        Parameters:
+            func (callable): The function or callable to invoke.
+            *args: Positional arguments forwarded to `func`.
+            **kwargs: Keyword arguments forwarded to `func`.
+        
+        Returns:
+            The value returned by calling `func(*args, **kwargs)`.
+        """
         return func(*args, **kwargs)
 
     with patch("whisper_local.bridge.capture_clipboard_snapshot", return_value=object()), patch(
@@ -901,6 +948,15 @@ def test_bridge_server_download_progress_payload_includes_backend(mock_config):
     server._set_selected_model = AsyncMock()
 
     def fake_download_model(name, runtime, progress_callback=None, cancel_check=None):
+        """
+        Simulates a model download in tests and reports a single fixed progress update.
+        
+        Parameters:
+            name (str): Expected model name; the function asserts it equals "tiny".
+            runtime (str): Expected runtime identifier; the function asserts it equals "whisper.cpp".
+            progress_callback (callable | None): Optional callable invoked with an integer percent (35) to report progress.
+            cancel_check (callable | None): Optional callable checked for cancellation; accepted but not used by this fake implementation.
+        """
         assert name == "tiny"
         assert runtime == "whisper.cpp"
         if progress_callback:

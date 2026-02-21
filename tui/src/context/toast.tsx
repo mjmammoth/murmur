@@ -21,6 +21,16 @@ export { useToast };
 
 const TOAST_DURATION = 4000;
 
+/**
+ * Creates and returns a ToastProvider that supplies toast state and controls to its children.
+ *
+ * The provider exposes `toasts`, `showToast(message, meta?)`, and `showError(message, meta?)`.
+ * Toasts auto-dismiss after a fixed duration, may be mirrored to the backend based on metadata,
+ * and backend-originated toasts are received and displayed without re-logging.
+ *
+ * @param props.children - The element subtree that will receive the toast context
+ * @returns The ToastProvider element that wraps `props.children` and provides toast state and APIs
+ */
 export function ToastContextProvider(props: { children: JSX.Element }): JSX.Element {
   const backend = useBackend();
 
