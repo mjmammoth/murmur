@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import subprocess
-import sys
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -254,7 +252,8 @@ def test_whisper_cpp_runtime_load_custom_model_directory():
         mock_path.is_dir.return_value = True
         mock_path.glob.return_value = [Path("/models/ggml-tiny.bin")]
 
-        with patch("pathlib.Path.expanduser", return_value=mock_path):
+        with patch("pathlib.Path.expanduser", return_value=mock_path), \
+             patch("pathlib.Path.exists", return_value=True):
             runtime.load()
 
             assert runtime._resolved_model_path == "/models/ggml-tiny.bin"
@@ -270,9 +269,10 @@ def test_whisper_cpp_runtime_load_custom_model_file():
 
         mock_path = Mock(spec=Path)
         mock_path.is_dir.return_value = False
-        mock_path.exists.return_value = True
+        mock_path.__str__ = Mock(return_value="/models/custom.bin")
 
-        with patch("pathlib.Path.expanduser", return_value=mock_path):
+        with patch("pathlib.Path.expanduser", return_value=mock_path), \
+             patch("pathlib.Path.exists", return_value=True):
             runtime.load()
 
             assert runtime._resolved_model_path == "/models/custom.bin"

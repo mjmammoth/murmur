@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import subprocess
-import threading
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
+import whisper_local
 from whisper_local.model_ops import (
     DefaultModelRuntimeOperationsFactory,
     FasterWhisperModelRuntimeOperations,
@@ -15,16 +15,20 @@ from whisper_local.model_ops import (
 )
 
 
+def _patch_mm(mock_mm):
+    """Patch model_manager on the whisper_local package so lazy imports resolve to mock_mm."""
+    return patch.object(whisper_local, "model_manager", mock_mm)
+
+
 def test_faster_whisper_runtime_operations_download():
     """Test FasterWhisperModelRuntimeOperations.download delegates to model_manager."""
     ops = FasterWhisperModelRuntimeOperations()
     assert ops.runtime == "faster-whisper"
 
-    # Mock the model_manager module at import time
     mock_mm = Mock()
     mock_mm._download_faster_model.return_value = Path("/path/to/model")
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         result = ops.download("tiny")
 
         assert result == Path("/path/to/model")
@@ -42,7 +46,7 @@ def test_faster_whisper_runtime_operations_download_with_callbacks():
     mock_mm = Mock()
     mock_mm._download_faster_model.return_value = Path("/path/to/model")
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         ops.download("small", progress_callback=progress_cb, cancel_check=cancel_cb)
 
         mock_mm._download_faster_model.assert_called_once_with(
@@ -56,7 +60,7 @@ def test_faster_whisper_runtime_operations_remove():
 
     mock_mm = Mock()
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         ops.remove("base")
         mock_mm._remove_faster_model.assert_called_once_with("base")
 
@@ -68,7 +72,7 @@ def test_faster_whisper_runtime_operations_installed_path():
     mock_mm = Mock()
     mock_mm._get_installed_faster_model_path.return_value = Path("/models/base")
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         result = ops.installed_path("base")
 
         assert result == Path("/models/base")
@@ -82,7 +86,7 @@ def test_faster_whisper_runtime_operations_installed_path_not_found():
     mock_mm = Mock()
     mock_mm._get_installed_faster_model_path.return_value = None
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         result = ops.installed_path("nonexistent")
 
         assert result is None
@@ -95,7 +99,7 @@ def test_faster_whisper_runtime_operations_cache_size_bytes():
     mock_mm = Mock()
     mock_mm._faster_model_cache_size_bytes.return_value = 1024000
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         result = ops.cache_size_bytes("tiny")
 
         assert result == 1024000
@@ -109,7 +113,7 @@ def test_faster_whisper_runtime_operations_estimated_size_bytes():
     mock_mm = Mock()
     mock_mm.MODEL_ESTIMATED_SIZE_BYTES = {"tiny": 75 * 1024 * 1024}
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         result = ops.estimated_size_bytes("tiny")
         assert result == 75 * 1024 * 1024
 
@@ -121,7 +125,7 @@ def test_faster_whisper_runtime_operations_estimated_size_bytes_unknown():
     mock_mm = Mock()
     mock_mm.MODEL_ESTIMATED_SIZE_BYTES = {}
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         result = ops.estimated_size_bytes("unknown")
         assert result is None
 
@@ -138,7 +142,7 @@ def test_whisper_cpp_runtime_operations_download_existing_model():
 
     progress_cb = Mock()
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         result = ops.download("tiny", progress_callback=progress_cb)
 
         assert result == Path("/models/ggml-tiny.bin")
@@ -152,7 +156,7 @@ def test_whisper_cpp_runtime_operations_download_unknown_model():
     mock_mm = Mock()
     mock_mm.MODEL_NAMES = ["tiny", "base"]
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         with pytest.raises(ValueError, match="Unknown model"):
             ops.download("nonexistent")
 
@@ -163,7 +167,7 @@ def test_whisper_cpp_runtime_operations_remove():
 
     mock_mm = Mock()
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         ops.remove("tiny")
         mock_mm._remove_whisper_cpp_model.assert_called_once_with("tiny")
 
@@ -175,7 +179,7 @@ def test_whisper_cpp_runtime_operations_installed_path():
     mock_mm = Mock()
     mock_mm.get_installed_whisper_cpp_model_path.return_value = Path("/models/ggml-base.bin")
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         result = ops.installed_path("base")
 
         assert result == Path("/models/ggml-base.bin")
@@ -189,7 +193,7 @@ def test_whisper_cpp_runtime_operations_cache_size_bytes():
     mock_mm = Mock()
     mock_mm._whisper_cpp_model_cache_size_bytes.return_value = 2048000
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         result = ops.cache_size_bytes("base")
 
         assert result == 2048000
@@ -203,7 +207,7 @@ def test_whisper_cpp_runtime_operations_estimated_size_bytes():
     mock_mm = Mock()
     mock_mm.WHISPER_CPP_ESTIMATED_SIZE_BYTES = {"tiny": 75 * 1024 * 1024}
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}):
+    with _patch_mm(mock_mm):
         result = ops.estimated_size_bytes("tiny")
         assert result == 75 * 1024 * 1024
 
@@ -322,7 +326,7 @@ def test_whisper_cpp_download_file_subprocess_handles_cancel():
     mock_process = Mock()
     mock_process.poll.side_effect = [None, None]
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}), \
+    with _patch_mm(mock_mm), \
          patch("subprocess.Popen", return_value=mock_process), \
          patch("time.sleep"):
 
@@ -349,7 +353,7 @@ def test_whisper_cpp_download_file_subprocess_handles_failure():
     mock_process.returncode = 1
     mock_process.communicate.return_value = ("", "Connection failed")
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}), \
+    with _patch_mm(mock_mm), \
          patch("subprocess.Popen", return_value=mock_process), \
          patch("time.sleep"):
 
@@ -373,7 +377,7 @@ def test_whisper_cpp_download_file_subprocess_no_output():
     mock_process.returncode = 0
     mock_process.communicate.return_value = ("", "")
 
-    with patch.dict("sys.modules", {"whisper_local.model_manager": mock_mm}), \
+    with _patch_mm(mock_mm), \
          patch("subprocess.Popen", return_value=mock_process), \
          patch("time.sleep"):
 
