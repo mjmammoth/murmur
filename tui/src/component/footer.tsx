@@ -25,7 +25,6 @@ interface FooterProps {
   onStatusClick?: () => void;
   onModelClick?: () => void;
   onHotkeyClick?: () => void;
-  onQuitClick?: () => void;
   onLogsClick?: () => void;
   onSettingsClick?: () => void;
   onThemeClick?: () => void;
@@ -94,6 +93,10 @@ function truncateLabel(value: string, maxLength: number): string {
 
 export function Footer(props: FooterProps): JSX.Element {
   const COMPACT_FOOTER_THRESHOLD = 118;
+  const RIGHT_COMPACT_HINT_ROW_WIDTH = Math.max(
+    "logs".length + "? help".length + 2,
+    "settings".length + "theme".length + 2,
+  );
   const { colors } = useTheme();
   const config = useConfig();
   const backend = useBackend();
@@ -113,16 +116,20 @@ export function Footer(props: FooterProps): JSX.Element {
   const hotkeyKey = () => config.config()?.hotkey.key ?? "-";
   const compactFooterLayout = () => availableWidth() < COMPACT_FOOTER_THRESHOLD;
   const centerSectionWidth = () => Math.floor(availableWidth() * 0.34);
+  const rightSectionWidth = () => Math.floor(availableWidth() * 0.33);
+  const compactRightOverflow = () =>
+    compactFooterLayout() ? Math.max(0, RIGHT_COMPACT_HINT_ROW_WIDTH - rightSectionWidth()) : 0;
+  const compactCenterLineWidth = () =>
+    Math.max(12, centerSectionWidth() - compactRightOverflow() - 2);
 
   const compactModel = () => {
     if (!compactFooterLayout()) return truncateLabel(modelName(), 14);
-    // In compact mode model/hotkey are on separate lines, so allow a larger dynamic budget.
-    const maxChars = Math.max(10, Math.min(24, centerSectionWidth() - 8));
+    const maxChars = Math.max(8, Math.min(24, compactCenterLineWidth() - 8));
     return truncateLabel(modelName(), maxChars);
   };
   const compactHotkey = () => {
     if (!compactFooterLayout()) return truncateLabel(hotkeyKey(), 14);
-    const maxChars = Math.max(10, Math.min(24, centerSectionWidth() - 9));
+    const maxChars = Math.max(8, Math.min(24, compactCenterLineWidth() - 9));
     return truncateLabel(hotkeyKey(), maxChars);
   };
   const leftSectionWidth = () => Math.floor(availableWidth() * 0.33);
@@ -213,22 +220,26 @@ export function Footer(props: FooterProps): JSX.Element {
           {compactFooterLayout() ? (
             <>
               <box width="100%" flexDirection="row" justifyContent="center">
-                <PairHint
-                  label="model"
-                  keyChar="m"
-                  value={compactModel()}
-                  highlightColor={colors().secondary}
-                  onClick={props.onModelClick}
-                />
+                <box width={compactCenterLineWidth()} flexDirection="row" justifyContent="center">
+                  <PairHint
+                    label="model"
+                    keyChar="m"
+                    value={compactModel()}
+                    highlightColor={colors().secondary}
+                    onClick={props.onModelClick}
+                  />
+                </box>
               </box>
               <box width="100%" flexDirection="row" justifyContent="center">
-                <PairHint
-                  label="hotkey"
-                  keyChar="h"
-                  value={compactHotkey()}
-                  highlightColor={colors().secondary}
-                  onClick={props.onHotkeyClick}
-                />
+                <box width={compactCenterLineWidth()} flexDirection="row" justifyContent="center">
+                  <PairHint
+                    label="hotkey"
+                    keyChar="h"
+                    value={compactHotkey()}
+                    highlightColor={colors().secondary}
+                    onClick={props.onHotkeyClick}
+                  />
+                </box>
               </box>
             </>
           ) : (
@@ -262,7 +273,6 @@ export function Footer(props: FooterProps): JSX.Element {
           {shouldWrapRightSection() ? (
             <>
               <box width="100%" flexDirection="row" justifyContent="flex-end" gap={2}>
-                <KeyHint keyChar="q" word="quit" onClick={props.onQuitClick} />
                 <KeyHint keyChar="l" word="logs" onClick={props.onLogsClick} />
                 <KeyHint keyChar="?" word="? help" onClick={props.onHelpClick} />
               </box>
@@ -273,7 +283,6 @@ export function Footer(props: FooterProps): JSX.Element {
             </>
           ) : (
             <>
-              <KeyHint keyChar="q" word="quit" onClick={props.onQuitClick} />
               <KeyHint keyChar="l" word="logs" onClick={props.onLogsClick} />
               <KeyHint keyChar="s" word="settings" onClick={props.onSettingsClick} />
               <KeyHint keyChar="t" word="theme" onClick={props.onThemeClick} />

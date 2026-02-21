@@ -339,7 +339,6 @@ export function Home(): JSX.Element {
               onStatusClick={toggleRecordingFromStatusClick}
               onModelClick={() => dialog.openDialog("model-manager")}
               onHotkeyClick={() => dialog.openDialog("hotkey")}
-              onQuitClick={requestExit}
               onLogsClick={toggleLogsPanel}
               onSettingsClick={() => dialog.openDialog("settings")}
               onThemeClick={() => dialog.openDialog("theme-picker")}

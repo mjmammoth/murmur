@@ -174,8 +174,8 @@ function UIGuideStep(): JSX.Element {
         </text>
         <text>
           <span style={{ fg: colors().textMuted }}>Hotkey mode default: </span>
-          <span style={{ fg: colors().accent }}>push-to-talk</span>
-          <span style={{ fg: colors().textMuted }}> (hold to record).</span>
+          <span style={{ fg: colors().accent }}>toggle</span>
+          <span style={{ fg: colors().textMuted }}> (press to start/stop).</span>
         </text>
       </box>
 
