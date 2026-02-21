@@ -314,7 +314,20 @@ def run_capture_termtosvg(
                     env=capture_env,
                     stdin=stdin_read,
                 )
-                return_code = termtosvg_process.wait()
+                wait_timeout = max(5.0, capture_seconds + 5.0)
+                try:
+                    return_code = termtosvg_process.wait(timeout=wait_timeout)
+                except subprocess.TimeoutExpired as exc:
+                    termtosvg_process.terminate()
+                    try:
+                        termtosvg_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        termtosvg_process.kill()
+                        termtosvg_process.wait(timeout=5)
+                    raise RuntimeError(
+                        "termtosvg capture timed out "
+                        f"(capture_seconds={capture_seconds:.2f}, timeout={wait_timeout:.2f})"
+                    ) from exc
             if return_code != 0:
                 raise RuntimeError(
                     f"termtosvg failed with exit code {return_code}"

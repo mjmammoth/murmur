@@ -202,32 +202,48 @@ class FasterWhisperRuntime(_RuntimeBase):
         self.load()
 
     def _transcribe_in_subprocess(
-        self, audio: np.ndarray, language: str | None
+        self, audio: np.ndarray, language: str | None, timeout: float = 300
     ) -> TranscriptionResult:
         model_source = self._resolve_model_source()
         device, compute_type = _resolve_faster_runtime(self.device, self.compute_type)
+        cmd = [
+            sys.executable,
+            "-c",
+            _SUBPROCESS_TRANSCRIBE_SCRIPT,
+            model_source,
+            device,
+            compute_type,
+        ]
 
         with tempfile.NamedTemporaryFile(suffix=".npy", delete=True) as handle:
             np.save(handle.name, audio)
             env = os.environ.copy()
             env["HF_HUB_DISABLE_XET"] = "1"
             env["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    _SUBPROCESS_TRANSCRIBE_SCRIPT,
-                    model_source,
-                    device,
-                    compute_type,
-                    handle.name,
-                    language or "",
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-                env=env,
-            )
+            run_cmd = [*cmd, handle.name, language or ""]
+            try:
+                result = subprocess.run(
+                    run_cmd,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=timeout,
+                )
+            except subprocess.TimeoutExpired as exc:
+                stdout = (exc.stdout or "").strip()
+                stderr = (exc.stderr or "").strip()
+                raise RuntimeError(
+                    "Subprocess transcription timed out "
+                    f"(timeout={timeout}s, command={run_cmd!r}, stdout={stdout!r}, stderr={stderr!r})"
+                ) from exc
+            except subprocess.CalledProcessError as exc:
+                stdout = (exc.stdout or "").strip()
+                stderr = (exc.stderr or "").strip()
+                raise RuntimeError(
+                    "Subprocess transcription failed "
+                    f"(exit={exc.returncode}, command={run_cmd!r}, stderr={stderr!r}, stdout={stdout!r})"
+                ) from exc
 
         payload = result.stdout.strip().splitlines()
         if not payload:
@@ -381,7 +397,7 @@ class WhisperCppRuntime(_RuntimeBase):
             if language:
                 cmd.extend(["-l", language])
 
-            if self._effective_device == "cpu":
+            if self._effective_device == "cpu" and self._gpu_control_mode == "no-gpu":
                 cmd.append("-ng")
 
             process = subprocess.run(cmd, capture_output=True, text=True, timeout=300)

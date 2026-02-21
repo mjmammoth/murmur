@@ -43,16 +43,16 @@ interface FooterProps {
  */
 function KeyHint(props: KeyHintProps): JSX.Element {
   const { colors } = useTheme();
-  const idx = Math.max(0, props.word.toLowerCase().indexOf(props.keyChar.toLowerCase()));
-  const before = props.word.slice(0, idx);
-  const key = props.word[idx] ?? props.keyChar;
-  const after = props.word.slice(idx + 1);
+  const idx = props.word.toLowerCase().indexOf(props.keyChar.toLowerCase());
+  const before = idx < 0 ? props.word : props.word.slice(0, idx);
+  const key = idx < 0 ? null : (props.word[idx] ?? props.keyChar);
+  const after = idx < 0 ? "" : props.word.slice(idx + 1);
 
   return (
     <box onMouseUp={() => props.onClick?.()}>
       <text>
         <span style={{ fg: colors().textMuted }}>{before}</span>
-        <span style={{ fg: colors().secondary, bold: true }}>{key}</span>
+        {key !== null ? <span style={{ fg: colors().secondary, bold: true }}>{key}</span> : null}
         <span style={{ fg: colors().textMuted }}>{after}</span>
       </text>
     </box>
@@ -61,9 +61,7 @@ function KeyHint(props: KeyHintProps): JSX.Element {
 
 function PairHint(props: PairHintProps): JSX.Element {
   const { colors } = useTheme();
-  const idx = props.keyChar
-    ? Math.max(0, props.label.toLowerCase().indexOf(props.keyChar.toLowerCase()))
-    : -1;
+  const idx = props.keyChar ? props.label.toLowerCase().indexOf(props.keyChar.toLowerCase()) : -1;
   const highlightColor = () => props.highlightColor ?? colors().accent;
 
   if (idx < 0) {

@@ -34,6 +34,12 @@ export function shouldMirrorToastLog(
   now: number,
   windowMs: number = TOAST_LOG_DEDUPE_WINDOW_MS,
 ): boolean {
+  for (const [cachedKey, timestamp] of dedupeCache) {
+    if (now - timestamp > windowMs) {
+      dedupeCache.delete(cachedKey);
+    }
+  }
+
   const lastLoggedAt = dedupeCache.get(key);
   if (lastLoggedAt !== undefined && now - lastLoggedAt < windowMs) {
     return false;

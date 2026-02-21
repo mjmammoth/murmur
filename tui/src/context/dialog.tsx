@@ -53,6 +53,13 @@ export function DialogContextProvider(props: { children: JSX.Element }): JSX.Ele
     const registration = dismissRegistration();
     if (registration && registration.type === current.type) {
       registration.handler();
+      setDismissRegistration((registered) => {
+        if (!registered) return registered;
+        if (registered.type !== registration.type || registered.handler !== registration.handler) {
+          return registered;
+        }
+        return null;
+      });
       return;
     }
 

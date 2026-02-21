@@ -43,7 +43,16 @@ export function hexToRgb(hex: string): [number, number, number] {
  * @returns A string in the format `#rrggbb`
  */
 export function rgbToHex(r: number, g: number, b: number): string {
-  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+  const normalizeChannel = (value: number): number => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 0;
+    return Math.max(0, Math.min(255, Math.round(numeric)));
+  };
+
+  const rr = normalizeChannel(r);
+  const gg = normalizeChannel(g);
+  const bb = normalizeChannel(b);
+  return `#${((1 << 24) | (rr << 16) | (gg << 8) | bb).toString(16).slice(1)}`;
 }
 
 /**
