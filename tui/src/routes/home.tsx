@@ -1,9 +1,8 @@
-import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { useKeyHandler, usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid";
-import { BorderChars, RGBA, type KeyEvent } from "@opentui/core";
+import { BorderChars, RGBA, type KeyEvent, type MouseEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
-import { useConfig } from "../context/config";
 import { useTranscriber } from "../context/transcriber";
 import { useDialog } from "../context/dialog";
 import { useToast } from "../context/toast";
@@ -19,6 +18,10 @@ import { SettingsSelectModal } from "../component/settings-select-modal";
 import { ThemePickerModal } from "../component/theme-picker-modal";
 import { SettingsEditModal } from "../component/settings-edit-modal";
 import { ExitConfirmModal } from "../component/exit-confirm-modal";
+import {
+  RuntimeSwitchConfirmModal,
+  isRuntimeSwitchConfirmDialogData,
+} from "../component/runtime-switch-confirm-modal";
 import { Welcome } from "../component/welcome";
 import { exitApp } from "../util/exit";
 import { setSigintHandler } from "../util/interrupt";
@@ -38,7 +41,6 @@ export function Home(): JSX.Element {
   const renderer = useRenderer();
   const terminal = useTerminalDimensions();
   const backend = useBackend();
-  const config = useConfig();
   const transcriber = useTranscriber();
   const dialog = useDialog();
   const toast = useToast();
@@ -67,7 +69,7 @@ export function Home(): JSX.Element {
   createEffect(() => {
     const currentlyVisible = logsVisible();
     if (previousLogsVisible && !currentlyVisible && showLogs() && !canShowLogs()) {
-      toast.showToast(logsTooNarrowMessage());
+      toast.showToast(logsTooNarrowMessage(), { dedupeKey: "logs-too-narrow" });
     }
     previousLogsVisible = currentlyVisible;
   });
@@ -87,8 +89,7 @@ export function Home(): JSX.Element {
     if (models.length === 0) return;
 
     const currentDialog = dialog.currentDialog();
-    if (currentDialog?.type === "welcome") return;
-    if (currentDialog?.type === "model-manager") return;
+    if (currentDialog) return;
 
     dialog.openDialog("welcome", { firstRun: !welcomeShown() || firstRunSetupRequired() });
   });
@@ -98,31 +99,57 @@ export function Home(): JSX.Element {
   });
 
   /**
-   * Prompt for confirmation when a model is actively being pulled, otherwise exit the application.
+   * Request application exit, prompting for confirmation if a model download is in progress.
    *
-   * If a model pull operation is in progress and the exit-confirm dialog is not already open, opens the exit-confirm dialog for that model; in all other cases, exits the app immediately.
+   * If a model download is active and the exit-confirm dialog is not already open, opens the exit-confirm dialog with the model and runtime information; otherwise exits the application immediately.
    */
   function requestExit() {
     const activeOp = backend.activeModelOp();
     const currentDialog = dialog.currentDialog();
-    if (activeOp?.type === "pulling" && currentDialog?.type !== "exit-confirm") {
-      dialog.openDialog("exit-confirm", { model: activeOp.model });
+    if (backend.hasPendingModelDownloads() && currentDialog?.type !== "exit-confirm") {
+      dialog.openDialog(
+        "exit-confirm",
+        activeOp?.type === "pulling"
+          ? { model: activeOp.model, runtime: activeOp.runtime }
+          : undefined,
+      );
       return;
     }
     exitApp(renderer);
   }
 
+  onMount(() => {
+    const disposeRuntimeSwitchRequired = backend.onRuntimeSwitchRequired((payload) => {
+      dialog.openDialog("runtime-switch-confirm", payload);
+    });
+    onCleanup(() => {
+      disposeRuntimeSwitchRequired?.();
+    });
+  });
+
+  /**
+   * Toggles the visibility of the logs panel and updates the active pane.
+   *
+   * If enabling the logs panel when the UI width is insufficient, shows a toast indicating the UI is too narrow for logs. When logs are visible and the UI can show them, sets the active pane to `"logs"`, otherwise sets it to `"main"`.
+   */
   function toggleLogsPanel() {
     setShowLogs((prev) => {
       const next = !prev;
       if (next && !canShowLogs()) {
-        toast.showToast(logsTooNarrowMessage());
+        toast.showToast(logsTooNarrowMessage(), { dedupeKey: "logs-too-narrow" });
       }
       setActivePane(next && canShowLogs() ? "logs" : "main");
       return next;
     });
   }
 
+  /**
+   * Toggle recording based on the transcriber's current status.
+   *
+   * Sends a `start_recording` or `stop_recording` command to the backend when allowed;
+   * shows a descriptive toast if recording cannot be started or stopped due to the current status
+   * (e.g., connecting, transcribing, downloading, or error). Does nothing when a modal dialog is open.
+   */
   function toggleRecordingFromStatusClick() {
     if (dialog.isOpen()) return;
 
@@ -138,12 +165,14 @@ export function Home(): JSX.Element {
     }
 
     if (status === "connecting") {
-      toast.showToast("Still connecting to backend.");
+      toast.showToast("Still connecting to backend.", { dedupeKey: "status-connecting-click" });
       return;
     }
 
     if (status === "transcribing" || status === "downloading") {
-      toast.showToast("Busy right now. Try again when ready.");
+      toast.showToast("Busy right now. Try again when ready.", {
+        dedupeKey: "status-busy-click",
+      });
       return;
     }
 
@@ -218,18 +247,9 @@ export function Home(): JSX.Element {
       case "q":
         requestExit();
         break;
-      case "c":
-        config.toggleAutoCopy();
-        break;
       case "return":
       case "enter":
         handleCopySelected();
-        break;
-      case "p":
-        config.toggleAutoPaste();
-        break;
-      case "o":
-        config.toggleHotkeyMode();
         break;
       case "m":
         dialog.openDialog("model-manager");
@@ -284,6 +304,32 @@ export function Home(): JSX.Element {
     return RGBA.fromValues(overlay.r, overlay.g, overlay.b, colors().overlayAlpha);
   };
 
+  /**
+   * Dismisses the currently open dialog when the backdrop is left-clicked.
+   *
+   * Ignores non-left clicks; for a left-button click it prevents the default mouse behavior
+   * and requests the dialog to be dismissed.
+   *
+   * @param event - The mouse event from the backdrop; only left-button clicks trigger dismissal.
+   */
+  function dismissDialogFromBackdrop(event: MouseEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    dialog.requestDismiss();
+  }
+
+  /**
+   * Prevents mouse events inside a modal from bubbling to parent elements.
+   *
+   * Stops propagation of the provided mouse event so clicks within modal content
+   * do not trigger backdrop handlers (for example, dialog dismissal).
+   *
+   * @param event - The mouse event to stop from propagating
+   */
+  function stopModalMouseBubble(event: MouseEvent) {
+    event.stopPropagation();
+  }
+
   return (
     <box
       flexDirection="row"
@@ -318,10 +364,7 @@ export function Home(): JSX.Element {
           gap={1}
         >
           <box flexShrink={0}>
-            <Header
-              onToggleAutoCopy={config.toggleAutoCopy}
-              onToggleAutoPaste={config.toggleAutoPaste}
-            />
+            <Header onQuitClick={requestExit} />
           </box>
           <box flexGrow={1} flexShrink={1} height="100%">
             <TranscriptList />
@@ -332,15 +375,12 @@ export function Home(): JSX.Element {
               onStatusClick={toggleRecordingFromStatusClick}
               onModelClick={() => dialog.openDialog("model-manager")}
               onHotkeyClick={() => dialog.openDialog("hotkey")}
-              onModeClick={config.toggleHotkeyMode}
-              onQuitClick={requestExit}
               onLogsClick={toggleLogsPanel}
               onSettingsClick={() => dialog.openDialog("settings")}
               onThemeClick={() => dialog.openDialog("theme-picker")}
               onHelpClick={() => dialog.openDialog("welcome", { firstRun: false })}
             />
           </box>
-          <ToastContainer />
         </box>
       </box>
 
@@ -359,7 +399,7 @@ export function Home(): JSX.Element {
               width={1}
               borderStyle="single"
               border={["left"]}
-              borderColor={activePane() === "logs" ? colors().secondary : colors().borderSubtle}
+              borderColor={activePane() === "logs" ? colors().accent : colors().borderSubtle}
               customBorderChars={{
                 ...BorderChars.single,
                 vertical: activePane() === "logs" ? "┃" : "│",
@@ -383,8 +423,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <ModelManager />
+          <box onMouseUp={stopModalMouseBubble}>
+            <ModelManager />
+          </box>
         </box>
       </Show>
 
@@ -396,8 +439,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <Settings />
+          <box onMouseUp={stopModalMouseBubble}>
+            <Settings />
+          </box>
         </box>
       </Show>
 
@@ -409,8 +455,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <HotkeyModal />
+          <box onMouseUp={stopModalMouseBubble}>
+            <HotkeyModal />
+          </box>
         </box>
       </Show>
 
@@ -422,8 +471,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <SettingsSelectModal />
+          <box onMouseUp={stopModalMouseBubble}>
+            <SettingsSelectModal />
+          </box>
         </box>
       </Show>
 
@@ -435,8 +487,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <SettingsEditModal />
+          <box onMouseUp={stopModalMouseBubble}>
+            <SettingsEditModal />
+          </box>
         </box>
       </Show>
 
@@ -448,8 +503,11 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <ThemePickerModal />
+          <box onMouseUp={stopModalMouseBubble}>
+            <ThemePickerModal />
+          </box>
         </box>
       </Show>
 
@@ -461,8 +519,32 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <ExitConfirmModal />
+          <box onMouseUp={stopModalMouseBubble}>
+            <ExitConfirmModal />
+          </box>
+        </box>
+      </Show>
+
+      <Show
+        when={
+          dialog.currentDialog()?.type === "runtime-switch-confirm" &&
+          isRuntimeSwitchConfirmDialogData(dialog.currentDialog()?.data)
+        }
+      >
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
+        >
+          <box onMouseUp={stopModalMouseBubble}>
+            <RuntimeSwitchConfirmModal />
+          </box>
         </box>
       </Show>
 
@@ -474,10 +556,15 @@ export function Home(): JSX.Element {
           justifyContent="center"
           alignItems="center"
           backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
         >
-          <Welcome />
+          <box onMouseUp={stopModalMouseBubble}>
+            <Welcome />
+          </box>
         </box>
       </Show>
+
+      <ToastContainer />
     </box>
   );
 }

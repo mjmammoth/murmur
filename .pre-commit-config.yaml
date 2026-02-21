@@ -28,3 +28,9 @@ repos:
         entry: bunx tsc --noEmit -p tui/tsconfig.json
         language: system
         pass_filenames: false
+      - id: tui-showcase-refresh
+        name: TUI showcase refresh
+        entry: scripts/precommit_tui_showcase.sh
+        language: system
+        pass_filenames: false
+        files: ^(tui/|scripts/(generate_tui_showcase\.py|termtosvg_compat\.py)|README\.md)$

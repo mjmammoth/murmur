@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createRoot } from "solid-js";
 import type { ModelInfo } from "../types";
+import { removeHotkeys } from "./model-manager-config";
 
 /**
  * Tests for ModelManager component
@@ -9,11 +9,36 @@ import type { ModelInfo } from "../types";
  */
 
 describe("ModelManager", () => {
+  const makeModelInfo = (name: string, installed: boolean): ModelInfo => ({
+    name,
+    variants: {
+      "faster-whisper": {
+        runtime: "faster-whisper",
+        format: "ctranslate2",
+        installed,
+        path: installed ? "/path" : null,
+      },
+      "whisper.cpp": {
+        runtime: "whisper.cpp",
+        format: "ggml",
+        installed: false,
+        path: null,
+      },
+    },
+  });
+
+  describe("remove hotkey logic", () => {
+    test("should use backspace as the only remove hotkey", () => {
+      expect(removeHotkeys).toEqual(["backspace"]);
+      expect((removeHotkeys as readonly string[]).includes("r")).toBe(false);
+    });
+  });
+
   describe("selectedModel logic", () => {
     test("should return model at selected index", () => {
       const models: ModelInfo[] = [
-        { name: "whisper-base", installed: true, path: "/path" },
-        { name: "whisper-large", installed: false, path: null },
+        makeModelInfo("whisper-base", true),
+        makeModelInfo("whisper-large", false),
       ];
       const selectedIndex = 0;
       const selectedModel = models[selectedIndex] ?? null;
@@ -22,7 +47,7 @@ describe("ModelManager", () => {
     });
 
     test("should return null when index out of bounds", () => {
-      const models: ModelInfo[] = [{ name: "whisper-base", installed: true, path: "/path" }];
+      const models: ModelInfo[] = [makeModelInfo("whisper-base", true)];
       const selectedIndex = 5;
       const selectedModel = selectedIndex < 0 || selectedIndex >= models.length ? null : models[selectedIndex] ?? null;
 
@@ -92,6 +117,18 @@ describe("ModelManager", () => {
       const label = selectedModelIsPulling ? "cancel pull" : "other";
 
       expect(label).toBe("cancel pull");
+    });
+
+    test("should show 'cancel queued' when selected model is queued", () => {
+      const selectedModelIsPulling = false;
+      const selectedModelIsQueued = true;
+      const label = selectedModelIsPulling
+        ? "cancel pull"
+        : selectedModelIsQueued
+          ? "cancel queued"
+          : "other";
+
+      expect(label).toBe("cancel queued");
     });
 
     test("should show 'select' for installed model", () => {
@@ -184,6 +221,22 @@ describe("ModelManager", () => {
       expect(action).toBe("pull");
     });
 
+    test("should queue pull when another model operation is active", () => {
+      const model = { name: "whisper-base", installed: false, path: null };
+      const activeModelOp = { type: "pulling", model: "whisper-small" };
+      const selectedModelIsPulling = false;
+      const action = selectedModelIsPulling
+        ? "cancel"
+        : activeModelOp && activeModelOp.model !== model.name
+          ? "queue"
+          : model.installed
+            ? "select"
+            : "pull";
+
+      expect(activeModelOp).toBeTruthy();
+      expect(action).toBe("queue");
+    });
+
     test("should wait when another operation is active", () => {
       const model = { name: "whisper-base", installed: true, path: "/path" };
       const activeModelOp = { type: "removing", model: "other-model" };
@@ -245,18 +298,18 @@ describe("ModelManager", () => {
 
     test("should return null when model not installed", () => {
       const configured = "whisper-base";
-      const models: ModelInfo[] = [{ name: "whisper-base", installed: false, path: null }];
+      const models: ModelInfo[] = [makeModelInfo("whisper-base", false)];
       const match = models.find((model) => model.name === configured);
-      const selectedModelName = match?.installed ? configured : null;
+      const selectedModelName = match?.variants["faster-whisper"]?.installed ? configured : null;
 
       expect(selectedModelName).toBeNull();
     });
 
     test("should return model name when installed", () => {
       const configured = "whisper-base";
-      const models: ModelInfo[] = [{ name: "whisper-base", installed: true, path: "/path" }];
+      const models: ModelInfo[] = [makeModelInfo("whisper-base", true)];
       const match = models.find((model) => model.name === configured);
-      const selectedModelName = match?.installed ? configured : null;
+      const selectedModelName = match?.variants["faster-whisper"]?.installed ? configured : null;
 
       expect(selectedModelName).toBe("whisper-base");
     });

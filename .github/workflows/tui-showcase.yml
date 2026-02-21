@@ -1,0 +1,87 @@
+name: tui-showcase
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "tui/src/**"
+      - "tui/scripts/mock-demo-backend.ts"
+      - "scripts/generate_tui_showcase.py"
+      - "scripts/termtosvg_compat.py"
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python dependencies
+        run: python -m pip install termtosvg pyte
+
+      - name: Install TUI dependencies
+        run: bun install --frozen-lockfile
+        working-directory: tui
+
+      - name: Install Playwright and Chromium
+        run: |
+          npm install
+          npx playwright install chromium --with-deps
+
+      - name: Generate showcase
+        run: python scripts/generate_tui_showcase.py --output-format png --png-scale 2
+
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/assets/tui-home-themes.png docs/assets/tui-home-themes.svg README.md
+          if git diff --cached --quiet; then
+            echo "No showcase changes to commit."
+          else
+            git commit -m "docs: refresh TUI showcase"
+            branch="${GITHUB_REF_NAME:-main}"
+            max_attempts=3
+            attempt=1
+
+            while [ "${attempt}" -le "${max_attempts}" ]; do
+              if git push origin "HEAD:${branch}"; then
+                echo "Push succeeded on attempt ${attempt}."
+                break
+              fi
+
+              if [ "${attempt}" -eq "${max_attempts}" ]; then
+                echo "Push failed after ${max_attempts} attempts."
+                exit 1
+              fi
+
+              echo "Push failed on attempt ${attempt}; rebasing onto origin/${branch} and retrying."
+              git fetch origin "${branch}"
+              if ! git rebase "origin/${branch}"; then
+                echo "Rebase failed due to conflicts; aborting."
+                git rebase --abort || true
+                exit 1
+              fi
+
+              attempt=$((attempt + 1))
+            done
+          fi

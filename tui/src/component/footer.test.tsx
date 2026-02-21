@@ -4,7 +4,7 @@ import { createRoot } from "solid-js";
 /**
  * Tests for Footer component
  *
- * The Footer displays status information, model/hotkey/mode settings, and navigation hints.
+ * The Footer displays status information, model/hotkey settings, and navigation hints.
  * It adapts its layout based on terminal width.
  */
 

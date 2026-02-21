@@ -27,3 +27,9 @@ node_modules/
 # Tree-sitter build artifacts
 *.scm
 *.wasm
+
+# Generated TUI showcase intermediates
+docs/readme-assets/
+docs/assets/home-*
+.font-cache/
+.tmp-playwright-render-*

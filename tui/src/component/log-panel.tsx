@@ -58,6 +58,18 @@ function normalizeLogLines(message: string): string[] {
   return lines;
 }
 
+/**
+ * Renders the log panel UI for viewing and interacting with backend log entries.
+ *
+ * The panel displays a header with the current minimum log level and count, a scrollable
+ * list of backend logs filtered by `props.minLevel`, and a footer with keyboard hints.
+ * While `props.active` is true the panel accepts keyboard navigation (arrow keys, j/k,
+ * page up/down, home/end) to scroll the view. Clicking a log entry sends a `copy_text`
+ * event to the backend with the selected entry's formatted text.
+ *
+ * @param props - Component props controlling the panel (see LogPanelProps). `minLevel` sets the minimum log level to show; `active` enables keyboard interaction.
+ * @returns The rendered log panel as a JSX element.
+ */
 export function LogPanel(props: LogPanelProps): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();
@@ -127,7 +139,7 @@ export function LogPanel(props: LogPanelProps): JSX.Element {
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>

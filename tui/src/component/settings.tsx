@@ -5,12 +5,14 @@ import { useTheme } from "../context/theme";
 import { useDialog } from "../context/dialog";
 import { useConfig } from "../context/config";
 import { useBackend } from "../context/backend";
+import { formatDeviceLabel } from "../util/format";
+import type { RuntimeName } from "../types";
 
 type SettingSection = "Capture" | "Model" | "Output" | "Appearance" | "Advanced";
 type ControlKind = "toggle" | "select" | "open" | "edit" | "read-only";
 
 type SelectSettingId =
-  | "model.backend"
+  | "model.runtime"
   | "model.device"
   | "model.compute"
   | "model.language"
@@ -53,17 +55,31 @@ function withFallback(value: string | number | null | undefined, fallback = "-")
   return text.length > 0 ? text : fallback;
 }
 
+/**
+ * Determines whether a key event represents a single printable character with no modifier keys pressed.
+ *
+ * @param key - The key event to evaluate (inspected for modifier flags and the key name).
+ * @returns `true` if the event corresponds to a single-character printable key and no Ctrl/Meta/Option modifiers are active, `false` otherwise.
+ */
 function isPrintableKey(key: KeyEvent): boolean {
   if (key.ctrl || key.meta || key.option) return false;
   return key.name.length === 1;
 }
 
-function LegendHint(props: { keys: string; label: string }): JSX.Element {
+/**
+ * Render a compact legend item consisting of a highlighted key box and an explanatory label.
+ *
+ * @param keys - Text shown inside the highlighted key box (e.g., "Esc", "/").
+ * @param label - Explanatory text displayed to the right of the key box.
+ * @param danger - When true use the error color for the key box instead of the accent color.
+ * @returns A JSX element containing a colored key box with `keys` and a muted `label`.
+ */
+function LegendHint(props: { keys: string; label: string; danger?: boolean }): JSX.Element {
   const { colors } = useTheme();
 
   return (
     <box flexDirection="row" alignItems="center" gap={1}>
-      <box backgroundColor={colors().secondary} paddingX={1}>
+      <box backgroundColor={props.danger ? colors().error : colors().accent} paddingX={1}>
         <text>
           <span style={{ fg: colors().selectedText }}>{props.keys}</span>
         </text>
@@ -75,6 +91,15 @@ function LegendHint(props: { keys: string; label: string }): JSX.Element {
   );
 }
 
+/**
+ * Render the Settings dialog UI with sectioned items, filtering, keyboard navigation, and per-item actions.
+ *
+ * The component displays grouped setting rows (toggles, selectors, editors, read-only values), supports typing-based filtering, arrow/vim navigation,
+ * activation/toggling of interactive items, and automatic scrolling to keep the selected item visible. It integrates with app contexts for theme,
+ * configuration, backend actions, and dialogs (opening selectors/editors and returning to settings).
+ *
+ * @returns A JSX.Element representing the settings dialog UI
+ */
 export function Settings(): JSX.Element {
   const { colors, theme } = useTheme();
   const config = useConfig();
@@ -110,8 +135,10 @@ export function Settings(): JSX.Element {
   const selectedInstalledModelName = createMemo(() => {
     const selected = config.config()?.model.name;
     if (!selected) return "none";
+    const activeRuntime =
+      (config.config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
     const match = backend.models().find((model) => model.name === selected);
-    return match?.installed ? selected : "none";
+    return match?.variants?.[activeRuntime]?.installed ? selected : "none";
   });
 
   function returnFilterQuery() {
@@ -255,16 +282,16 @@ export function Settings(): JSX.Element {
           }),
       },
       {
-        id: "model.backend",
+        id: "model.runtime",
         section: "Model",
-        title: "Backend",
-        description: "Choose transcription backend",
-        keywords: ["backend", "faster-whisper", "whisper.cpp"],
+        title: "Runtime",
+        description: "Choose model runtime",
+        keywords: ["runtime", "faster-whisper", "whisper.cpp"],
         controlKind: "select",
         affordance: "select",
         interactive: true,
-        value: () => withFallback(cfg?.model.backend, "faster-whisper"),
-        activate: () => openSelector("model.backend"),
+        value: () => withFallback(cfg?.model.runtime, "faster-whisper"),
+        activate: () => openSelector("model.runtime"),
       },
       {
         id: "model.device",
@@ -275,7 +302,7 @@ export function Settings(): JSX.Element {
         controlKind: "select",
         affordance: "select",
         interactive: true,
-        value: () => withFallback(cfg?.model.device),
+        value: () => formatDeviceLabel(cfg?.model.device),
         activate: () => openSelector("model.device"),
       },
       {
@@ -347,6 +374,24 @@ export function Settings(): JSX.Element {
         setToggleValue: (value: boolean) => {
           if (config.autoPaste() !== value) {
             config.toggleAutoPaste();
+          }
+        },
+      },
+      {
+        id: "recording.autorevertclipboard",
+        section: "Output",
+        title: "Auto Revert Clipboard",
+        description: "Restore previous clipboard after auto-paste",
+        keywords: ["clipboard", "paste", "restore", "automatic"],
+        controlKind: "toggle",
+        affordance: "toggle",
+        interactive: true,
+        value: () => boolLabel(config.autoRevertClipboard()),
+        isOn: config.autoRevertClipboard,
+        toggle: config.toggleAutoRevertClipboard,
+        setToggleValue: (value: boolean) => {
+          if (config.autoRevertClipboard() !== value) {
+            config.toggleAutoRevertClipboard();
           }
         },
       },
@@ -658,6 +703,26 @@ export function Settings(): JSX.Element {
     item.activate?.();
   }
 
+  function dismissSettings() {
+    if (filterMode()) {
+      setFilterMode(false);
+      if (filterQuery().length > 0) {
+        setFilterQuery("");
+      }
+      return;
+    }
+
+    if (filterQuery().length > 0) {
+      setFilterQuery("");
+      return;
+    }
+
+    dialog.closeDialog();
+  }
+
+  const unregisterDismissHandler = dialog.registerDismissHandler("settings", dismissSettings);
+  onCleanup(unregisterDismissHandler);
+
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "settings") return;
     if (key.eventType === "release") return;
@@ -677,10 +742,7 @@ export function Settings(): JSX.Element {
         case "escape":
         case "q":
           key.preventDefault();
-          setFilterMode(false);
-          if (filterQuery().length > 0) {
-            setFilterQuery("");
-          }
+          dismissSettings();
           return;
         case "return":
         case "enter":
@@ -712,11 +774,7 @@ export function Settings(): JSX.Element {
       case "escape":
       case "q":
         key.preventDefault();
-        if (filterQuery().length > 0) {
-          setFilterQuery("");
-          return;
-        }
-        dialog.closeDialog();
+        dismissSettings();
         return;
       case "up":
       case "k":
@@ -765,7 +823,7 @@ export function Settings(): JSX.Element {
       return active ? colors().textMuted : colors().textDim;
     }
 
-    return active ? colors().text : colors().secondary;
+    return active ? colors().text : colors().accent;
   };
 
   const descriptionText = (item: SettingItem) => {
@@ -792,7 +850,7 @@ export function Settings(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>task-first controls</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={() => dialog.closeDialog()}>
+            <box backgroundColor={colors().error} paddingX={1} onMouseUp={dismissSettings}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
@@ -800,7 +858,7 @@ export function Settings(): JSX.Element {
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
@@ -810,7 +868,7 @@ export function Settings(): JSX.Element {
           <span style={{ fg: colors().textDim }}>filter: </span>
           <span style={{ fg: colors().text }}>{filterQuery() || "all settings"}</span>
           <Show when={filterMode()}>
-            <span style={{ fg: colors().secondary }}> |</span>
+            <span style={{ fg: colors().accent }}> |</span>
           </Show>
         </text>
       </box>
@@ -860,7 +918,7 @@ export function Settings(): JSX.Element {
                         >
                           <box
                             width={1}
-                            backgroundColor={isActive() ? colors().secondary : undefined}
+                            backgroundColor={isActive() ? colors().accent : undefined}
                           />
                           <box paddingLeft={2} flexDirection="row" width="100%" justifyContent="space-between" gap={2}>
                             <box flexDirection="column" flexGrow={1}>
@@ -902,7 +960,7 @@ export function Settings(): JSX.Element {
           <LegendHint keys="←/→" label="toggle off/on" />
           <LegendHint keys="/" label="filter" />
           <Show when={filterQuery().length > 0}>
-            <LegendHint keys="esc/q" label="clear filter" />
+            <LegendHint keys="esc/q" label="clear filter" danger />
           </Show>
         </box>
       </box>

@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import { useKeyHandler } from "@opentui/solid";
 import type { KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -19,6 +19,15 @@ function isPrintableKey(key: KeyEvent): boolean {
   return key.name.length === 1;
 }
 
+/**
+ * Renders the settings edit modal UI for editing a single configuration value.
+ *
+ * The modal displays the current draft value, accepts keyboard and mouse input to edit it,
+ * validates and applies changes to the configuration, and closes or navigates back to the
+ * settings list according to the dialog data.
+ *
+ * @returns The JSX element for the settings edit modal
+ */
 export function SettingsEditModal(): JSX.Element {
   const { colors } = useTheme();
   const dialog = useDialog();
@@ -98,6 +107,9 @@ export function SettingsEditModal(): JSX.Element {
     dialog.closeDialog();
   }
 
+  const unregisterDismissHandler = dialog.registerDismissHandler("settings-edit", closeModal);
+  onCleanup(unregisterDismissHandler);
+
   function applyValue() {
     const trimmed = draft().trim();
     setError("");
@@ -169,7 +181,7 @@ export function SettingsEditModal(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>{subtitle()}</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={closeModal}>
+            <box backgroundColor={colors().error} paddingX={1} onMouseUp={closeModal}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
@@ -177,7 +189,7 @@ export function SettingsEditModal(): JSX.Element {
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
@@ -195,7 +207,7 @@ export function SettingsEditModal(): JSX.Element {
             <span style={{ fg: draft() ? colors().text : colors().textDim }}>
               {draft() || placeholder()}
             </span>
-            <span style={{ fg: colors().secondary }}>|</span>
+            <span style={{ fg: colors().accent }}>|</span>
           </text>
         </box>
       </box>
@@ -209,7 +221,7 @@ export function SettingsEditModal(): JSX.Element {
       </box>
 
       <box paddingX={3} paddingTop={1} flexDirection="row" alignItems="center" gap={2}>
-        <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={applyValue}>
+        <box backgroundColor={colors().accent} paddingX={1} onMouseUp={applyValue}>
           <text>
             <span style={{ fg: colors().selectedText }}>enter</span>
           </text>
@@ -217,7 +229,7 @@ export function SettingsEditModal(): JSX.Element {
         <text>
           <span style={{ fg: colors().textMuted }}>apply</span>
         </text>
-        <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={closeModal}>
+        <box backgroundColor={colors().error} paddingX={1} onMouseUp={closeModal}>
           <text>
             <span style={{ fg: colors().selectedText }}>esc/q</span>
           </text>

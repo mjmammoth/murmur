@@ -12,7 +12,7 @@ import threading
 import time
 from pathlib import Path
 
-from whisper_local.config import load_config
+from whisper_local.config import SUPPORTED_RUNTIMES, load_config
 from whisper_local.tui_runtime import resolve_tui_runtime
 
 
@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     Builds the top-level command-line argument parser for the application.
     
     The parser includes these subcommands:
-    - run: start the combined bridge and TypeScript TUI (with options for host, port, legacy Textual TUI, and disabling the macOS status indicator).
+    - run: start the combined bridge and TypeScript TUI (with options for host, port, and disabling the macOS status indicator).
     - bridge: start only the WebSocket bridge (host and port options).
     - tui: start only the TypeScript TUI (host and port options).
     - models: manage models with subcommands `list`, `pull <name>`, `remove <name>`, and `select|set-default <name>`.
@@ -41,7 +41,6 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="Start the TUI (bridge + TypeScript frontend)")
     run_parser.add_argument("--host", default="localhost", help="Bridge host")
     run_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
-    run_parser.add_argument("--legacy", action="store_true", help="Use legacy Textual TUI")
     run_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
@@ -62,9 +61,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     pull_parser = models_sub.add_parser("pull", help="Download a model")
     pull_parser.add_argument("name")
+    pull_parser.add_argument(
+        "--runtime",
+        choices=SUPPORTED_RUNTIMES,
+        default="faster-whisper",
+        help="Model runtime variant to download",
+    )
 
     remove_parser = models_sub.add_parser("remove", help="Remove a model")
     remove_parser.add_argument("name")
+    remove_parser.add_argument(
+        "--runtime",
+        choices=SUPPORTED_RUNTIMES,
+        default="faster-whisper",
+        help="Model runtime variant to remove",
+    )
 
     select_parser = models_sub.add_parser(
         "select",
@@ -165,12 +176,14 @@ def _restore_terminal_state() -> None:
 
 def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
     """
-    Run the bridge server and the terminal user interface (TUI) together and coordinate their startup and shutdown.
+    Start and coordinate the bridge server and the TypeScript TUI, managing their lifecycle and cleanup.
+    
+    Starts the bridge in a background thread, launches the TUI as a subprocess, optionally starts the platform status indicator (macOS only), and ensures graceful shutdown, error handling, and terminal state restoration on exit.
     
     Parameters:
-        host: Network interface or hostname used by both the bridge server and the TUI.
-        port: TCP port used by both the bridge server and the TUI.
-        status_indicator: If True, attempt to start the platform status indicator (macOS only); may be ignored on other platforms.
+        host (str): Network interface or hostname used by both the bridge and the TUI.
+        port (int): TCP port used by both the bridge and the TUI.
+        status_indicator (bool): If True, attempt to start the platform status indicator; may be ignored on non‑macOS platforms.
     """
     _ensure_runtime_dependencies()
 
@@ -265,10 +278,17 @@ def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
 
         if bridge_server is not None:
             bridge_server.shutdown()
-            loop = bridge_server._loop
-            if loop and not loop.is_closed():
-                loop.call_soon_threadsafe(loop.stop)
-        bridge_thread.join(timeout=1.0)
+            bridge_thread.join(timeout=2.5)
+            if bridge_thread.is_alive():
+                logger.warning("Bridge thread still alive after graceful shutdown window; forcing loop stop")
+                loop = bridge_server._loop
+                if loop and not loop.is_closed():
+                    loop.call_soon_threadsafe(loop.stop)
+                bridge_thread.join(timeout=1.5)
+                if bridge_thread.is_alive():
+                    logger.warning("Bridge thread still alive after forced loop stop")
+        else:
+            bridge_thread.join(timeout=1.0)
 
         sys.stderr = real_stderr
         _restore_terminal_state()
@@ -285,7 +305,7 @@ def main() -> None:
     Parse CLI arguments and dispatch the selected subcommand to run the application's components.
     
     Recognizes these subcommands:
-    - run (default): start the legacy Textual TUI or the new TypeScript TUI (supports host, port, legacy flag, and status-indicator toggle).
+    - run (default): start the TypeScript TUI stack (supports host, port, and status-indicator toggle).
     - bridge: start the bridge server on a given host and port.
     - tui: start the TUI subprocess and wait for it; restores terminal state on exit.
     - models: manage models with subcommands `list`, `pull <name>`, `remove <name>`, and `select|set-default <name>`.
@@ -299,16 +319,8 @@ def main() -> None:
     if args.command is None or args.command == "run":
         host = getattr(args, "host", "localhost")
         port = getattr(args, "port", 7878)
-        legacy = getattr(args, "legacy", False)
         no_status_indicator = getattr(args, "no_status_indicator", False)
-
-        if legacy:
-            # Use legacy Textual TUI
-            from whisper_local.tui import run_app
-            run_app()
-        else:
-            # Use new TypeScript TUI
-            _run_combined(host, port, status_indicator=not no_status_indicator)
+        _run_combined(host, port, status_indicator=not no_status_indicator)
         return
 
     if args.command == "bridge":
@@ -338,16 +350,32 @@ def main() -> None:
 
         if args.models_command == "list":
             for model in list_installed_models():
-                state = "installed" if model.installed else "available"
-                print(f"{model.name}: {state}")
+                variants = getattr(model, "variants", None)
+                if isinstance(variants, dict):
+                    fw_variant = variants.get("faster-whisper")
+                    cpp_variant = variants.get("whisper.cpp")
+                    fw_state = "installed" if fw_variant and fw_variant.installed else "available"
+                    wcpp_state = "installed" if cpp_variant and cpp_variant.installed else "available"
+                    print(f"{model.name}: faster-whisper={fw_state}, whisper.cpp={wcpp_state}")
+                else:
+                    state = "installed" if bool(getattr(model, "installed", False)) else "available"
+                    print(f"{model.name}: {state}")
             return
         if args.models_command == "pull":
-            download_model(args.name)
-            print(f"Downloaded {args.name}")
+            if args.runtime == "faster-whisper":
+                download_model(args.name)
+                print(f"Downloaded {args.name}")
+            else:
+                download_model(args.name, runtime=args.runtime)
+                print(f"Downloaded {args.name} ({args.runtime})")
             return
         if args.models_command == "remove":
-            remove_model(args.name)
-            print(f"Removed {args.name}")
+            if args.runtime == "faster-whisper":
+                remove_model(args.name)
+                print(f"Removed {args.name}")
+            else:
+                remove_model(args.name, runtime=args.runtime)
+                print(f"Removed {args.name} ({args.runtime})")
             return
         if args.models_command in ("select", "set-default"):
             set_selected_model(args.name)

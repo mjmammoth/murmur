@@ -1,4 +1,4 @@
-import { createMemo, createSignal, type JSX } from "solid-js";
+import { createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import { useKeyHandler } from "@opentui/solid";
 import { type KeyEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -66,6 +66,16 @@ function formatHotkeyFromEvent(key: KeyEvent): { hotkey: string | null; error?: 
   return { hotkey: parts.join("+") };
 }
 
+/**
+ * Render a modal UI that captures a keyboard combination and sets the application's hotkey.
+ *
+ * The modal displays the current hotkey, listens for key combinations (ignoring modifier-only inputs and repeated/release events),
+ * sends a { type: "set_hotkey", hotkey } message to the backend when a valid combo is captured, and shows capture status or errors.
+ * Pressing Escape or "q" closes the modal. If opened with dialog data indicating a return to settings, closing will reopen the settings dialog
+ * with the provided selectedSettingId or filterQuery.
+ *
+ * @returns The modal element used to capture and set a new hotkey
+ */
 export function HotkeyModal(): JSX.Element {
   const { colors } = useTheme();
   const dialog = useDialog();
@@ -102,6 +112,9 @@ export function HotkeyModal(): JSX.Element {
     dialog.closeDialog();
   }
 
+  const unregisterDismissHandler = dialog.registerDismissHandler("hotkey", closeModal);
+  onCleanup(unregisterDismissHandler);
+
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "hotkey") return;
     if (key.eventType === "release" || key.repeated) return;
@@ -133,8 +146,6 @@ export function HotkeyModal(): JSX.Element {
       flexDirection="column"
       width={58}
       backgroundColor={colors().backgroundPanel}
-      borderStyle="single"
-      borderColor={colors().borderSubtle}
       paddingY={1}
     >
       <box paddingX={3} paddingTop={1} paddingBottom={0} flexDirection="column">
@@ -146,7 +157,7 @@ export function HotkeyModal(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>press combo</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={closeModal}>
+            <box backgroundColor={colors().error} paddingX={1} onMouseUp={closeModal}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
@@ -154,7 +165,7 @@ export function HotkeyModal(): JSX.Element {
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>

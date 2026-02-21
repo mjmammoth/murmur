@@ -1,12 +1,27 @@
 import { describe, expect, test } from "bun:test";
+import { formatDeviceLabel } from "../util/format";
 
 /**
  * Tests for SettingsSelectModal component
  *
- * Provides dropdown selection for various settings like backend, device, compute type, language, etc.
+ * Provides dropdown selection for various settings like runtime, device, compute type, language, etc.
  */
 
 describe("SettingsSelectModal", () => {
+  describe("device label formatting", () => {
+    test("should format mps label as Metal (mps)", () => {
+      expect(formatDeviceLabel("mps")).toBe("Metal (mps)");
+    });
+
+    test("should keep canonical mps value in set_model_device payload", () => {
+      const selected = { value: "mps", label: formatDeviceLabel("mps") };
+      const payload = { type: "set_model_device", device: selected.value ?? "cpu" };
+
+      expect(selected.label).toBe("Metal (mps)");
+      expect(payload.device).toBe("mps");
+    });
+  });
+
   describe("normalizeValue function", () => {
     test("should return empty string for null", () => {
       const value = null;
@@ -133,11 +148,11 @@ describe("SettingsSelectModal", () => {
   });
 
   describe("title and subtitle logic", () => {
-    test("should show Model Backend title", () => {
-      const settingId = "model.backend";
-      const title = settingId === "model.backend" ? "Model Backend" : "Other";
+    test("should show Model Runtime title", () => {
+      const settingId = "model.runtime";
+      const title = settingId === "model.runtime" ? "Model Runtime" : "Other";
 
-      expect(title).toBe("Model Backend");
+      expect(title).toBe("Model Runtime");
     });
 
     test("should show Model Language title", () => {
@@ -222,6 +237,50 @@ describe("SettingsSelectModal", () => {
       const shouldMoveDown = keyName === "down" || keyName === "j";
 
       expect(shouldMoveDown).toBe(true);
+    });
+  });
+
+  describe("return target behavior", () => {
+    test("should return to settings when returnToSettings is true", () => {
+      const dialogData = {
+        returnToSettings: true,
+        returnToDialog: "welcome" as const,
+      };
+      const destination = dialogData.returnToSettings
+        ? "settings"
+        : dialogData.returnToDialog === "welcome"
+          ? "welcome"
+          : "close";
+
+      expect(destination).toBe("settings");
+    });
+
+    test("should return to welcome when return target is welcome", () => {
+      const dialogData = {
+        returnToSettings: false,
+        returnToDialog: "welcome" as const,
+      };
+      const destination = dialogData.returnToSettings
+        ? "settings"
+        : dialogData.returnToDialog === "welcome"
+          ? "welcome"
+          : "close";
+
+      expect(destination).toBe("welcome");
+    });
+
+    test("should close when no return target is set", () => {
+      const dialogData = {
+        returnToSettings: false,
+        returnToDialog: null,
+      };
+      const destination = dialogData.returnToSettings
+        ? "settings"
+        : dialogData.returnToDialog === "welcome"
+          ? "welcome"
+          : "close";
+
+      expect(destination).toBe("close");
     });
   });
 

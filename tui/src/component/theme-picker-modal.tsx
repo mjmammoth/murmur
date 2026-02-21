@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
 import { useKeyHandler, useTerminalDimensions } from "@opentui/solid";
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -10,6 +10,16 @@ interface ThemePickerDialogData {
   returnFilterQuery?: string;
 }
 
+/**
+ * Render the theme picker modal with live preview, keyboard navigation, and mouse interactions.
+ *
+ * The modal lists available themes, previews a theme while navigating, lets the user apply the selected
+ * theme or cancel to restore the original (or a default) theme, and optionally returns to the settings
+ * dialog when closed. Keyboard shortcuts supported include up/down (or k/j) to navigate, Enter to apply,
+ * and Esc/q to cancel.
+ *
+ * @returns The modal's JSX element.
+ */
 export function ThemePickerModal(): JSX.Element {
   const { colors, themeId, availableThemes, setTheme, persistTheme } = useTheme();
   const dialog = useDialog();
@@ -106,6 +116,9 @@ export function ThemePickerModal(): JSX.Element {
     closeModal();
   }
 
+  const unregisterDismissHandler = dialog.registerDismissHandler("theme-picker", cancelSelection);
+  onCleanup(unregisterDismissHandler);
+
   function applySelection() {
     const selected = selectedTheme();
     if (!selected) return;
@@ -198,7 +211,7 @@ export function ThemePickerModal(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>live preview while navigating</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={cancelSelection}>
+            <box backgroundColor={colors().error} paddingX={1} onMouseUp={cancelSelection}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
@@ -206,7 +219,7 @@ export function ThemePickerModal(): JSX.Element {
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
@@ -256,7 +269,7 @@ export function ThemePickerModal(): JSX.Element {
                     setMouseArmedIndex(index());
                   }}
                 >
-                  <box width={1} backgroundColor={isActive() ? colors().secondary : undefined} />
+                  <box width={1} backgroundColor={isActive() ? colors().accent : undefined} />
                   <box paddingLeft={2} paddingRight={1} paddingY={1} flexDirection="column" width="100%">
                     <box flexDirection="row" justifyContent="space-between" width="100%">
                       <text>
@@ -276,7 +289,7 @@ export function ThemePickerModal(): JSX.Element {
                         <span style={{ fg: themeOption.colors?.primary ?? colors().primary }}>■■</span>
                       </text>
                       <text>
-                        <span style={{ fg: themeOption.colors?.secondary ?? colors().secondary }}>■■</span>
+                        <span style={{ fg: themeOption.colors?.secondary ?? colors().accent }}>■■</span>
                       </text>
                       <text>
                         <span style={{ fg: themeOption.colors?.accent ?? colors().accent }}>■■</span>

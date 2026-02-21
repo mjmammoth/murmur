@@ -19,10 +19,25 @@ from whisper_local.config import AppConfig
 
 @pytest.fixture
 def mock_config():
-    """Create a mock AppConfig."""
+    """
+    Provide a Mock AppConfig preconfigured with typical test defaults.
+    
+    The returned Mock mimics an AppConfig instance used by tests and includes preset values:
+    - top-level flags: auto_copy=False, auto_paste=False, auto_revert_clipboard=True
+    - audio: sample_rate=16000, noise_suppression.enabled=False
+    - vad: enabled=False, aggressiveness=2
+    - model: name='tiny', runtime='faster-whisper', device='cpu', compute_type='int8', path=None, language=None
+    - hotkey: key='f3', mode='ptt'
+    - ui: theme='default'
+    - output: clipboard=False, file.enabled=False, file.path=Path('/tmp/output.txt')
+    
+    Returns:
+        Mock: A Mock object spec'd as AppConfig with the above attributes.
+    """
     config = Mock(spec=AppConfig)
     config.auto_copy = False
     config.auto_paste = False
+    config.auto_revert_clipboard = True
     config.audio = Mock()
     config.audio.sample_rate = 16000
     config.audio.noise_suppression = Mock()
@@ -32,11 +47,10 @@ def mock_config():
     config.vad.aggressiveness = 2
     config.model = Mock()
     config.model.name = 'tiny'
-    config.model.backend = 'faster-whisper'
+    config.model.runtime = 'faster-whisper'
     config.model.device = 'cpu'
     config.model.compute_type = 'int8'
     config.model.path = None
-    config.model.auto_download = True
     config.model.language = None
     config.hotkey = Mock()
     config.hotkey.key = 'f3'
@@ -254,6 +268,232 @@ def test_toggle_auto_paste_enables_auto_copy(mock_config):
     mock_logger.info.assert_called_once_with('Auto paste enabled; forcing auto copy on')
 
 
+def test_toggle_auto_revert_clipboard_persists_and_broadcasts(mock_config):
+    """Toggling auto revert clipboard should persist and broadcast config."""
+    server = BridgeServer(mock_config)
+    server._auto_revert_clipboard = True
+    mock_config.auto_revert_clipboard = True
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    with patch('whisper_local.bridge.save_config') as mock_save:
+        asyncio.run(
+            server._handle_message(
+                Mock(),
+                json.dumps({'type': 'toggle_auto_revert_clipboard', 'enabled': False}),
+            )
+        )
+
+    assert server._auto_revert_clipboard is False
+    assert mock_config.auto_revert_clipboard is False
+    mock_save.assert_called_once_with(mock_config)
+    server._broadcast.assert_awaited_once_with(
+        {
+            'type': 'toast',
+            'message': 'Auto revert clipboard off',
+            'level': 'success',
+        }
+    )
+    server._broadcast_config.assert_awaited_once()
+
+
+def test_config_payload_includes_auto_revert_clipboard(mock_config):
+    """Bridge config payload should include auto_revert_clipboard flag."""
+    server = BridgeServer(mock_config)
+    server._auto_revert_clipboard = False
+    mock_config.to_dict.return_value = {"model": {"runtime": "faster-whisper"}}
+
+    payload = server._config_payload()
+
+    assert payload["auto_revert_clipboard"] is False
+
+
+def test_process_audio_auto_paste_reverts_clipboard_in_order(mock_config):
+    """Auto-paste with auto-revert should snapshot, paste, and restore in order."""
+    server = BridgeServer(mock_config)
+    server._auto_paste = True
+    server._auto_copy = True
+    server._auto_revert_clipboard = True
+    server._broadcast = AsyncMock()
+
+    mock_config.output.clipboard = False
+    mock_config.output.file.enabled = False
+    mock_config.vad.enabled = False
+
+    audio = Mock()
+    audio.size = 4
+    audio.shape = (4,)
+
+    result = Mock()
+    result.text = "hello world"
+    result.language = "en"
+
+    transcriber = Mock()
+    transcriber.transcribe.return_value = result
+    transcriber.runtime_info.return_value = {}
+
+    call_order: list[str] = []
+    snapshot = object()
+
+    async def fake_to_thread(func, *args, **kwargs):
+        """
+        Invoke a synchronous callable directly from async code.
+        
+        Parameters:
+            func (callable): The function or callable to invoke.
+            *args: Positional arguments forwarded to `func`.
+            **kwargs: Keyword arguments forwarded to `func`.
+        
+        Returns:
+            The value returned by calling `func(*args, **kwargs)`.
+        """
+        return func(*args, **kwargs)
+
+    with patch("whisper_local.bridge.capture_clipboard_snapshot") as mock_capture, patch(
+        "whisper_local.bridge.copy_to_clipboard"
+    ) as mock_copy, patch("whisper_local.bridge.paste_from_clipboard") as mock_paste, patch(
+        "whisper_local.bridge.restore_clipboard_snapshot"
+    ) as mock_restore, patch(
+        "whisper_local.bridge.asyncio.to_thread", side_effect=fake_to_thread
+    ), patch("whisper_local.bridge.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        mock_capture.side_effect = lambda: call_order.append("capture") or snapshot
+        mock_copy.side_effect = lambda text: call_order.append("copy") or True
+        mock_paste.side_effect = lambda: call_order.append("paste") or True
+        mock_restore.side_effect = lambda snap: call_order.append("restore") or True
+
+        asyncio.run(
+            server._process_audio(
+                audio,
+                transcriber=transcriber,
+                language=None,
+                sample_rate=mock_config.audio.sample_rate,
+            )
+        )
+
+    assert call_order == ["capture", "copy", "paste", "restore"]
+    mock_sleep.assert_awaited_once_with(0.12)
+    suppress_payloads = [
+        call.args[0]
+        for call in server._broadcast.await_args_list
+        if call.args and call.args[0].get("type") == "suppress_paste_input"
+    ]
+    assert len(suppress_payloads) == 1
+
+
+def test_process_audio_auto_paste_without_revert_does_not_restore(mock_config):
+    """Auto-paste without auto-revert should not capture or restore clipboard."""
+    server = BridgeServer(mock_config)
+    server._auto_paste = True
+    server._auto_copy = True
+    server._auto_revert_clipboard = False
+    server._broadcast = AsyncMock()
+
+    mock_config.output.clipboard = False
+    mock_config.output.file.enabled = False
+    mock_config.vad.enabled = False
+
+    audio = Mock()
+    audio.size = 4
+    audio.shape = (4,)
+
+    result = Mock()
+    result.text = "hello world"
+    result.language = "en"
+
+    transcriber = Mock()
+    transcriber.transcribe.return_value = result
+    transcriber.runtime_info.return_value = {}
+
+    async def fake_to_thread(func, *args, **kwargs):
+        """
+        Invoke a synchronous callable directly from async code.
+        
+        Parameters:
+            func (callable): The function or callable to invoke.
+            *args: Positional arguments forwarded to `func`.
+            **kwargs: Keyword arguments forwarded to `func`.
+        
+        Returns:
+            The value returned by calling `func(*args, **kwargs)`.
+        """
+        return func(*args, **kwargs)
+
+    with patch("whisper_local.bridge.capture_clipboard_snapshot") as mock_capture, patch(
+        "whisper_local.bridge.copy_to_clipboard", return_value=True
+    ), patch("whisper_local.bridge.paste_from_clipboard", return_value=True), patch(
+        "whisper_local.bridge.restore_clipboard_snapshot"
+    ) as mock_restore, patch("whisper_local.bridge.asyncio.to_thread", side_effect=fake_to_thread):
+        asyncio.run(
+            server._process_audio(
+                audio,
+                transcriber=transcriber,
+                language=None,
+                sample_rate=mock_config.audio.sample_rate,
+            )
+        )
+
+    mock_capture.assert_not_called()
+    mock_restore.assert_not_called()
+
+
+def test_process_audio_auto_paste_revert_attempted_when_paste_fails(mock_config):
+    """Clipboard restore should still be attempted when paste command fails."""
+    server = BridgeServer(mock_config)
+    server._auto_paste = True
+    server._auto_copy = True
+    server._auto_revert_clipboard = True
+    server._broadcast = AsyncMock()
+
+    mock_config.output.clipboard = False
+    mock_config.output.file.enabled = False
+    mock_config.vad.enabled = False
+
+    audio = Mock()
+    audio.size = 4
+    audio.shape = (4,)
+
+    result = Mock()
+    result.text = "hello world"
+    result.language = "en"
+
+    transcriber = Mock()
+    transcriber.transcribe.return_value = result
+    transcriber.runtime_info.return_value = {}
+
+    async def fake_to_thread(func, *args, **kwargs):
+        """
+        Invoke a synchronous callable directly from async code.
+        
+        Parameters:
+            func (callable): The function or callable to invoke.
+            *args: Positional arguments forwarded to `func`.
+            **kwargs: Keyword arguments forwarded to `func`.
+        
+        Returns:
+            The value returned by calling `func(*args, **kwargs)`.
+        """
+        return func(*args, **kwargs)
+
+    with patch("whisper_local.bridge.capture_clipboard_snapshot", return_value=object()), patch(
+        "whisper_local.bridge.copy_to_clipboard", return_value=True
+    ), patch("whisper_local.bridge.paste_from_clipboard", return_value=False), patch(
+        "whisper_local.bridge.restore_clipboard_snapshot", return_value=True
+    ) as mock_restore, patch(
+        "whisper_local.bridge.asyncio.to_thread", side_effect=fake_to_thread
+    ), patch("whisper_local.bridge.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        asyncio.run(
+            server._process_audio(
+                audio,
+                transcriber=transcriber,
+                language=None,
+                sample_rate=mock_config.audio.sample_rate,
+            )
+        )
+
+    mock_restore.assert_called_once()
+    mock_sleep.assert_not_awaited()
+
+
 def test_bridge_server_spawn_task():
     """Test _spawn_task creates and tracks tasks."""
     config = Mock()
@@ -324,6 +564,107 @@ def test_bridge_server_spawn_model_task_cancels_existing():
 
         existing_task.cancel.assert_called_once()
         assert server._model_tasks['tiny'] == mock_new_task
+
+
+def test_cancel_model_download_cancels_queued_task_without_error(mock_config):
+    """Queued downloads should cancel cleanly instead of reporting no-active errors."""
+    server = BridgeServer(mock_config)
+    queued_task = Mock()
+    queued_task.done.return_value = False
+    server._download_queue.enqueue_download(
+        "faster-whisper:small",
+        model="small",
+        runtime="faster-whisper",
+        task=queued_task,
+    )
+    server._broadcast = AsyncMock()
+
+    asyncio.run(server._cancel_model_download("small", runtime="faster-whisper"))
+
+    queued_task.cancel.assert_called_once()
+    server._broadcast.assert_awaited_once_with(
+        {
+            "type": "toast",
+            "message": "Cancelled queued download small.",
+            "model": "small",
+            "runtime": "faster-whisper",
+            "action": "download_cancelled",
+            "level": "info",
+        }
+    )
+
+
+def test_cancel_model_download_infers_single_queued_task(mock_config):
+    """Blank cancel requests should resolve a single queued download."""
+    server = BridgeServer(mock_config)
+    queued_task = Mock()
+    queued_task.done.return_value = False
+    server._download_queue.enqueue_download(
+        "whisper.cpp:base",
+        model="base",
+        runtime="whisper.cpp",
+        task=queued_task,
+    )
+    server._broadcast = AsyncMock()
+
+    asyncio.run(server._cancel_model_download("", runtime=None))
+
+    queued_task.cancel.assert_called_once()
+    server._broadcast.assert_awaited_once_with(
+        {
+            "type": "toast",
+            "message": "Cancelled queued download base.",
+            "model": "base",
+            "runtime": "whisper.cpp",
+            "action": "download_cancelled",
+            "level": "info",
+        }
+    )
+
+
+def test_cancel_model_download_is_idempotent_without_error_toast(mock_config):
+    server = BridgeServer(mock_config)
+    queued_task = Mock()
+    queued_task.done.return_value = False
+    server._download_queue.enqueue_download(
+        "faster-whisper:small",
+        model="small",
+        runtime="faster-whisper",
+        task=queued_task,
+    )
+    server._broadcast = AsyncMock()
+
+    asyncio.run(server._cancel_model_download("small", runtime="faster-whisper"))
+    asyncio.run(server._cancel_model_download("small", runtime="faster-whisper"))
+
+    messages = [call.args[0]["message"] for call in server._broadcast.await_args_list if call.args]
+    assert "No active download matches request" not in messages
+
+
+def test_cancel_all_model_downloads_cancels_queued_entries(mock_config):
+    server = BridgeServer(mock_config)
+    first_task = Mock()
+    first_task.done.return_value = False
+    second_task = Mock()
+    second_task.done.return_value = False
+    server._download_queue.enqueue_download(
+        "faster-whisper:small",
+        model="small",
+        runtime="faster-whisper",
+        task=first_task,
+    )
+    server._download_queue.enqueue_download(
+        "whisper.cpp:base",
+        model="base",
+        runtime="whisper.cpp",
+        task=second_task,
+    )
+    server._broadcast = AsyncMock()
+
+    asyncio.run(server._cancel_all_model_downloads())
+
+    first_task.cancel.assert_called_once()
+    second_task.cancel.assert_called_once()
 
 
 def test_bridge_server_client_path_legacy_api():
@@ -459,6 +800,183 @@ def test_bridge_server_installed_model_names():
         assert result == ['tiny', 'small']
 
 
+def test_bridge_server_installed_model_names_backend_aware():
+    """Test _installed_model_names filters by runtime variant install state."""
+    config = Mock()
+    config.model = Mock()
+    config.model.runtime = "faster-whisper"
+    server = BridgeServer(config)
+
+    with patch("whisper_local.bridge.list_installed_models") as mock_list:
+        tiny = Mock()
+        tiny.name = "tiny"
+        tiny.variants = {
+            "faster-whisper": Mock(installed=True),
+            "whisper.cpp": Mock(installed=False),
+        }
+        base = Mock()
+        base.name = "base"
+        base.variants = {
+            "faster-whisper": Mock(installed=False),
+            "whisper.cpp": Mock(installed=True),
+        }
+        mock_list.return_value = [tiny, base]
+
+        assert server._installed_model_names("faster-whisper") == ["tiny"]
+        assert server._installed_model_names("whisper.cpp") == ["base"]
+
+
+def test_bridge_server_set_model_runtime_missing_variant_emits_requirement_event(mock_config):
+    """Switching runtime without required variant should emit requirement event and keep runtime."""
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = False
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    capabilities = {
+        "model": {
+            "runtimes": {
+                "whisper.cpp": {"enabled": True, "reason": None},
+            },
+            "devices": {},
+            "compute_types_by_device": {},
+        }
+    }
+
+    with patch.object(server, "_detect_runtime_capabilities", return_value=capabilities), patch(
+        "whisper_local.bridge.get_installed_model_path",
+        return_value=None,
+    ):
+        asyncio.run(server._set_model_runtime("whisper.cpp"))
+
+    assert mock_config.model.runtime == "faster-whisper"
+
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    requirement_payload = next(
+        (payload for payload in payloads if payload.get("type") == "runtime_switch_requires_model_variant"),
+        None,
+    )
+    assert requirement_payload is not None
+    assert requirement_payload["runtime"] == "whisper.cpp"
+    assert requirement_payload["model"] == "tiny"
+    assert requirement_payload["format"] == "ggml"
+
+
+def test_bridge_server_set_model_runtime_first_run_missing_variant_applies_without_prompt(mock_config):
+    """First-run runtime switch should apply config without model-variant requirement prompt."""
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = True
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+    server._reload_transcriber = AsyncMock()
+
+    capabilities = {
+        "model": {
+            "runtimes": {
+                "whisper.cpp": {"enabled": True, "reason": None},
+            },
+            "devices": {
+                "cpu": {"enabled": True, "reason": None},
+                "mps": {"enabled": True, "reason": None},
+                "cuda": {"enabled": False, "reason": "No CUDA GPU detected"},
+            },
+            "compute_types_by_device": {
+                "cpu": ["default"],
+                "mps": ["default"],
+                "cuda": [],
+            },
+        }
+    }
+
+    with patch.object(server, "_detect_runtime_capabilities", return_value=capabilities), patch(
+        "whisper_local.bridge.get_installed_model_path",
+        return_value=None,
+    ), patch.object(server, "_persist_config", return_value=None):
+        asyncio.run(server._set_model_runtime("whisper.cpp"))
+
+    assert mock_config.model.runtime == "whisper.cpp"
+    assert mock_config.model.compute_type == "default"
+    server._reload_transcriber.assert_not_awaited()
+
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert not any(
+        payload.get("type") == "runtime_switch_requires_model_variant"
+        for payload in payloads
+    )
+    assert any(
+        payload.get("message") == "Model runtime whisper.cpp"
+        for payload in payloads
+    )
+
+
+def test_bridge_server_set_model_device_first_run_persists_without_reload(mock_config):
+    """First-run model device change should persist without transcriber reload."""
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = True
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+    server._reload_transcriber = AsyncMock()
+    server._runtime_capabilities = {
+        "model": {
+            "devices": {
+                "cpu": {"enabled": True, "reason": None},
+                "mps": {"enabled": True, "reason": None},
+                "cuda": {"enabled": False, "reason": "No CUDA GPU detected"},
+            }
+        }
+    }
+
+    with patch.object(server, "_persist_config", return_value=None), patch.object(
+        server, "_refresh_runtime_capabilities"
+    ):
+        asyncio.run(server._set_model_device("mps"))
+
+    assert mock_config.model.device == "mps"
+    server._reload_transcriber.assert_not_awaited()
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any(
+        payload.get("message") == "Model device mps"
+        for payload in payloads
+    )
+
+
+def test_bridge_server_download_progress_payload_includes_backend(mock_config):
+    """Download progress payload should include runtime for variant-aware UI updates."""
+    server = BridgeServer(mock_config)
+    server._broadcast = AsyncMock()
+    server._broadcast_models = AsyncMock()
+    server._set_selected_model = AsyncMock()
+
+    def fake_download_model(name, runtime, progress_callback=None, cancel_check=None):
+        """
+        Simulates a model download in tests and reports a single fixed progress update.
+        
+        Parameters:
+            name (str): Expected model name; the function asserts it equals "tiny".
+            runtime (str): Expected runtime identifier; the function asserts it equals "whisper.cpp".
+            progress_callback (callable | None): Optional callable invoked with an integer percent (35) to report progress.
+            cancel_check (callable | None): Optional callable checked for cancellation; accepted but not used by this fake implementation.
+        """
+        assert name == "tiny"
+        assert runtime == "whisper.cpp"
+        if progress_callback:
+            progress_callback(35)
+
+    with patch("whisper_local.bridge.download_model", side_effect=fake_download_model):
+        asyncio.run(server._download_model("tiny", runtime="whisper.cpp"))
+
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    progress_payloads = [payload for payload in payloads if payload.get("type") == "download_progress"]
+    assert any(
+        payload.get("runtime") == "whisper.cpp" and payload.get("model") == "tiny"
+        for payload in progress_payloads
+    )
+    assert any(
+        payload.get("runtime") == "whisper.cpp" and payload.get("percent") == 100
+        for payload in progress_payloads
+    )
+
+
 def test_bridge_server_has_installed_models_true():
     """Test _has_installed_models returns True when models installed."""
     config = Mock()
@@ -508,11 +1026,11 @@ def test_bridge_server_detect_runtime_capabilities(mock_config):
     server = BridgeServer(mock_config)
 
     with patch('whisper_local.transcribe.detect_runtime_capabilities') as mock_detect:
-        mock_detect.return_value = {'backend': 'test'}
+        mock_detect.return_value = {'runtime': 'test'}
 
         result = server._detect_runtime_capabilities()
 
-        assert result == {'backend': 'test'}
+        assert result == {'runtime': 'test'}
         mock_detect.assert_called_once_with('faster-whisper')
 
 
@@ -686,6 +1204,23 @@ def test_bridge_server_shutdown_closes_noise(mock_config):
     server.noise.close.assert_called_once()
 
 
+def test_bridge_server_shutdown_cancels_pending_download_tasks(mock_config):
+    server = BridgeServer(mock_config)
+    queued_task = Mock()
+    queued_task.done.return_value = False
+    server._download_queue.enqueue_download(
+        "faster-whisper:tiny",
+        model="tiny",
+        runtime="faster-whisper",
+        task=queued_task,
+    )
+    server._model_tasks["faster-whisper:tiny"] = queued_task
+
+    server.shutdown()
+
+    queued_task.cancel.assert_called()
+
+
 def test_websocket_log_handler_emits_log_to_clients():
     """Test WebSocketLogHandler emits logs to bridge clients."""
     mock_bridge = Mock()
@@ -755,10 +1290,87 @@ def test_websocket_log_handler_handles_emit_errors():
     handler.emit(record)
 
 
+def test_broadcast_mirrors_info_toast_to_logger(mock_config):
+    server = BridgeServer(mock_config)
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(
+            server._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Model download queued",
+                    "level": "info",
+                    "action": "download_queued",
+                    "runtime": "faster-whisper",
+                    "model": "tiny",
+                }
+            )
+        )
+
+    mock_logger.info.assert_called_once_with(
+        "toast: %s%s",
+        "Model download queued",
+        " (action=download_queued, runtime=faster-whisper, model=tiny)",
+    )
+    mock_logger.error.assert_not_called()
+
+
+def test_broadcast_mirrors_success_toast_to_info_logger(mock_config):
+    server = BridgeServer(mock_config)
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(
+            server._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Auto paste on; auto copy on",
+                    "level": "success",
+                }
+            )
+        )
+
+    mock_logger.info.assert_called_once_with("toast: %s%s", "Auto paste on; auto copy on", "")
+    mock_logger.error.assert_not_called()
+
+
+def test_broadcast_mirrors_error_toast_to_error_logger(mock_config):
+    server = BridgeServer(mock_config)
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(
+            server._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Failed to persist setting",
+                    "level": "error",
+                }
+            )
+        )
+
+    mock_logger.error.assert_called_once_with("toast: %s%s", "Failed to persist setting", "")
+    mock_logger.info.assert_not_called()
+
+
+def test_broadcast_does_not_log_non_toast_messages(mock_config):
+    server = BridgeServer(mock_config)
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(server._broadcast({"type": "status", "status": "ready", "message": "Ready"}))
+
+    mock_logger.info.assert_not_called()
+    mock_logger.error.assert_not_called()
+
+
+def test_broadcast_ignores_empty_toast_message(mock_config):
+    server = BridgeServer(mock_config)
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(server._broadcast({"type": "toast", "message": "   ", "level": "info"}))
+
+    mock_logger.info.assert_not_called()
+    mock_logger.error.assert_not_called()
+
+
 def test_constants_defined():
     """Test that bridge constants are defined."""
     from whisper_local.bridge import (
         AUTO_PASTE_INPUT_SUPPRESS_MS,
+        AUTO_REVERT_CLIPBOARD_DELAY_MS,
         MAX_DROP_AUDIO_SECONDS,
         MAX_DROP_FILE_BYTES,
         MAX_DROP_FILES,
@@ -768,3 +1380,4 @@ def test_constants_defined():
     assert isinstance(MAX_DROP_FILE_BYTES, int)
     assert isinstance(MAX_DROP_AUDIO_SECONDS, int)
     assert isinstance(AUTO_PASTE_INPUT_SUPPRESS_MS, int)
+    assert isinstance(AUTO_REVERT_CLIPBOARD_DELAY_MS, int)

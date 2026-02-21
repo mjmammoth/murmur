@@ -1,11 +1,12 @@
-auto_copy = false
-auto_paste = false
+auto_copy = true
+auto_paste = true
+auto_revert_clipboard = true
 
 [model]
 name = "small"
+runtime = "faster-whisper"
 device = "cpu"
 compute_type = "int8"
-auto_download = false
 
 [hotkey]
 mode = "ptt"

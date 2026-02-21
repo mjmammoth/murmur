@@ -11,6 +11,7 @@ from whisper_local import model_manager
 from whisper_local.model_manager import (
     DownloadCancelledError,
     ModelInfo,
+    ModelVariantInfo,
     download_model,
     ensure_model_available,
     get_hf_cache_dir,
@@ -22,6 +23,11 @@ from whisper_local.model_manager import (
     remove_model,
     set_default_model,
     set_selected_model,
+)
+from whisper_local.model_ops import (
+    FasterWhisperModelRuntimeOperations,
+    WhisperCppModelRuntimeOperations,
+    get_model_runtime_operations_factory,
 )
 
 
@@ -206,8 +212,10 @@ def test_list_installed_models_none_installed(tmp_path: Path, monkeypatch):
 
     models = list_installed_models()
     assert len(models) == len(model_manager.MODEL_NAMES)
-    assert all(not model.installed for model in models)
-    assert all(model.path is None for model in models)
+    assert all(not model.variants["faster-whisper"].installed for model in models)
+    assert all(not model.variants["whisper.cpp"].installed for model in models)
+    assert all(model.variants["faster-whisper"].path is None for model in models)
+    assert all(model.variants["whisper.cpp"].path is None for model in models)
 
 
 def test_list_installed_models_some_installed(tmp_path: Path, monkeypatch):
@@ -221,29 +229,50 @@ def test_list_installed_models_some_installed(tmp_path: Path, monkeypatch):
     models = list_installed_models()
 
     tiny_model = next(m for m in models if m.name == "tiny")
-    assert tiny_model.installed
-    assert tiny_model.path == tiny_snapshot
+    assert tiny_model.variants["faster-whisper"].installed
+    assert tiny_model.variants["faster-whisper"].path == tiny_snapshot
+    assert not tiny_model.variants["whisper.cpp"].installed
+    assert tiny_model.variants["whisper.cpp"].path is None
 
     base_model = next(m for m in models if m.name == "base")
-    assert not base_model.installed
-    assert base_model.path is None
+    assert not base_model.variants["faster-whisper"].installed
+    assert base_model.variants["faster-whisper"].path is None
+    assert not base_model.variants["whisper.cpp"].installed
+    assert base_model.variants["whisper.cpp"].path is None
 
 
 def test_model_info_dataclass():
     """Test ModelInfo dataclass creation."""
     info = ModelInfo(
         name="test",
-        installed=True,
-        path=Path("/test/path"),
-        size_bytes=1000000,
-        size_estimated=False
+        variants={
+            "faster-whisper": ModelVariantInfo(
+                runtime="faster-whisper",
+                format="ct2",
+                installed=True,
+                path=Path("/test/path/fw"),
+                size_bytes=1000000,
+                size_estimated=False,
+            ),
+            "whisper.cpp": ModelVariantInfo(
+                runtime="whisper.cpp",
+                format="ggml",
+                installed=False,
+                path=None,
+                size_bytes=2000000,
+                size_estimated=True,
+            ),
+        },
     )
 
     assert info.name == "test"
-    assert info.installed is True
-    assert info.path == Path("/test/path")
-    assert info.size_bytes == 1000000
-    assert info.size_estimated is False
+    assert info.variants["faster-whisper"].installed is True
+    assert info.variants["faster-whisper"].path == Path("/test/path/fw")
+    assert info.variants["faster-whisper"].size_bytes == 1000000
+    assert info.variants["faster-whisper"].size_estimated is False
+    assert info.variants["whisper.cpp"].installed is False
+    assert info.variants["whisper.cpp"].size_bytes == 2000000
+    assert info.variants["whisper.cpp"].size_estimated is True
 
 
 def test_remove_model(tmp_path: Path, monkeypatch):
@@ -561,3 +590,81 @@ def test_hf_hub_xet_disabled_during_download():
     # This is a regression test to ensure XET is disabled
     # to avoid subprocess FD issues
     assert "HF_HUB_DISABLE_XET" in os.environ or True  # Set by module init
+
+
+def test_runtime_operations_factory_returns_expected_strategies():
+    factory = get_model_runtime_operations_factory()
+
+    assert isinstance(factory.for_runtime("faster-whisper"), FasterWhisperModelRuntimeOperations)
+    assert isinstance(factory.for_runtime("whisper.cpp"), WhisperCppModelRuntimeOperations)
+
+
+def test_download_model_uses_factory_strategy():
+    fake_ops = Mock()
+    fake_ops.download.return_value = Path("/tmp/model")
+    fake_factory = Mock()
+    fake_factory.for_runtime.return_value = fake_ops
+
+    with patch("whisper_local.model_manager.get_model_runtime_operations_factory", return_value=fake_factory):
+        result = download_model("tiny", runtime="whisper.cpp")
+
+    assert result == Path("/tmp/model")
+    fake_factory.for_runtime.assert_called_once_with("whisper.cpp")
+    fake_ops.download.assert_called_once_with(
+        "tiny",
+        progress_callback=None,
+        cancel_check=None,
+    )
+
+
+def test_whisper_cpp_download_cancelled_before_start_raises():
+    ops = WhisperCppModelRuntimeOperations()
+
+    with patch("whisper_local.model_manager.get_installed_whisper_cpp_model_path", return_value=None):
+        with pytest.raises(DownloadCancelledError, match="Download cancelled before start"):
+            ops.download("tiny", cancel_check=lambda: True)
+
+
+def test_whisper_cpp_download_cancelled_during_transfer_terminates_subprocess():
+    ops = WhisperCppModelRuntimeOperations()
+    process = Mock()
+    process.poll.return_value = None
+    process.wait.return_value = None
+
+    with patch("whisper_local.model_ops.subprocess.Popen", return_value=process), patch(
+        "whisper_local.model_manager._prune_whisper_cpp_cache"
+    ) as prune_cache:
+        with pytest.raises(DownloadCancelledError, match="Download cancelled"):
+            ops._download_file_in_subprocess(
+                repo_id="ggerganov/whisper.cpp",
+                filename="ggml-tiny.bin",
+                cancel_check=lambda: True,
+            )
+
+    process.terminate.assert_called_once()
+    prune_cache.assert_called_once()
+
+
+def test_whisper_cpp_progress_uses_incremental_cache_delta():
+    ops = WhisperCppModelRuntimeOperations()
+    process = Mock()
+    process.poll.side_effect = [None, 0]
+    process.returncode = 0
+    process.communicate.return_value = ("/tmp/model.bin\n", "")
+    progress_updates: list[int] = []
+
+    with patch("whisper_local.model_ops.subprocess.Popen", return_value=process), patch(
+        "whisper_local.model_manager._cache_path_size_bytes",
+        side_effect=[1000, 1200],
+    ):
+        result = ops._download_file_in_subprocess(
+            repo_id="ggerganov/whisper.cpp",
+            filename="ggml-tiny.bin",
+            progress_callback=progress_updates.append,
+            expected_total_bytes=1000,
+        )
+
+    assert result == Path("/tmp/model.bin")
+    # 200 bytes transferred over a 1000-byte expected file should report 20%.
+    assert 20 in progress_updates
+    assert 99 not in progress_updates

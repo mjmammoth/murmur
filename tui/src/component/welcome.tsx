@@ -2,29 +2,38 @@ import {
   createSignal,
   createMemo,
   createEffect,
+  onCleanup,
   on,
   For,
   Show,
   type JSX,
 } from "solid-js";
 import { useKeyHandler, useTerminalDimensions } from "@opentui/solid";
-import type { KeyEvent } from "@opentui/core";
+import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../context/theme";
 import { useBackend, type CapabilitiesResponse } from "../context/backend";
 import { useDialog } from "../context/dialog";
 import { useSpinnerFrame } from "./spinner";
-import { formatBytes } from "../util/format";
-import type { WelcomeDialogData } from "../types";
+import { BrandTitle } from "./brand-title";
+import { formatBytes, formatDeviceLabel } from "../util/format";
+import type { RuntimeName, SelectSettingId, WelcomeDialogData } from "../types";
 
 // ---------------------------------------------------------------------------
 // Shared sub-components
-// ---------------------------------------------------------------------------
+/**
+ * Renders a compact clickable key hint showing a styled key sequence and its label.
+ *
+ * @param keys - The key sequence text to display (for example, "Enter" or "Ctrl+K").
+ * @param label - The descriptive text shown alongside the key sequence.
+ * @param onClick - Optional callback invoked when the hint is clicked.
+ * @returns The rendered CommandHint JSX element.
+ */
 
 function CommandHint(props: { keys: string; label: string; onClick?: () => void }): JSX.Element {
   const { colors } = useTheme();
   return (
     <box flexDirection="row" alignItems="center" gap={1} onMouseUp={() => props.onClick?.()}>
-      <box backgroundColor={colors().secondary} paddingX={1}>
+      <box backgroundColor={colors().accent} paddingX={1}>
         <text>
           <span style={{ fg: colors().selectedText }}>{props.keys}</span>
         </text>
@@ -65,7 +74,11 @@ function Muted(props: { children: string }): JSX.Element {
 
 // ---------------------------------------------------------------------------
 // Step 1: Welcome
-// ---------------------------------------------------------------------------
+/**
+ * Render the initial welcome step for the onboarding flow, describing product features, how to start/stop recording, clipboard behavior, status indicator, and basic UI interaction hints.
+ *
+ * @returns The JSX element containing the welcome step UI.
+ */
 
 function WelcomeStep(): JSX.Element {
   const { colors } = useTheme();
@@ -74,12 +87,65 @@ function WelcomeStep(): JSX.Element {
       <text>
         <span style={{ fg: colors().primary, bold: true }}>Welcome to whisper.local</span>
       </text>
-      <Paragraph>Local speech-to-text transcription, entirely on your machine.</Paragraph>
-      <Paragraph>No data leaves your computer. Audio is captured, transcribed</Paragraph>
-      <Paragraph>by an AI model running locally, and the text is shown here.</Paragraph>
+      <Paragraph>
+        Local speech-to-text transcription, entirely on your machine.
+        No data leaves your computer. Audio is captured, transcribed
+        by an OpenAI Whisper model running locally.
+      </Paragraph>
+
       <box marginTop={1} flexDirection="column" gap={0}>
         <text>
-          <span style={{ fg: colors().accent, bold: true }}>Everything in the UI is clickable.</span>
+          <span style={{ fg: colors().primary, bold: true }}>How it works</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>Press the global hotkey (</span>
+          <span style={{ fg: colors().secondary, bold: true }}>F3</span>
+          <span style={{ fg: colors().text }}> by default) to </span>
+          <span style={{ fg: colors().secondary, bold: true }}>start</span>
+          <span style={{ fg: colors().text }}> recording</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>from any application. Press it again to </span>
+          <span style={{ fg: colors().secondary, bold: true }}>stop</span>
+          <span style={{ fg: colors().text }}>. Your speech</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>is transcribed and the text is automatically </span>
+          <span style={{ fg: colors().secondary, bold: true }}>copied</span>
+          <span style={{ fg: colors().text }}> to your</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>clipboard and </span>
+          <span style={{ fg: colors().secondary, bold: true }}>pasted</span>
+          <span style={{ fg: colors().text }}> into the active app.</span>
+        </text>
+      </box>
+
+      <box marginTop={1} flexDirection="column" gap={0}>
+        <text>
+          <span style={{ fg: colors().text }}>After pasting, the </span>
+          <span style={{ fg: colors().secondary, bold: true }}>clipboard is restored</span>
+          <span style={{ fg: colors().text }}> to whatever you</span>
+        </text>
+        <Paragraph>had copied before, so your workflow isn't interrupted.</Paragraph>
+      </box>
+
+      <box marginTop={1} flexDirection="column" gap={0}>
+        <text>
+          <span style={{ fg: colors().primary, bold: true }}>Status indicator</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>A </span>
+          <span style={{ fg: colors().accent, bold: true }}>menu bar icon</span>
+          <span style={{ fg: colors().text }}> shows the current state — idle, recording,</span>
+        </text>
+        <Paragraph>or transcribing — so you always know what's happening</Paragraph>
+        <Paragraph>even when this window is in the background.</Paragraph>
+      </box>
+
+      <box marginTop={1} flexDirection="column" gap={0}>
+        <text>
+          <span style={{ fg: colors().accent, bold: true }}>The UI is clickable.</span>
         </text>
         <Paragraph>Buttons, labels, toggles, status indicators - click them</Paragraph>
         <Paragraph>to interact, or use keyboard shortcuts shown below.</Paragraph>
@@ -93,48 +159,88 @@ function WelcomeStep(): JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
-// Step 2: UI Guide
-// ---------------------------------------------------------------------------
+// Help screen (single page for non-first-run ? press)
+/**
+ * Renders the Help/About screen showing branding, how the app works, clipboard behavior, keyboard shortcuts, and that the UI is clickable.
+ *
+ * This component displays explanatory text and shortcut hints used in the onboarding/help flow.
+ *
+ * @returns A JSX.Element containing the help screen content
+ */
 
-function UIGuideStep(): JSX.Element {
+function HelpScreen(): JSX.Element {
   const { colors } = useTheme();
   return (
     <box flexDirection="column" gap={1} paddingX={2} paddingY={1} flexShrink={0}>
-      <SectionTitle text="How the UI works" />
+      <BrandTitle />
+      <Paragraph>
+        Local speech-to-text transcription, entirely on your machine.
+      </Paragraph>
 
-      <box flexDirection="column" gap={0}>
+      <box marginTop={1} flexDirection="column" gap={0}>
         <text>
-          <span style={{ fg: colors().text }}>Colored letters in labels are </span>
-          <span style={{ fg: colors().accent, bold: true }}>hotkeys</span>
-          <span style={{ fg: colors().text }}>.</span>
+          <span style={{ fg: colors().primary, bold: true }}>How it works</span>
         </text>
         <text>
-          <span style={{ fg: colors().text }}>For example, "</span>
+          <span style={{ fg: colors().text }}>Press the global hotkey (</span>
+          <span style={{ fg: colors().secondary, bold: true }}>F3</span>
+          <span style={{ fg: colors().text }}> by default) to </span>
+          <span style={{ fg: colors().secondary, bold: true }}>start</span>
+          <span style={{ fg: colors().text }}> recording</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>from any application. Press it again to </span>
+          <span style={{ fg: colors().secondary, bold: true }}>stop</span>
+          <span style={{ fg: colors().text }}>. Your speech</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>is transcribed and the text is automatically </span>
+          <span style={{ fg: colors().secondary, bold: true }}>copied</span>
+          <span style={{ fg: colors().text }}> to your</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>clipboard and </span>
+          <span style={{ fg: colors().secondary, bold: true }}>pasted</span>
+          <span style={{ fg: colors().text }}> into the active app.</span>
+        </text>
+      </box>
+
+      <box marginTop={1} flexDirection="column" gap={0}>
+        <text>
+          <span style={{ fg: colors().text }}>After pasting, the </span>
+          <span style={{ fg: colors().secondary, bold: true }}>clipboard is restored</span>
+          <span style={{ fg: colors().text }}> to whatever you</span>
+        </text>
+        <Paragraph>had copied before, so your workflow isn't interrupted.</Paragraph>
+      </box>
+
+      <box marginTop={1} flexDirection="column" gap={0}>
+        <text>
+          <span style={{ fg: colors().primary, bold: true }}>Keyboard shortcuts</span>
+        </text>
+        <text>
+          <span style={{ fg: colors().text }}>Colored letters in labels are </span>
+          <span style={{ fg: colors().secondary, bold: true }}>hotkeys</span>
+          <span style={{ fg: colors().text }}> — e.g. "</span>
           <span style={{ fg: colors().accent, bold: true }}>s</span>
           <span style={{ fg: colors().textDim }}>ettings</span>
           <span style={{ fg: colors().text }}>" means press </span>
           <span style={{ fg: colors().accent, bold: true }}>s</span>
-          <span style={{ fg: colors().text }}> to open settings.</span>
+          <span style={{ fg: colors().text }}>.</span>
         </text>
-      </box>
-
-      <box flexDirection="column" gap={0} marginTop={1}>
-        <text>
-          <span style={{ fg: colors().primary, bold: true }}>Key shortcuts at a glance:</span>
-        </text>
-        <box flexDirection="row" gap={2}>
+        <box flexDirection="row" gap={2} marginTop={1}>
           <box flexDirection="column" gap={0}>
-            <text>
-              <span style={{ fg: colors().accent, bold: true }}>c</span>
-              <span style={{ fg: colors().textMuted }}> toggle auto copy to clipboard</span>
-            </text>
-            <text>
-              <span style={{ fg: colors().accent, bold: true }}>p</span>
-              <span style={{ fg: colors().textMuted }}> toggle auto paste</span>
-            </text>
             <text>
               <span style={{ fg: colors().accent, bold: true }}>m</span>
               <span style={{ fg: colors().textMuted }}> model manager</span>
+            </text>
+            <text>
+              <span style={{ fg: colors().accent, bold: true }}>q</span>
+              <span style={{ fg: colors().textMuted }}> exit app</span>
+            </text>
+            <text>
+              <span style={{ fg: colors().accent, bold: true }}>?</span>
+              <span style={{ fg: colors().textMuted }}> open help</span>
             </text>
           </box>
           <box flexDirection="column" gap={0}>
@@ -154,19 +260,12 @@ function UIGuideStep(): JSX.Element {
         </box>
       </box>
 
-      <box flexDirection="column" gap={0} marginTop={1}>
+      <box marginTop={1} flexDirection="column" gap={0}>
         <text>
-          <span style={{ fg: colors().primary, bold: true }}>Global hotkey:</span>
+          <span style={{ fg: colors().secondary, bold: true }}>The UI is clickable.</span>
         </text>
-        <Paragraph>A system-wide hotkey (default: F3) lets you start/stop</Paragraph>
-        <Paragraph>recording from any app. Configure it with h from the main screen.</Paragraph>
-        <text>
-          <span style={{ fg: colors().textMuted }}>Two modes: </span>
-          <span style={{ fg: colors().accent }}>push-to-talk</span>
-          <span style={{ fg: colors().textMuted }}> (hold to record) or </span>
-          <span style={{ fg: colors().accent }}>toggle</span>
-          <span style={{ fg: colors().textMuted }}> (press to start/stop).</span>
-        </text>
+        <Paragraph>Buttons, labels, toggles, status indicators - click them</Paragraph>
+        <Paragraph>to interact, or use the keyboard shortcuts above.</Paragraph>
       </box>
     </box>
   );
@@ -176,14 +275,36 @@ function UIGuideStep(): JSX.Element {
 // Step 3: Device Detection
 // ---------------------------------------------------------------------------
 
+type HardwareSettingField = "runtime" | "device";
+
+/**
+ * Render the device-detection onboarding step showing detected hardware, a recommended runtime/device, and editable runtime/device rows.
+ *
+ * @param props - Component props.
+ * @param props.caps - Backend capabilities response or `null` while detection is in progress.
+ * @param props.selectedField - Which hardware field (`"runtime"` or `"device"`) is currently selected.
+ * @param props.onSelectField - Callback invoked with a field when the user selects it.
+ * @param props.onOpenSelector - Callback invoked to open the selector UI for the given field.
+ * @returns The JSX element for the device-detection step UI.
+ */
 function DeviceDetectionStep(props: {
   caps: CapabilitiesResponse | null;
-  onOpenSettings: () => void;
+  selectedField: HardwareSettingField;
+  onSelectField: (field: HardwareSettingField) => void;
+  onOpenSelector: (field: HardwareSettingField) => void;
 }): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();
 
   const loading = () => !props.caps;
+
+  function SuggestionToken(props: { children: string }): JSX.Element {
+    return (
+      <span style={{ fg: colors().accent, bold: true }}>
+        {props.children}
+      </span>
+    );
+  }
 
   const deviceSummary = () => {
     if (!props.caps) return "Detecting hardware...";
@@ -193,16 +314,61 @@ function DeviceDetectionStep(props: {
     return "CPU-only configuration detected";
   };
 
-  const recommendation = () => {
-    if (!props.caps) return "";
+  const recommendation = (): JSX.Element => {
+    if (!props.caps) {
+      return <span style={{ fg: colors().textMuted }}>Detecting recommendation...</span>;
+    }
     const rec = props.caps.recommended;
-    if (rec.device === "mps") return "Recommended: whisper.cpp with Metal for best performance on Mac.";
-    if (rec.device === "cuda") return "Recommended: faster-whisper with CUDA for GPU-accelerated transcription.";
-    return "Recommended: faster-whisper with CPU. Consider installing whisper.cpp for Metal support on Mac.";
+    if (rec.device === "mps") {
+      return (
+        <>
+          <span style={{ fg: colors().textMuted }}>Recommended: </span>
+          <SuggestionToken>whisper.cpp</SuggestionToken>
+          <span style={{ fg: colors().textMuted }}> with </span>
+          <SuggestionToken>Metal</SuggestionToken>
+          <span style={{ fg: colors().textMuted }}> for best performance on Mac.</span>
+        </>
+      );
+    }
+    if (rec.device === "cuda") {
+      return (
+        <>
+          <span style={{ fg: colors().textMuted }}>Recommended: </span>
+          <SuggestionToken>faster-whisper</SuggestionToken>
+          <span style={{ fg: colors().textMuted }}> with </span>
+          <SuggestionToken>CUDA</SuggestionToken>
+          <span style={{ fg: colors().textMuted }}> for GPU-accelerated transcription.</span>
+        </>
+      );
+    }
+    return (
+      <>
+        <span style={{ fg: colors().textMuted }}>Recommended: </span>
+        <SuggestionToken>faster-whisper</SuggestionToken>
+        <span style={{ fg: colors().textMuted }}> with </span>
+        <SuggestionToken>CPU</SuggestionToken>
+        <span style={{ fg: colors().textMuted }}>.</span>
+        <span style={{ fg: colors().textMuted }}> Consider installing </span>
+        <SuggestionToken>whisper.cpp</SuggestionToken>
+        <span style={{ fg: colors().textMuted }}> for </span>
+        <SuggestionToken>Metal</SuggestionToken>
+        <span style={{ fg: colors().textMuted }}> support on Mac.</span>
+      </>
+    );
   };
 
-  const currentBackend = () => backend.config()?.model.backend ?? "-";
-  const currentDevice = () => backend.config()?.model.device ?? "-";
+  const currentRuntime = () => backend.config()?.model.runtime ?? "-";
+  const currentDevice = () => formatDeviceLabel(backend.config()?.model.device);
+  const settingRows = createMemo<
+    Array<{
+      field: HardwareSettingField;
+      title: string;
+      value: string;
+    }>
+  >(() => [
+    { field: "runtime", title: "Runtime", value: currentRuntime() },
+    { field: "device", title: "Device", value: currentDevice() },
+  ]);
 
   return (
     <box flexDirection="column" gap={1} paddingX={2} paddingY={1} flexShrink={0}>
@@ -216,32 +382,56 @@ function DeviceDetectionStep(props: {
         <text>
           <span style={{ fg: colors().success, bold: true }}>{deviceSummary()}</span>
         </text>
-        <text>
-          <span style={{ fg: colors().textMuted }}>{recommendation()}</span>
-        </text>
+        <text>{recommendation()}</text>
 
         <box flexDirection="column" gap={0} marginTop={1}>
           <text>
             <span style={{ fg: colors().primary, bold: true }}>Current configuration:</span>
           </text>
-          <text>
-            <span style={{ fg: colors().textMuted }}>Engine: </span>
-            <span style={{ fg: colors().text }}>{currentBackend()}</span>
-          </text>
-          <text>
-            <span style={{ fg: colors().textMuted }}>Device: </span>
-            <span style={{ fg: colors().text }}>{currentDevice()}</span>
-          </text>
-        </box>
-
-        <box marginTop={1}>
-          <CommandHint keys="s" label="open settings to change" onClick={props.onOpenSettings} />
+          <box flexDirection="column" marginTop={1}>
+            <For each={settingRows()}>
+              {(row) => {
+                const selected = () => props.selectedField === row.field;
+                return (
+                  <box
+                    flexDirection="row"
+                    justifyContent="space-between"
+                    backgroundColor={selected() ? colors().backgroundElement : undefined}
+                    paddingRight={1}
+                    onMouseUp={() => {
+                      props.onSelectField(row.field);
+                      props.onOpenSelector(row.field);
+                    }}
+                  >
+                    <box flexDirection="row">
+                      <box
+                        width={1}
+                        backgroundColor={selected() ? colors().accent : undefined}
+                      />
+                      <box paddingLeft={1}>
+                        <text>
+                          <span style={{ fg: selected() ? colors().text : colors().textMuted }}>
+                            {row.title}
+                          </span>
+                        </text>
+                      </box>
+                    </box>
+                    <box>
+                      <text>
+                        <span style={{ fg: colors().text }}>{row.value}</span>
+                      </text>
+                    </box>
+                  </box>
+                );
+              }}
+            </For>
+          </box>
         </box>
 
         <box marginTop={1}>
           <text>
             <span style={{ fg: colors().textDim }}>
-              These can also be changed anytime from settings.
+              Use up/down to pick a field, Enter to edit.
             </span>
           </text>
         </box>
@@ -264,6 +454,15 @@ const MODEL_DESCRIPTIONS: Record<string, string> = {
   "large-v3-turbo": "Near-best accuracy with better speed than large.",
 };
 
+/**
+ * Render the "Download a model" step UI used to browse, download, cancel, and select speech-recognition models.
+ *
+ * Displays the available models and their per-runtime status (pulled, pulling, queued, selected), shows size and description for the selected model, and exposes a primary action that pulls, cancels, or selects the highlighted model.
+ *
+ * @param selectedModelIndex - Index of the currently highlighted model in the models list
+ * @param onSelectModel - Callback invoked with the index when a model row is clicked or selected
+ * @returns The JSX element that renders the model download and selection UI
+ */
 function ModelDownloadStep(props: {
   selectedModelIndex: number;
   onSelectModel: (index: number) => void;
@@ -274,38 +473,55 @@ function ModelDownloadStep(props: {
 
   const models = () => backend.models();
   const selectedModel = () => models()[props.selectedModelIndex] ?? null;
+  const activeRuntime = createMemo<RuntimeName>(
+    () => (backend.config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper",
+  );
 
-  const activePullingModelName = createMemo(() => {
+  const activePulling = createMemo(() => {
     const op = backend.activeModelOp();
     if (!op || op.type !== "pulling") return null;
-    return op.model;
+    return op;
   });
 
   const selectedModelIsPulling = createMemo(() => {
     const model = selectedModel();
-    const pulling = activePullingModelName();
-    return Boolean(model && pulling && model.name === pulling);
+    const pulling = activePulling();
+    return Boolean(model && pulling && model.name === pulling.model && pulling.runtime === activeRuntime());
+  });
+
+  const selectedModelIsQueued = createMemo(() => {
+    const model = selectedModel();
+    if (!model) return false;
+    return backend.isModelPullQueued(model.name, activeRuntime());
   });
 
   const selectedModelName = createMemo(() => {
     const configured = backend.config()?.model.name ?? null;
     if (!configured) return null;
     const match = models().find((m) => m.name === configured);
-    return match?.installed ? configured : null;
+    return match?.variants?.[activeRuntime()]?.installed ? configured : null;
   });
 
   function handlePullOrSelect() {
     const model = selectedModel();
-    if (!model || backend.activeModelOp()) return;
+    const op = backend.activeModelOp();
+    const variant = model?.variants?.[activeRuntime()];
+    if (!model) return;
     if (selectedModelIsPulling()) {
-      backend.cancelModelDownload(model.name);
+      const pulling = activePulling();
+      backend.cancelModelDownload(model.name, pulling?.runtime ?? activeRuntime());
       return;
     }
-    if (model.installed) {
+    if (selectedModelIsQueued()) {
+      backend.cancelModelDownload(model.name, activeRuntime());
+      return;
+    }
+    if (variant?.installed) {
+      if (op) return;
       backend.send({ type: "set_selected_model", name: model.name });
       return;
     }
-    backend.downloadModel(model.name);
+    backend.downloadModel(model.name, activeRuntime());
   }
 
   return (
@@ -330,32 +546,44 @@ function ModelDownloadStep(props: {
             {(model, index) => {
               const isSelected = () => index() === props.selectedModelIndex;
               const isActive = () => model.name === selectedModelName();
+              const variant = () => model.variants[activeRuntime()];
               const isPulling = () => {
-                const pulling = activePullingModelName();
-                return Boolean(pulling && pulling === model.name);
+                const pulling = activePulling();
+                return Boolean(
+                  pulling &&
+                  pulling.model === model.name &&
+                  pulling.runtime === activeRuntime(),
+                );
               };
+              const isQueued = () => backend.isModelPullQueued(model.name, activeRuntime());
               const sizeLabel = () => {
-                const size = model.size_bytes;
+                const size = variant()?.size_bytes;
                 if (typeof size !== "number" || size <= 0) return "";
-                const prefix = model.size_estimated ? "~" : "";
+                const prefix = variant()?.size_estimated ? "~" : "";
                 return ` ${prefix}${formatBytes(size)}`;
               };
               const statusText = () => {
                 if (isPulling()) {
                   const progress = backend.downloadProgress();
-                  if (progress && progress.model === model.name) {
+                  if (
+                    progress &&
+                    progress.model === model.name &&
+                    progress.runtime === activeRuntime()
+                  ) {
                     const pct = Math.max(0, Math.min(100, Math.round(progress.percent)));
                     return `${spinnerFrame()} ${pct}%`;
                   }
                   return `${spinnerFrame()} pulling`;
                 }
+                if (isQueued()) return "queued";
                 if (isActive()) return "● selected";
-                return model.installed ? "● pulled" : "";
+                return variant()?.installed ? "● pulled" : "";
               };
               const statusColor = () => {
                 if (isPulling()) return colors().transcribing;
-                if (isActive()) return colors().secondary;
-                return model.installed ? colors().success : colors().textDim;
+                if (isQueued()) return colors().accent;
+                if (isActive()) return colors().accent;
+                return variant()?.installed ? colors().success : colors().textDim;
               };
 
               return (
@@ -367,7 +595,7 @@ function ModelDownloadStep(props: {
                 >
                   <box
                     width={1}
-                    backgroundColor={isSelected() ? colors().secondary : undefined}
+                    backgroundColor={isSelected() ? colors().accent : undefined}
                   />
                   <box flexDirection="row" width="100%" paddingLeft={1}>
                     <box flexGrow={1}>
@@ -404,7 +632,13 @@ function ModelDownloadStep(props: {
       <box flexDirection="row" gap={2} paddingTop={1} flexShrink={0}>
         <CommandHint
           keys="Enter"
-          label={selectedModelIsPulling() ? "cancel" : (selectedModel()?.installed ? "select" : "pull + select")}
+          label={
+            selectedModelIsPulling()
+              ? "cancel"
+              : selectedModelIsQueued()
+                ? "cancel queued"
+              : (selectedModel()?.variants?.[activeRuntime()]?.installed ? "select" : "pull + select")
+          }
           onClick={handlePullOrSelect}
         />
       </box>
@@ -412,73 +646,20 @@ function ModelDownloadStep(props: {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Step 5: Ready
-// ---------------------------------------------------------------------------
-
-function ReadyStep(props: { firstRun: boolean }): JSX.Element {
-  const { colors } = useTheme();
-  const backend = useBackend();
-
-  const modelName = () => backend.config()?.model.name ?? "-";
-  const backendName = () => backend.config()?.model.backend ?? "-";
-  const device = () => backend.config()?.model.device ?? "-";
-
-  return (
-    <box flexDirection="column" gap={1} paddingX={2} paddingY={1} flexShrink={0}>
-      <Show when={props.firstRun} fallback={
-        <SectionTitle text="Quick reference" />
-      }>
-        <text>
-          <span style={{ fg: colors().success, bold: true }}>You're all set!</span>
-        </text>
-      </Show>
-
-      <Show when={props.firstRun}>
-        <box flexDirection="column" gap={0}>
-          <text>
-            <span style={{ fg: colors().textMuted }}>Engine: </span>
-            <span style={{ fg: colors().text }}>{backendName()}</span>
-          </text>
-          <text>
-            <span style={{ fg: colors().textMuted }}>Device: </span>
-            <span style={{ fg: colors().text }}>{device()}</span>
-          </text>
-          <text>
-            <span style={{ fg: colors().textMuted }}>Model: </span>
-            <span style={{ fg: colors().text }}>{modelName()}</span>
-          </text>
-        </box>
-      </Show>
-
-      <box flexDirection="column" gap={0} marginTop={1}>
-        <text>
-          <span style={{ fg: colors().primary, bold: true }}>Getting started:</span>
-        </text>
-        <text>
-          <span style={{ fg: colors().textMuted }}>Press the global hotkey (default </span>
-          <span style={{ fg: colors().accent, bold: true }}>F3</span>
-          <span style={{ fg: colors().textMuted }}>) to start recording from any app.</span>
-        </text>
-        <text>
-          <span style={{ fg: colors().textMuted }}>Or click the status indicator in the footer.</span>
-        </text>
-      </box>
-
-      <box flexDirection="column" gap={0} marginTop={1}>
-        <text>
-          <span style={{ fg: colors().textDim }}>Press </span>
-          <span style={{ fg: colors().accent, bold: true }}>?</span>
-          <span style={{ fg: colors().textDim }}> anytime to re-open this guide.</span>
-        </text>
-      </box>
-    </box>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Main Welcome component
-// ---------------------------------------------------------------------------
+/**
+ * Render the multi-step Welcome/onboarding modal that guides first-run setup (runtime, device, model)
+ * and provides a help view for returning users.
+ *
+ * The component drives a step-based flow (welcome, device-detection, model-download or help),
+ * manages step and selection state, handles keyboard navigation and scrolling, and interacts
+ * with the backend and dialog system to request capabilities, open setting selectors, apply
+ * recommended hardware, start/cancel model downloads, and persist resume/first-run state.
+ *
+ * @returns The Welcome dialog modal element to mount in the UI
+ */
 
 export function Welcome(): JSX.Element {
   const { colors } = useTheme();
@@ -495,17 +676,85 @@ export function Welcome(): JSX.Element {
   // Step management
   const steps = createMemo(() => {
     if (firstRun()) {
-      return ["welcome", "ui-guide", "device-detection", "model-download", "ready"] as const;
+      return ["welcome", "device-detection", "model-download"] as const;
     }
-    return ["welcome", "ui-guide", "ready"] as const;
+    return ["help"] as const;
   });
 
-  const [stepIndex, setStepIndex] = createSignal(0);
+  const initialStepIndex = () => {
+    const raw = Number(dialogData().resumeStepIndex ?? 0);
+    if (!Number.isFinite(raw)) return 0;
+    const normalized = Math.floor(raw);
+    return Math.max(0, Math.min(steps().length - 1, normalized));
+  };
+  const [stepIndex, setStepIndex] = createSignal(initialStepIndex());
   const currentStep = () => steps()[stepIndex()] ?? "welcome";
   const isLastStep = () => stepIndex() >= steps().length - 1;
   const isFirstStep = () => stepIndex() === 0;
 
-  const [modelIndex, setModelIndex] = createSignal(2); // Default to "small"
+  let contentScroll: ScrollBoxRenderable | undefined;
+
+  const initialModelIndex = () => {
+    const raw = Number(dialogData().resumeModelIndex ?? 2);
+    if (!Number.isFinite(raw)) return 2;
+    return Math.max(0, Math.floor(raw));
+  };
+  const [modelIndex, setModelIndex] = createSignal(initialModelIndex()); // Default to "small"
+  const hardwareFields: HardwareSettingField[] = ["runtime", "device"];
+  const [selectedHardwareFieldIndex, setSelectedHardwareFieldIndex] = createSignal(0);
+  const selectedHardwareField = createMemo<HardwareSettingField>(
+    () => hardwareFields[selectedHardwareFieldIndex()] ?? "runtime",
+  );
+  const [recommendationAutoApplied, setRecommendationAutoApplied] = createSignal(
+    Boolean(dialogData().recommendationAutoApplied),
+  );
+  const [recommendationAutoApplyInFlight, setRecommendationAutoApplyInFlight] = createSignal(
+    false,
+  );
+
+  const recommendedRuntime = createMemo<RuntimeName | null>(() => {
+    const value = backend.capabilitiesResponse()?.recommended.runtime;
+    if (value === "faster-whisper" || value === "whisper.cpp") {
+      return value;
+    }
+    return null;
+  });
+
+  const recommendedDevice = createMemo<"cpu" | "cuda" | "mps" | null>(() => {
+    const value = backend.capabilitiesResponse()?.recommended.device;
+    if (value === "cpu" || value === "cuda" || value === "mps") {
+      return value;
+    }
+    return null;
+  });
+
+  /**
+   * Construct the resume payload for the Welcome dialog capturing its current UI state.
+   *
+   * @returns An object containing the current `firstRun` flag, `resumeStepIndex`, `resumeModelIndex`, and `recommendationAutoApplied` status
+   */
+  function buildWelcomeResumeData(): WelcomeDialogData {
+    return {
+      firstRun: firstRun(),
+      resumeStepIndex: stepIndex(),
+      resumeModelIndex: modelIndex(),
+      recommendationAutoApplied: recommendationAutoApplied(),
+    };
+  }
+
+  /**
+   * Opens the settings selector for the given hardware field and prepares resume data so the welcome dialog can be restored after the selector closes.
+   *
+   * @param field - Which hardware setting to edit: `"runtime"` opens the runtime selector, `"device"` opens the device selector.
+   */
+  function openHardwareSettingSelector(field: HardwareSettingField) {
+    const settingId: SelectSettingId = field === "runtime" ? "model.runtime" : "model.device";
+    dialog.openDialog("settings-select", {
+      settingId,
+      returnToDialog: "welcome",
+      returnWelcomeData: buildWelcomeResumeData(),
+    });
+  }
 
   // Request capabilities when entering device detection step
   createEffect(on(() => currentStep(), (step) => {
@@ -514,12 +763,29 @@ export function Welcome(): JSX.Element {
     }
   }));
 
-  // Auto-apply recommended backend/device when capabilities arrive
-  createEffect(on(() => backend.capabilitiesResponse(), (caps) => {
-    if (!caps) return;
-    backend.send({ type: "set_model_backend", backend: caps.recommended.backend });
-    backend.send({ type: "set_model_device", device: caps.recommended.device });
-  }));
+  // Auto-apply hardware recommendation once per welcome session on first run:
+  // apply runtime first, then apply device after runtime config is reflected.
+  createEffect(() => {
+    if (!firstRun() || currentStep() !== "device-detection") return;
+    if (recommendationAutoApplied() || recommendationAutoApplyInFlight()) return;
+    const targetRuntime = recommendedRuntime();
+    const targetDevice = recommendedDevice();
+    if (!targetRuntime || !targetDevice) return;
+    setRecommendationAutoApplyInFlight(true);
+    backend.send({ type: "set_model_runtime", runtime: targetRuntime });
+  });
+
+  createEffect(() => {
+    if (!recommendationAutoApplyInFlight() || recommendationAutoApplied()) return;
+    const targetRuntime = recommendedRuntime();
+    const targetDevice = recommendedDevice();
+    const cfg = backend.config();
+    if (!targetRuntime || !targetDevice || !cfg) return;
+    if (cfg.model.runtime !== targetRuntime) return;
+    backend.send({ type: "set_model_device", device: targetDevice });
+    setRecommendationAutoApplied(true);
+    setRecommendationAutoApplyInFlight(false);
+  });
 
   // Clamp model index when models list changes
   createEffect(on(() => backend.models(), (models) => {
@@ -541,6 +807,11 @@ export function Welcome(): JSX.Element {
     return true;
   }
 
+  /**
+   * Close the welcome dialog when allowed, handling first-run bookkeeping.
+   *
+   * If the dialog can be closed, notifies the backend that the welcome was shown when this is the first run, then closes the dialog.
+   */
   function handleClose() {
     if (!canClose()) return;
     if (firstRun()) {
@@ -549,6 +820,12 @@ export function Welcome(): JSX.Element {
     dialog.closeDialog();
   }
 
+  const unregisterDismissHandler = dialog.registerDismissHandler("welcome", handleClose);
+  onCleanup(unregisterDismissHandler);
+
+  /**
+   * Advance the onboarding to the next step, or close the dialog if currently on the final step.
+   */
   function handleNext() {
     if (isLastStep()) {
       handleClose();
@@ -557,27 +834,59 @@ export function Welcome(): JSX.Element {
     setStepIndex((i) => Math.min(steps().length - 1, i + 1));
   }
 
+  /**
+   * Move the current onboarding step one position backward.
+   *
+   * Clamps the step index to a minimum of 0 so the index never becomes negative.
+   */
   function handleBack() {
     setStepIndex((i) => Math.max(0, i - 1));
-  }
-
-  function openSettingsFromWelcome() {
-    dialog.openDialog("settings");
   }
 
   // Keyboard navigation
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "welcome") return;
+    if (key.eventType === "release" || key.repeated) return;
 
-    // Device detection step: s opens settings
-    if (currentStep() === "device-detection" && key.name === "s") {
-      key.preventDefault();
-      openSettingsFromWelcome();
-      return;
+    // Scroll content for text-only steps (help, welcome)
+    const step = currentStep();
+    if (step === "help" || step === "welcome") {
+      if (contentScroll && !contentScroll.isDestroyed) {
+        if (key.name === "up" || key.name === "k") {
+          key.preventDefault();
+          contentScroll.scrollBy(-1, "step");
+          return;
+        }
+        if (key.name === "down" || key.name === "j") {
+          key.preventDefault();
+          contentScroll.scrollBy(1, "step");
+          return;
+        }
+      }
+    }
+
+    if (currentStep() === "device-detection") {
+      if (key.name === "up" || key.name === "k") {
+        key.preventDefault();
+        setSelectedHardwareFieldIndex((value) => Math.max(0, value - 1));
+        return;
+      }
+      if (key.name === "down" || key.name === "j") {
+        key.preventDefault();
+        setSelectedHardwareFieldIndex((value) => Math.min(hardwareFields.length - 1, value + 1));
+        return;
+      }
+      if (key.name === "return" || key.name === "enter") {
+        key.preventDefault();
+        openHardwareSettingSelector(selectedHardwareField());
+        return;
+      }
     }
 
     // Model download step: arrow keys navigate model list
     if (currentStep() === "model-download") {
+      const selectedRuntime =
+        (backend.config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
       if (key.name === "up" || key.name === "k") {
         key.preventDefault();
         setModelIndex((i) => Math.max(0, i - 1));
@@ -591,21 +900,25 @@ export function Welcome(): JSX.Element {
       if (key.name === "return" || key.name === "enter") {
         key.preventDefault();
         const model = backend.models()[modelIndex()];
-        if (!model || backend.activeModelOp()) return;
-        const pulling = backend.activeModelOp()?.type === "pulling" && backend.activeModelOp()?.model === model.name;
-        if (pulling) {
-          backend.cancelModelDownload(model.name);
-        } else if (model.installed) {
+        const op = backend.activeModelOp();
+        if (!model) return;
+        const pulling =
+          op?.type === "pulling" && op.model === model.name && op.runtime === selectedRuntime;
+        const queued = backend.isModelPullQueued(model.name, selectedRuntime);
+        if (pulling || queued) {
+          backend.cancelModelDownload(model.name, selectedRuntime);
+        } else if (model.variants?.[selectedRuntime]?.installed) {
+          if (op) return;
           backend.send({ type: "set_selected_model", name: model.name });
         } else {
-          backend.downloadModel(model.name);
+          backend.downloadModel(model.name, selectedRuntime);
         }
         return;
       }
       if (key.name === "x") {
         const pulling = backend.activeModelOp();
         if (pulling?.type === "pulling") {
-          backend.cancelModelDownload(pulling.model);
+          backend.cancelModelDownload(pulling.model, pulling.runtime);
         }
         return;
       }
@@ -656,42 +969,62 @@ export function Welcome(): JSX.Element {
             </span>
           </text>
           <box flexDirection="row" alignItems="center" gap={2}>
-            <text>
-              <span style={{ fg: colors().textMuted }}>
-                step {stepIndex() + 1} of {steps().length}
-              </span>
-            </text>
+            <Show when={steps().length > 1}>
+              <text>
+                <span style={{ fg: colors().textMuted }}>
+                  step {stepIndex() + 1} of {steps().length}
+                </span>
+              </text>
+            </Show>
             <Show when={canClose()}>
-              <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={handleClose}>
+              <box
+                justifyContent="flex-end"
+                flexDirection="row"
+                alignItems="center"
+                flexShrink={0}
+                onMouseUp={handleClose}
+              >
+                <box backgroundColor={colors().error} paddingX={1}>
+                  <text>
+                    <span style={{ fg: colors().selectedText }}>esc/q</span>
+                  </text>
+                </box>
                 <text>
-                  <span style={{ fg: colors().selectedText }}>esc</span>
+                  <span style={{ fg: colors().textMuted }}> exit</span>
                 </text>
               </box>
             </Show>
           </box>
         </box>
         <box flexDirection="row" width="100%" marginTop={0}>
-          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().secondary} />
+          <box width={3} borderStyle="single" border={["bottom"]} borderColor={colors().accent} />
           <box flexGrow={1} borderStyle="single" border={["bottom"]} borderColor={colors().borderSubtle} />
         </box>
       </box>
 
       {/* Content – scrollable middle section, static header/footer stay fixed */}
       <Show when={currentStep() === "welcome"}>
-        <scrollbox flexGrow={1} flexShrink={1}>
+        <scrollbox flexGrow={1} flexShrink={1} ref={(r: ScrollBoxRenderable) => { contentScroll = r; }}>
           <WelcomeStep />
         </scrollbox>
       </Show>
-      <Show when={currentStep() === "ui-guide"}>
-        <scrollbox flexGrow={1} flexShrink={1}>
-          <UIGuideStep />
+      <Show when={currentStep() === "help"}>
+        <scrollbox flexGrow={1} flexShrink={1} ref={(r: ScrollBoxRenderable) => { contentScroll = r; }}>
+          <HelpScreen />
         </scrollbox>
       </Show>
       <Show when={currentStep() === "device-detection"}>
-        <scrollbox flexGrow={1} flexShrink={1}>
+        <scrollbox flexGrow={1} flexShrink={1} ref={(r: ScrollBoxRenderable) => { contentScroll = r; }}>
           <DeviceDetectionStep
             caps={backend.capabilitiesResponse()}
-            onOpenSettings={openSettingsFromWelcome}
+            selectedField={selectedHardwareField()}
+            onSelectField={(field) => {
+              const idx = hardwareFields.indexOf(field);
+              if (idx >= 0) {
+                setSelectedHardwareFieldIndex(idx);
+              }
+            }}
+            onOpenSelector={openHardwareSettingSelector}
           />
         </scrollbox>
       </Show>
@@ -703,30 +1036,27 @@ export function Welcome(): JSX.Element {
           />
         </box>
       </Show>
-      <Show when={currentStep() === "ready"}>
-        <scrollbox flexGrow={1} flexShrink={1}>
-          <ReadyStep firstRun={firstRun()} />
-        </scrollbox>
-      </Show>
 
-      {/* Footer navigation */}
-      <box paddingX={2} paddingTop={1} flexShrink={0}>
-        <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
-          <box flexDirection="row" gap={2}>
-            <Show when={!isFirstStep()}>
-              <CommandHint keys="Left" label="back" onClick={handleBack} />
-            </Show>
-            <CommandHint
-              keys={isLastStep() ? "Enter" : "Right"}
-              label={isLastStep() ? (firstRun() ? "finish" : "close") : "next"}
-              onClick={handleNext}
-            />
+      {/* Footer navigation — only shown for multi-step flows */}
+      <Show when={steps().length > 1}>
+        <box paddingX={2} paddingTop={1} flexShrink={0}>
+          <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
+            <box flexDirection="row" gap={2}>
+              <Show when={!isFirstStep()}>
+                <CommandHint keys="Left" label="back" onClick={handleBack} />
+              </Show>
+              <CommandHint
+                keys={isLastStep() ? "Enter" : "Right"}
+                label={isLastStep() ? "finish" : "next"}
+                onClick={handleNext}
+              />
+            </box>
+            <text>
+              <span style={{ fg: colors().textDim }}>{stepDots()}</span>
+            </text>
           </box>
-          <text>
-            <span style={{ fg: colors().textDim }}>{stepDots()}</span>
-          </text>
         </box>
-      </box>
+      </Show>
     </box>
   );
 }

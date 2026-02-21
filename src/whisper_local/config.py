@@ -17,21 +17,29 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ModelConfig:
     name: str = "small"
-    backend: str = "faster-whisper"
+    runtime: str = "faster-whisper"
     device: str = "cpu"
     compute_type: str = "int8"
-    auto_download: bool = True
     path: str | None = None
     language: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ModelConfig:
+        """
+        Construct a ModelConfig from a dictionary of configuration values.
+        
+        Parameters:
+            data (dict[str, Any]): Mapping containing optional keys: "name", "runtime", "device",
+                "compute_type", "path", and "language". Missing keys are replaced with defaults.
+        
+        Returns:
+            ModelConfig: Instance populated from `data`. The `runtime` value is normalized before assignment.
+        """
         return cls(
             name=data.get("name", "small"),
-            backend=normalize_backend_name(str(data.get("backend", "faster-whisper"))),
+            runtime=normalize_runtime_name(str(data.get("runtime", "faster-whisper"))),
             device=data.get("device", "cpu"),
             compute_type=data.get("compute_type", "int8"),
-            auto_download=data.get("auto_download", True),
             path=data.get("path"),
             language=data.get("language"),
         )
@@ -143,29 +151,41 @@ class AppConfig:
     vad: VadConfig = field(default_factory=VadConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     ui: UiConfig = field(default_factory=UiConfig)
-    auto_copy: bool = False
-    auto_paste: bool = False
+    auto_copy: bool = True
+    auto_paste: bool = True
+    auto_revert_clipboard: bool = True
 
     def to_dict(self) -> dict[str, Any]:
+        """
+        Produce a dictionary representation of the AppConfig with file paths and model fields normalized for serialization.
+        
+        Returns:
+            dict: Configuration data where output.file.path is a string and model.runtime, model.path, and model.language reflect the AppConfig's current values.
+        """
         data = asdict(self)
         data["output"]["file"]["path"] = str(self.output.file.path)
-        data["model"]["backend"] = self.model.backend
+        data["model"]["runtime"] = self.model.runtime
         data["model"]["path"] = self.model.path
         data["model"]["language"] = self.model.language
         return data
 
 
-SUPPORTED_BACKENDS = ("faster-whisper", "whisper.cpp")
+SUPPORTED_RUNTIMES = ("faster-whisper", "whisper.cpp")
 
 
-def normalize_backend_name(name: str) -> str:
-    """Normalize a backend name to a canonical form."""
+def normalize_runtime_name(name: str) -> str:
+    """
+    Normalize a runtime identifier to a canonical runtime name.
+    
+    Returns:
+        The canonical runtime name: returns the matching value from SUPPORTED_RUNTIMES when provided, `'whisper.cpp'` for the inputs `'whispercpp'`, `'whisper_cpp'`, or `'whisper-cpp'`, and `'faster-whisper'` for any unknown input.
+    """
     normalized = (name or "").strip().lower()
-    if normalized in SUPPORTED_BACKENDS:
+    if normalized in SUPPORTED_RUNTIMES:
         return normalized
     if normalized in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
         return "whisper.cpp"
-    logger.warning("Unknown backend '%s', falling back to 'faster-whisper'", name)
+    logger.warning("Unknown runtime '%s', falling back to 'faster-whisper'", name)
     return "faster-whisper"
 
 
@@ -189,6 +209,15 @@ def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]
 
 
 def load_config(path: Path | None = None) -> AppConfig:
+    """
+    Load application configuration by merging built-in defaults with an optional user TOML file.
+    
+    Parameters:
+        path (Path | None): Optional path to a TOML configuration file. If None, the default config path is used. If the file does not exist, only built-in defaults are used.
+    
+    Returns:
+        AppConfig: The merged application configuration. The returned object has user values overriding defaults where provided, and file paths (model.path and output.file.path) expanded to user paths.
+    """
     default_data = _load_default_config()
     config_path = path or default_config_path()
     if config_path.exists():
@@ -205,8 +234,9 @@ def load_config(path: Path | None = None) -> AppConfig:
         vad=VadConfig.from_dict(merged.get("vad", {})),
         output=OutputConfig.from_dict(merged.get("output", {})),
         ui=UiConfig.from_dict(merged.get("ui", {})),
-        auto_copy=bool(merged.get("auto_copy", False)),
-        auto_paste=bool(merged.get("auto_paste", False)),
+        auto_copy=bool(merged.get("auto_copy", True)),
+        auto_paste=bool(merged.get("auto_paste", True)),
+        auto_revert_clipboard=bool(merged.get("auto_revert_clipboard", True)),
     )
 
     if config.model.path:

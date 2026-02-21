@@ -16,7 +16,6 @@ dependencies = [
   "pyobjc-framework-Quartz>=9.0",
   "pyperclip>=1.8.2",
   "sounddevice>=0.4.6",
-  "textual>=0.60.0",
   "tomli-w>=1.0.0",
   "websockets>=12.0",
 ]

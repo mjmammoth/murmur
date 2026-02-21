@@ -1,316 +1,208 @@
 import { describe, expect, test } from "bun:test";
-import { createRoot } from "solid-js";
-import type { ModelInfo } from "../types";
+import type { RuntimeName } from "../types";
+import { formatBytes } from "../util/format";
 
-/**
- * Tests for ModelItem component
- *
- * Displays a single model entry with download progress, status indicators, and size information.
- */
+interface StatusToken {
+  text: string;
+  color: string;
+}
+
+interface TokenInputs {
+  opType: "pulling" | "removing" | null;
+  opRuntime: RuntimeName | null;
+  isQueued: boolean;
+  isSelectedModel: boolean;
+  activeRuntime: RuntimeName;
+  installed: boolean;
+  spinner: string;
+  progressPercent: number | null;
+}
+
+function buildSizeLabel(sizeBytes: number | null, estimated = false): string {
+  if (typeof sizeBytes !== "number" || sizeBytes <= 0) return "-";
+  const prefix = estimated ? "~" : "";
+  return `${prefix}${formatBytes(sizeBytes)}`;
+}
+
+function runtimeToken(inputs: TokenInputs): StatusToken {
+  const colors = {
+    transcribing: "#f5a742",
+    warning: "#e06c75",
+    accent: "#9d7cd8",
+    secondary: "#5c9cf5",
+    textDim: "#606060",
+  };
+
+  if (inputs.opType && inputs.opRuntime === inputs.activeRuntime) {
+    if (inputs.opType === "pulling") {
+      if (typeof inputs.progressPercent === "number") {
+        const percent = Math.max(0, Math.min(100, Math.round(inputs.progressPercent)));
+        return { text: `${inputs.spinner}${percent}%`, color: colors.transcribing };
+      }
+      return { text: `${inputs.spinner}pull`, color: colors.transcribing };
+    }
+    return { text: `${inputs.spinner}rm`, color: colors.warning };
+  }
+
+  if (inputs.isQueued) {
+    return { text: "queued", color: colors.accent };
+  }
+
+  if (inputs.installed) {
+    return { text: "●", color: colors.secondary };
+  }
+
+  return { text: "○", color: colors.textDim };
+}
+
+function selectedRowColor(inputs: {
+  themeId: string;
+  isSelectedModel: boolean;
+  isFocusedRow: boolean;
+}): string | null {
+  const subtleByTheme: Record<string, string> = {
+    dark: "#1f3a2f",
+    light: "#d7efe3",
+    "catppuccin-mocha": "#243a31",
+    "catppuccin-latte": "#cadfce",
+  };
+  const brightByTheme: Record<string, string> = {
+    dark: "#2b4d3f",
+    light: "#b8ddca",
+    "catppuccin-mocha": "#315146",
+    "catppuccin-latte": "#afd0ba",
+  };
+
+  if (!inputs.isSelectedModel) return null;
+  if (inputs.isFocusedRow) return brightByTheme[inputs.themeId] ?? "#1e1e1e";
+  return subtleByTheme[inputs.themeId] ?? "#282828";
+}
 
 describe("ModelItem", () => {
-  const DOWNLOAD_SCANNER_WIDTH = 10;
-  const SCANNER_EMPTY = "⬝";
-  const SCANNER_MID = "▪";
-  const SCANNER_FULL = "■";
+  describe("size label formatting", () => {
+    test("shows an estimated size with a tilde prefix", () => {
+      const label = buildSizeLabel(1600 * 1024 * 1024, true);
 
-  describe("buildDownloadScanner function", () => {
-    test("should create empty scanner at 0%", () => {
-      const percent = 0;
-      const progressCells = (percent / 100) * DOWNLOAD_SCANNER_WIDTH;
-      const scanner = Array.from({ length: DOWNLOAD_SCANNER_WIDTH }, (_, idx) => {
-        const cellFill = progressCells - idx;
-        if (cellFill >= 1) return SCANNER_FULL;
-        if (cellFill >= 0.34) return SCANNER_MID;
-        return SCANNER_EMPTY;
-      }).join("");
-
-      expect(scanner).toBe("⬝".repeat(DOWNLOAD_SCANNER_WIDTH));
+      expect(label.startsWith("~")).toBe(true);
+      expect(label).toContain("GB");
     });
 
-    test("should create full scanner at 100%", () => {
-      const percent = 100;
-      const progressCells = (percent / 100) * DOWNLOAD_SCANNER_WIDTH;
-      const scanner = Array.from({ length: DOWNLOAD_SCANNER_WIDTH }, (_, idx) => {
-        const cellFill = progressCells - idx;
-        if (cellFill >= 1) return SCANNER_FULL;
-        if (cellFill >= 0.34) return SCANNER_MID;
-        return SCANNER_EMPTY;
-      }).join("");
+    test("shows an exact size without a tilde prefix", () => {
+      const label = buildSizeLabel(500 * 1024 * 1024, false);
 
-      expect(scanner).toBe("■".repeat(DOWNLOAD_SCANNER_WIDTH));
+      expect(label.startsWith("~")).toBe(false);
+      expect(label).toContain("MB");
     });
 
-    test("should handle 50% progress", () => {
-      const percent = 50;
-      const progressCells = (percent / 100) * DOWNLOAD_SCANNER_WIDTH;
-      const scanner = Array.from({ length: DOWNLOAD_SCANNER_WIDTH }, (_, idx) => {
-        const cellFill = progressCells - idx;
-        if (cellFill >= 1) return SCANNER_FULL;
-        if (cellFill >= 0.34) return SCANNER_MID;
-        return SCANNER_EMPTY;
-      }).join("");
-
-      expect(scanner.length).toBe(DOWNLOAD_SCANNER_WIDTH);
-      expect(scanner).toContain(SCANNER_FULL);
-      expect(scanner).toContain(SCANNER_EMPTY);
+    test("shows '-' when size is unavailable", () => {
+      expect(buildSizeLabel(null)).toBe("-");
+      expect(buildSizeLabel(0)).toBe("-");
     });
 
-    test("should clamp negative percentage to 0", () => {
-      const percent = Math.max(0, Math.min(100, Math.round(-10)));
+    test("does not include delta percentage text", () => {
+      const label = buildSizeLabel(1500 * 1024 * 1024, false);
 
-      expect(percent).toBe(0);
-    });
-
-    test("should clamp percentage above 100", () => {
-      const percent = Math.max(0, Math.min(100, Math.round(150)));
-
-      expect(percent).toBe(100);
-    });
-
-    test("should use mid character for partial fill", () => {
-      const cellFill = 0.5;
-      const char = cellFill >= 1 ? SCANNER_FULL : cellFill >= 0.34 ? SCANNER_MID : SCANNER_EMPTY;
-
-      expect(char).toBe(SCANNER_MID);
-    });
-
-    test("should use full character for complete fill", () => {
-      const cellFill = 1.5;
-      const char = cellFill >= 1 ? SCANNER_FULL : cellFill >= 0.34 ? SCANNER_MID : SCANNER_EMPTY;
-
-      expect(char).toBe(SCANNER_FULL);
-    });
-
-    test("should use empty character for minimal fill", () => {
-      const cellFill = 0.2;
-      const char = cellFill >= 1 ? SCANNER_FULL : cellFill >= 0.34 ? SCANNER_MID : SCANNER_EMPTY;
-
-      expect(char).toBe(SCANNER_EMPTY);
+      expect(label.includes("(")).toBe(false);
+      expect(label.includes("%")).toBe(false);
     });
   });
 
-  describe("statusText logic", () => {
-    test("should show pulling with progress", () => {
-      const operation = { type: "pulling", model: "whisper-base" };
-      const progress = { model: "whisper-base", percent: 75 };
-      const percent = Math.max(0, Math.min(100, Math.round(progress.percent)));
-      const percentLabel = `${percent}%`.padStart(4, " ");
+  describe("runtime status cells", () => {
+    test("pulling state shows spinner + percent and transcribing color", () => {
+      const token = runtimeToken({
+        opType: "pulling",
+        opRuntime: "faster-whisper",
+        isQueued: false,
+        isSelectedModel: false,
+        activeRuntime: "faster-whisper",
+        installed: false,
+        spinner: "|",
+        progressPercent: 42,
+      });
 
-      expect(percentLabel).toBe(" 75%");
-      expect(percent).toBe(75);
+      expect(token).toEqual({ text: "|42%", color: "#f5a742" });
     });
 
-    test("should show pulling without progress", () => {
-      const operation = { type: "pulling", model: "whisper-base" };
-      const progress = null;
-      const statusText = progress ? "with progress" : "pulling";
+    test("queued state is highlighted with accent color", () => {
+      const token = runtimeToken({
+        opType: null,
+        opRuntime: null,
+        isQueued: true,
+        isSelectedModel: false,
+        activeRuntime: "faster-whisper",
+        installed: false,
+        spinner: "|",
+        progressPercent: null,
+      });
 
-      expect(statusText).toBe("pulling");
+      expect(token).toEqual({ text: "queued", color: "#9d7cd8" });
     });
 
-    test("should show removing status", () => {
-      const operation = { type: "removing", model: "whisper-base" };
-      const statusText = operation.type === "removing" ? "removing" : "other";
+    test("selected active runtime shows a blue dot (row carries green highlight)", () => {
+      const token = runtimeToken({
+        opType: null,
+        opRuntime: null,
+        isQueued: false,
+        isSelectedModel: true,
+        activeRuntime: "faster-whisper",
+        installed: true,
+        spinner: "|",
+        progressPercent: null,
+      });
 
-      expect(statusText).toBe("removing");
+      expect(token).toEqual({ text: "●", color: "#5c9cf5" });
     });
 
-    test("should show selected status", () => {
-      const isSelectedModel = true;
-      const statusText = isSelectedModel ? "● selected" : "other";
+    test("installed idle state shows a solid blue dot", () => {
+      const token = runtimeToken({
+        opType: null,
+        opRuntime: null,
+        isQueued: false,
+        isSelectedModel: false,
+        activeRuntime: "faster-whisper",
+        installed: true,
+        spinner: "|",
+        progressPercent: null,
+      });
 
-      expect(statusText).toBe("● selected");
+      expect(token).toEqual({ text: "●", color: "#5c9cf5" });
     });
 
-    test("should show pulled status for installed model", () => {
-      const model: ModelInfo = { name: "whisper-base", installed: true, path: "/path" };
-      const isSelectedModel = false;
-      const statusText = isSelectedModel ? "● selected" : model.installed ? "● pulled" : "○ not pulled";
+    test("not-installed state shows a hollow dim dot", () => {
+      const token = runtimeToken({
+        opType: null,
+        opRuntime: null,
+        isQueued: false,
+        isSelectedModel: false,
+        activeRuntime: "faster-whisper",
+        installed: false,
+        spinner: "|",
+        progressPercent: null,
+      });
 
-      expect(statusText).toBe("● pulled");
-    });
-
-    test("should show not pulled status for uninstalled model", () => {
-      const model: ModelInfo = { name: "whisper-base", installed: false, path: null };
-      const isSelectedModel = false;
-      const statusText = isSelectedModel ? "● selected" : model.installed ? "● pulled" : "○ not pulled";
-
-      expect(statusText).toBe("○ not pulled");
-    });
-  });
-
-  describe("sizeLabel logic", () => {
-    test("should return empty string for invalid size", () => {
-      const size = null;
-      const sizeLabel = typeof size !== "number" || size <= 0 ? "" : `~${size}`;
-
-      expect(sizeLabel).toBe("");
-    });
-
-    test("should return empty string for zero size", () => {
-      const size = 0;
-      const sizeLabel = typeof size !== "number" || size <= 0 ? "" : `~${size}`;
-
-      expect(sizeLabel).toBe("");
-    });
-
-    test("should add tilde for estimated size", () => {
-      const size = 1024;
-      const estimated = true;
-      const prefix = estimated ? "~" : "";
-
-      expect(prefix).toBe("~");
-    });
-
-    test("should not add tilde for exact size", () => {
-      const size = 1024;
-      const estimated = false;
-      const prefix = estimated ? "~" : "";
-
-      expect(prefix).toBe("");
+      expect(token).toEqual({ text: "○", color: "#606060" });
     });
   });
 
-  describe("statusColor logic", () => {
-    test("should return transcribing color for pulling operation", () => {
-      const operation = { type: "pulling", model: "whisper-base" };
-      const colors = { transcribing: "#FFAA00", warning: "#FF0000", secondary: "#0000FF", success: "#00FF00", textDim: "#888888" };
+  describe("selected row highlighting", () => {
+    test("uses a subtle green row when selected model is not focused", () => {
+      const color = selectedRowColor({
+        themeId: "dark",
+        isSelectedModel: true,
+        isFocusedRow: false,
+      });
 
-      const color = operation?.type === "pulling" ? colors.transcribing
-        : operation?.type === "removing" ? colors.warning
-        : colors.textDim;
-
-      expect(color).toBe("#FFAA00");
+      expect(color).toBe("#1f3a2f");
     });
 
-    test("should return warning color for removing operation", () => {
-      const operation = { type: "removing", model: "whisper-base" };
-      const colors = { transcribing: "#FFAA00", warning: "#FF0000", secondary: "#0000FF", success: "#00FF00", textDim: "#888888" };
+    test("uses a brighter green row when selected model is focused", () => {
+      const color = selectedRowColor({
+        themeId: "dark",
+        isSelectedModel: true,
+        isFocusedRow: true,
+      });
 
-      const color = operation?.type === "pulling" ? colors.transcribing
-        : operation?.type === "removing" ? colors.warning
-        : colors.textDim;
-
-      expect(color).toBe("#FF0000");
-    });
-
-    test("should return secondary color for selected model", () => {
-      const operation = null;
-      const isSelectedModel = true;
-      const colors = { secondary: "#0000FF", success: "#00FF00", textDim: "#888888" };
-
-      const color = operation ? "#000000"
-        : isSelectedModel ? colors.secondary
-        : colors.success;
-
-      expect(color).toBe("#0000FF");
-    });
-
-    test("should return success color for installed model", () => {
-      const operation = null;
-      const isSelectedModel = false;
-      const installed = true;
-      const colors = { secondary: "#0000FF", success: "#00FF00", textDim: "#888888" };
-
-      const color = operation ? "#000000"
-        : isSelectedModel ? colors.secondary
-        : installed ? colors.success
-        : colors.textDim;
-
-      expect(color).toBe("#00FF00");
-    });
-
-    test("should return dim color for uninstalled model", () => {
-      const operation = null;
-      const isSelectedModel = false;
-      const installed = false;
-      const colors = { secondary: "#0000FF", success: "#00FF00", textDim: "#888888" };
-
-      const color = operation ? "#000000"
-        : isSelectedModel ? colors.secondary
-        : installed ? colors.success
-        : colors.textDim;
-
-      expect(color).toBe("#888888");
-    });
-  });
-
-  describe("bgColor logic", () => {
-    test("should return backgroundElement when selected", () => {
-      const selected = true;
-      const colors = { backgroundElement: "#333333" };
-      const bgColor = selected ? colors.backgroundElement : undefined;
-
-      expect(bgColor).toBe("#333333");
-    });
-
-    test("should return undefined when not selected", () => {
-      const selected = false;
-      const colors = { backgroundElement: "#333333" };
-      const bgColor = selected ? colors.backgroundElement : undefined;
-
-      expect(bgColor).toBeUndefined();
-    });
-  });
-
-  describe("mutedColor logic", () => {
-    test("should return text color when selected", () => {
-      const selected = true;
-      const colors = { text: "#FFFFFF", textMuted: "#888888" };
-      const mutedColor = selected ? colors.text : colors.textMuted;
-
-      expect(mutedColor).toBe("#FFFFFF");
-    });
-
-    test("should return textMuted when not selected", () => {
-      const selected = false;
-      const colors = { text: "#FFFFFF", textMuted: "#888888" };
-      const mutedColor = selected ? colors.text : colors.textMuted;
-
-      expect(mutedColor).toBe("#888888");
-    });
-  });
-
-  describe("percentage formatting", () => {
-    test("should pad percentage to 4 characters", () => {
-      const percent = 5;
-      const padded = `${percent}%`.padStart(4, " ");
-
-      expect(padded).toBe("  5%");
-      expect(padded.length).toBe(4);
-    });
-
-    test("should not pad 100%", () => {
-      const percent = 100;
-      const padded = `${percent}%`.padStart(4, " ");
-
-      expect(padded).toBe("100%");
-      expect(padded.length).toBe(4);
-    });
-
-    test("should pad 0%", () => {
-      const percent = 0;
-      const padded = `${percent}%`.padStart(4, " ");
-
-      expect(padded).toBe("  0%");
-    });
-  });
-
-  describe("edge cases", () => {
-    test("should handle undefined operation", () => {
-      const operation = undefined;
-      const hasOperation = !!operation;
-
-      expect(hasOperation).toBe(false);
-    });
-
-    test("should handle model name mismatch in progress", () => {
-      const model = { name: "whisper-base", installed: true, path: "/path" };
-      const progress = { model: "whisper-large", percent: 50 };
-      const matches = progress.model === model.name;
-
-      expect(matches).toBe(false);
+      expect(color).toBe("#2b4d3f");
     });
   });
 });
