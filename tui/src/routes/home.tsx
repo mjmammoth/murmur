@@ -18,7 +18,10 @@ import { SettingsSelectModal } from "../component/settings-select-modal";
 import { ThemePickerModal } from "../component/theme-picker-modal";
 import { SettingsEditModal } from "../component/settings-edit-modal";
 import { ExitConfirmModal } from "../component/exit-confirm-modal";
-import { RuntimeSwitchConfirmModal } from "../component/runtime-switch-confirm-modal";
+import {
+  RuntimeSwitchConfirmModal,
+  isRuntimeSwitchConfirmDialogData,
+} from "../component/runtime-switch-confirm-modal";
 import { Welcome } from "../component/welcome";
 import { exitApp } from "../util/exit";
 import { setSigintHandler } from "../util/interrupt";
@@ -493,7 +496,12 @@ export function Home(): JSX.Element {
         </box>
       </Show>
 
-      <Show when={dialog.currentDialog()?.type === "runtime-switch-confirm"}>
+      <Show
+        when={
+          dialog.currentDialog()?.type === "runtime-switch-confirm" &&
+          isRuntimeSwitchConfirmDialogData(dialog.currentDialog()?.data)
+        }
+      >
         <box
           position="absolute"
           width="100%"

@@ -26,38 +26,16 @@ export interface ModelItemProps {
 }
 
 export function ModelItem(props: ModelItemProps): JSX.Element {
-  const { colors, themeId } = useTheme();
+  const { colors, theme } = useTheme();
   const backend = useBackend();
   const spinnerFrame = useSpinnerFrame();
 
   function selectedRowSubtleColor(): string {
-    switch (themeId()) {
-      case "dark":
-        return "#1f3a2f";
-      case "light":
-        return "#d7efe3";
-      case "catppuccin-mocha":
-        return "#243a31";
-      case "catppuccin-latte":
-        return "#cadfce";
-      default:
-        return colors().backgroundHighlight;
-    }
+    return theme().selectedRow?.subtle ?? colors().backgroundHighlight;
   }
 
   function selectedRowBrightColor(): string {
-    switch (themeId()) {
-      case "dark":
-        return "#2b4d3f";
-      case "light":
-        return "#b8ddca";
-      case "catppuccin-mocha":
-        return "#315146";
-      case "catppuccin-latte":
-        return "#afd0ba";
-      default:
-        return colors().backgroundElement;
-    }
+    return theme().selectedRow?.bright ?? colors().backgroundElement;
   }
 
   const bgColor = () => {

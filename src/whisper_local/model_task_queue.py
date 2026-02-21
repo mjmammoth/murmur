@@ -20,6 +20,8 @@ CancelStatus = Literal[
     "queued",
     "already_cancelling",
     "already_cancelled",
+    "already_completed",
+    "already_failed",
     "not_found",
 ]
 _PENDING_STATES: set[TaskState] = {"queued", "running", "cancelling"}
@@ -186,6 +188,12 @@ class SerialModelTaskQueue(ModelTaskQueue):
 
             if entry.state == "cancelled":
                 return CancelResult(status="already_cancelled", task=entry.snapshot())
+
+            if entry.state == "completed":
+                return CancelResult(status="already_completed", task=entry.snapshot())
+
+            if entry.state == "failed":
+                return CancelResult(status="already_failed", task=entry.snapshot())
 
             return CancelResult(status="not_found", task=entry.snapshot())
 

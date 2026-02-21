@@ -17,6 +17,7 @@ import { useConfig } from "../context/config";
 import { ModelItem, MODEL_TABLE_LAYOUT } from "./model-item";
 import { useSpinnerFrame } from "./spinner";
 import type { RuntimeName, ModelManagerDialogData } from "../types";
+import { removeHotkeys } from "./model-manager-config";
 
 function CommandHint(props: { keys: string; label: string; onClick?: () => void }): JSX.Element {
   const { colors } = useTheme();
@@ -211,6 +212,11 @@ export function ModelManager(): JSX.Element {
       }
     }
 
+    if (removeHotkeys.includes(keyName as (typeof removeHotkeys)[number])) {
+      handleRemove();
+      return;
+    }
+
     switch (keyName) {
       case "escape":
       case "q":
@@ -233,9 +239,6 @@ export function ModelManager(): JSX.Element {
         break;
       case "x":
         handleCancelDownload();
-        break;
-      case "backspace":
-        handleRemove();
         break;
     }
   });
@@ -435,7 +438,7 @@ export function ModelManager(): JSX.Element {
             <CommandHint keys="p" label="pull" onClick={handlePull} />
           </Show>
           <Show when={!pendingSwitchConfirmVisible()}>
-            <CommandHint keys="backspace" label="remove" onClick={handleRemove} />
+            <CommandHint keys={removeHotkeys.join("/")} label="remove" onClick={handleRemove} />
           </Show>
         </box>
       </box>

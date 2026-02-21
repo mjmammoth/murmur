@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -101,6 +103,21 @@ def _pick_port() -> int:
         return random.randint(20000, 59999)
 
 
+def _wait_for_server(port: int, timeout: float = 5.0, interval: float = 0.1) -> bool:
+    deadline = time.monotonic() + timeout
+    url = f"http://127.0.0.1:{port}/"
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=interval):
+                return True
+        except urllib.error.HTTPError:
+            # Any HTTP response confirms the server is up.
+            return True
+        except (OSError, urllib.error.URLError):
+            time.sleep(interval)
+    return False
+
+
 def _start_mock_backend(repo_root: Path, theme: str, port: int) -> subprocess.Popen[str]:
     bun_path = shutil.which("bun")
     if not bun_path:
@@ -122,7 +139,13 @@ def _start_mock_backend(repo_root: Path, theme: str, port: int) -> subprocess.Po
         stderr=subprocess.STDOUT,
         text=True,
     )
-    time.sleep(0.5)
+    if not _wait_for_server(port):
+        if server.poll() is not None:
+            output = server.stdout.read() if server.stdout else ""
+            raise RuntimeError(
+                f"Mock backend exited before startup (code={server.returncode}).\n{output}"
+            )
+        raise RuntimeError("Mock backend did not start in time")
     if server.poll() is not None:
         output = server.stdout.read() if server.stdout else ""
         raise RuntimeError(

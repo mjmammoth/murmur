@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ModelInfo } from "../types";
+import { removeHotkeys } from "./model-manager-config";
 
 /**
  * Tests for ModelManager component
@@ -26,45 +27,10 @@ describe("ModelManager", () => {
     },
   });
 
-  describe("table heading and copy", () => {
-    test("should include the action-oriented models description", () => {
-      const copy = "Download and select local models.";
-
-      expect(copy).toContain("Download and select");
-      expect(copy).toContain("local models");
-    });
-
-    test("should label the status column as Downloaded", () => {
-      const label = "Downloaded";
-
-      expect(label).toBe("Downloaded");
-    });
-
-    test("should define single-runtime table column labels", () => {
-      const columns = ["Model", "Size", "Downloaded"];
-
-      expect(columns).toEqual(["Model", "Size", "Downloaded"]);
-    });
-
-    test("should use data-anchored header alignment", () => {
-      const headerAlignments = {
-        model: "flex-start",
-        size: "flex-end",
-        downloaded: "center",
-      } as const;
-
-      expect(headerAlignments.model).toBe("flex-start");
-      expect(headerAlignments.size).toBe("flex-end");
-      expect(headerAlignments.downloaded).toBe("center");
-    });
-  });
-
   describe("remove hotkey logic", () => {
     test("should use backspace as the only remove hotkey", () => {
-      const removeHotkeys = ["backspace"];
-
       expect(removeHotkeys).toEqual(["backspace"]);
-      expect(removeHotkeys.includes("r")).toBe(false);
+      expect((removeHotkeys as readonly string[]).includes("r")).toBe(false);
     });
   });
 

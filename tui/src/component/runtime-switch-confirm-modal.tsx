@@ -5,29 +5,51 @@ import { useTheme } from "../context/theme";
 import { useDialog } from "../context/dialog";
 import type { RuntimeSwitchConfirmDialogData } from "../types";
 
+export function isRuntimeSwitchConfirmDialogData(
+  data: unknown,
+): data is RuntimeSwitchConfirmDialogData {
+  if (!data || typeof data !== "object") return false;
+  const candidate = data as {
+    runtime?: unknown;
+    model?: unknown;
+    format?: unknown;
+  };
+  const runtime = candidate.runtime;
+  const runtimeValid = runtime === "faster-whisper" || runtime === "whisper.cpp";
+  return (
+    runtimeValid &&
+    typeof candidate.model === "string" &&
+    candidate.model.trim().length > 0 &&
+    typeof candidate.format === "string" &&
+    candidate.format.trim().length > 0
+  );
+}
+
 export function RuntimeSwitchConfirmModal(): JSX.Element {
   const { colors } = useTheme();
   const dialog = useDialog();
 
-  const dialogData = createMemo<RuntimeSwitchConfirmDialogData>(
-    () =>
-      (dialog.currentDialog()?.data as RuntimeSwitchConfirmDialogData | undefined) ?? {
-        runtime: "faster-whisper",
-        model: "small",
-        format: "unknown",
-      },
-  );
+  const dialogData = createMemo<RuntimeSwitchConfirmDialogData | null>(() => {
+    const current = dialog.currentDialog();
+    if (current?.type !== "runtime-switch-confirm") return null;
+    return isRuntimeSwitchConfirmDialogData(current.data) ? current.data : null;
+  });
 
   function cancel() {
     dialog.closeDialog();
   }
 
   function confirm() {
+    const data = dialogData();
+    if (!data) {
+      cancel();
+      return;
+    }
     dialog.openDialog("model-manager", {
       pendingRuntimeSwitch: {
-        runtime: dialogData().runtime,
-        model: dialogData().model,
-        format: dialogData().format,
+        runtime: data.runtime,
+        model: data.model,
+        format: data.format,
       },
     });
   }
@@ -37,6 +59,7 @@ export function RuntimeSwitchConfirmModal(): JSX.Element {
 
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "runtime-switch-confirm") return;
+    if (!dialogData()) return;
     if (key.eventType === "release" || key.repeated) return;
 
     key.preventDefault();
@@ -48,6 +71,8 @@ export function RuntimeSwitchConfirmModal(): JSX.Element {
       confirm();
     }
   });
+
+  if (!dialogData()) return <></>;
 
   return (
     <box
@@ -66,12 +91,12 @@ export function RuntimeSwitchConfirmModal(): JSX.Element {
         </text>
         <text>
           <span style={{ fg: colors().textMuted }}>Switch target: </span>
-          <span style={{ fg: colors().text }}>{dialogData().runtime}</span>
+          <span style={{ fg: colors().text }}>{dialogData()!.runtime}</span>
         </text>
         <text>
           <span style={{ fg: colors().textMuted }}>Model: </span>
-          <span style={{ fg: colors().text }}>{dialogData().model}</span>
-          <span style={{ fg: colors().textDim }}>{` (${dialogData().format})`}</span>
+          <span style={{ fg: colors().text }}>{dialogData()!.model}</span>
+          <span style={{ fg: colors().textDim }}>{` (${dialogData()!.format})`}</span>
         </text>
         <text>
           <span style={{ fg: colors().textMuted }}>

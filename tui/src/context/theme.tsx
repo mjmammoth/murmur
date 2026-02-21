@@ -46,12 +46,20 @@ export interface Theme {
   label: string;
   description: string;
   colors: ThemeColors;
+  selectedRow: {
+    subtle: string;
+    bright: string;
+  };
 }
 
 const darkTheme: Theme = {
   id: "dark",
   label: "Dark",
   description: "Default dark palette",
+  selectedRow: {
+    subtle: "#1f3a2f",
+    bright: "#2b4d3f",
+  },
   colors: {
     primary: "#9d7cd8",
     secondary: "#5c9cf5",
@@ -96,6 +104,10 @@ const lightTheme: Theme = {
   id: "light",
   label: "Light",
   description: "High-contrast light mode",
+  selectedRow: {
+    subtle: "#d7efe3",
+    bright: "#b8ddca",
+  },
   colors: {
     primary: "#7c3aed",
     secondary: "#2563eb",
@@ -140,6 +152,10 @@ const catppuccinMochaTheme: Theme = {
   id: "catppuccin-mocha",
   label: "Catppuccin Mocha",
   description: "Pastel dark palette",
+  selectedRow: {
+    subtle: "#243a31",
+    bright: "#315146",
+  },
   colors: {
     primary: "#cba6f7",
     secondary: "#89b4fa",
@@ -184,6 +200,10 @@ const catppuccinLatteTheme: Theme = {
   id: "catppuccin-latte",
   label: "Catppuccin Latte",
   description: "Pastel light palette",
+  selectedRow: {
+    subtle: "#cadfce",
+    bright: "#afd0ba",
+  },
   colors: {
     primary: "#8839ef",
     secondary: "#1e66f5",

@@ -6,6 +6,7 @@ import {
   shouldLogToast,
   shouldMirrorToastLog,
   toastLogDedupeKey,
+  TOAST_LOG_DEDUPE_WINDOW_MS,
   type ToastMeta,
 } from "./toast-log";
 
@@ -33,8 +34,14 @@ export function ToastContextProvider(props: { children: JSX.Element }): JSX.Elem
 
     if (shouldLogToast(meta)) {
       const source = meta?.source ?? "ui.toast";
-      const key = toastLogDedupeKey(level, message, { ...meta, source });
       const now = Date.now();
+      const staleCutoff = now - TOAST_LOG_DEDUPE_WINDOW_MS;
+      for (const [cacheKey, lastAt] of lastLogAtByKey) {
+        if (lastAt < staleCutoff) {
+          lastLogAtByKey.delete(cacheKey);
+        }
+      }
+      const key = toastLogDedupeKey(level, message, { ...meta, source });
       if (shouldMirrorToastLog(lastLogAtByKey, key, now)) {
         backend.appendClientLog({
           level: level === "error" ? "ERROR" : "INFO",

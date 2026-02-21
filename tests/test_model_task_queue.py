@@ -36,3 +36,29 @@ def test_queue_resolve_single_candidate_only_when_one_pending():
 
     queue.enqueue_download("whisper.cpp:small", model="small", runtime="whisper.cpp")
     assert queue.resolve_single_candidate() is None
+
+
+def test_queue_cancel_completed_task_reports_terminal_status():
+    queue = SerialModelTaskQueue()
+    key = "faster-whisper:small"
+    queue.enqueue_download(key, model="small", runtime="faster-whisper")
+    queue.mark_completed(key)
+
+    result = queue.cancel(key)
+
+    assert result.status == "already_completed"
+    assert result.task is not None
+    assert result.task.state == "completed"
+
+
+def test_queue_cancel_failed_task_reports_terminal_status():
+    queue = SerialModelTaskQueue()
+    key = "faster-whisper:small"
+    queue.enqueue_download(key, model="small", runtime="faster-whisper")
+    queue.mark_failed(key)
+
+    result = queue.cancel(key)
+
+    assert result.status == "already_failed"
+    assert result.task is not None
+    assert result.task.state == "failed"
