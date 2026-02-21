@@ -9,6 +9,7 @@ export interface ConfigContextValue {
   vadEnabled: Accessor<boolean>;
   autoCopy: Accessor<boolean>;
   autoPaste: Accessor<boolean>;
+  autoRevertClipboard: Accessor<boolean>;
   outputClipboard: Accessor<boolean>;
   outputFileEnabled: Accessor<boolean>;
   hotkeyMode: Accessor<"ptt" | "toggle">;
@@ -16,6 +17,7 @@ export interface ConfigContextValue {
   toggleVad: () => void;
   toggleAutoCopy: () => void;
   toggleAutoPaste: () => void;
+  toggleAutoRevertClipboard: () => void;
   toggleOutputClipboard: () => void;
   toggleOutputFileEnabled: () => void;
   toggleHotkeyMode: () => void;
@@ -78,6 +80,11 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     backend.send({ type: "toggle_auto_paste", enabled: newValue });
   }
 
+  function toggleAutoRevertClipboard() {
+    const newValue = !backend.autoRevertClipboard();
+    backend.send({ type: "toggle_auto_revert_clipboard", enabled: newValue });
+  }
+
   function toggleHotkeyMode() {
     const nextMode = hotkeyMode() === "ptt" ? "toggle" : "ptt";
     setHotkeyMode(nextMode);
@@ -118,6 +125,7 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     vadEnabled,
     autoCopy: backend.autoCopy,
     autoPaste: backend.autoPaste,
+    autoRevertClipboard: backend.autoRevertClipboard,
     outputClipboard,
     outputFileEnabled,
     hotkeyMode,
@@ -125,6 +133,7 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     toggleVad,
     toggleAutoCopy,
     toggleAutoPaste,
+    toggleAutoRevertClipboard,
     toggleOutputClipboard,
     toggleOutputFileEnabled,
     toggleHotkeyMode,

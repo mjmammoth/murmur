@@ -105,8 +105,11 @@ export function Footer(props: FooterProps): JSX.Element {
   const modelName = () => {
     const selected = config.config()?.model.name;
     if (!selected) return "-";
+    const activeRuntime = config.config()?.model.runtime ?? "faster-whisper";
     const match = backend.models().find((model) => model.name === selected);
-    return match?.installed ? selected : "-";
+    return match?.variants?.[activeRuntime as "faster-whisper" | "whisper.cpp"]?.installed
+      ? selected
+      : "-";
   };
   const hotkeyMode = () => config.config()?.hotkey.mode ?? "-";
   const hotkeyKey = () => config.config()?.hotkey.key ?? "-";

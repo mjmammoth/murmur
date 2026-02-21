@@ -201,7 +201,7 @@ export function ThemePickerModal(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>live preview while navigating</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={cancelSelection}>
+            <box backgroundColor={colors().error} paddingX={1} onMouseUp={cancelSelection}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>

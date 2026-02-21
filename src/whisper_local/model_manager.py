@@ -9,17 +9,25 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 # Set before importing huggingface_hub so it applies reliably.
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
-from huggingface_hub import HfApi, snapshot_download
+from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
 from whisper_local import config as config_module
+from whisper_local.model_ops import get_model_runtime_operations_factory
 
 
 logger = logging.getLogger(__name__)
+
+RuntimeName = Literal["faster-whisper", "whisper.cpp"]
+RUNTIME_NAMES: tuple[RuntimeName, RuntimeName] = ("faster-whisper", "whisper.cpp")
+RUNTIME_FORMATS: dict[RuntimeName, str] = {
+    "faster-whisper": "ctranslate2",
+    "whisper.cpp": "ggml",
+}
 
 MODEL_NAMES = ["tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo"]
 MODEL_REPO_IDS: dict[str, str] = {
@@ -35,6 +43,18 @@ MODEL_REPO_ALIASES: dict[str, tuple[str, ...]] = {
     # Legacy location used by older app versions.
     "large-v3-turbo": ("Systran/faster-whisper-large-v3-turbo",),
 }
+
+WHISPER_CPP_REPO_ID = "ggerganov/whisper.cpp"
+WHISPER_CPP_MODEL_FILES: dict[str, str] = {
+    "tiny": "ggml-tiny.bin",
+    "base": "ggml-base.bin",
+    "small": "ggml-small.bin",
+    "medium": "ggml-medium.bin",
+    "large-v2": "ggml-large-v2.bin",
+    "large-v3": "ggml-large-v3.bin",
+    "large-v3-turbo": "ggml-large-v3-turbo.bin",
+}
+
 MODEL_REQUIRED_FILES = (
     "model.bin",
     "config.json",
@@ -54,6 +74,15 @@ MODEL_ESTIMATED_SIZE_BYTES: dict[str, int] = {
     "large-v3": 3200 * 1024 * 1024,
     "large-v3-turbo": 1600 * 1024 * 1024,
 }
+WHISPER_CPP_ESTIMATED_SIZE_BYTES: dict[str, int] = {
+    "tiny": 75 * 1024 * 1024,
+    "base": 145 * 1024 * 1024,
+    "small": 485 * 1024 * 1024,
+    "medium": 1500 * 1024 * 1024,
+    "large-v2": 3000 * 1024 * 1024,
+    "large-v3": 3000 * 1024 * 1024,
+    "large-v3-turbo": 1500 * 1024 * 1024,
+}
 _MODEL_SIZE_CACHE: dict[str, int] = {}
 _MODEL_SIZE_CACHE_LOCK = threading.Lock()
 
@@ -66,12 +95,19 @@ class DownloadCancelledError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class ModelInfo:
-    name: str
+class ModelVariantInfo:
+    runtime: RuntimeName
+    format: str
     installed: bool
     path: Path | None = None
     size_bytes: int | None = None
     size_estimated: bool = False
+
+
+@dataclass(frozen=True)
+class ModelInfo:
+    name: str
+    variants: dict[RuntimeName, ModelVariantInfo]
 
 
 def get_hf_cache_dir() -> Path:
@@ -82,6 +118,26 @@ def get_hf_cache_dir() -> Path:
     if xdg_cache:
         return Path(xdg_cache) / "huggingface"
     return Path("~/.cache/huggingface").expanduser()
+
+
+def normalize_model_runtime(runtime: str | None) -> RuntimeName:
+    normalized = config_module.normalize_runtime_name(str(runtime or "faster-whisper"))
+    if normalized == "whisper.cpp":
+        return "whisper.cpp"
+    return "faster-whisper"
+
+
+def _model_operations_for_runtime(runtime: str | None):
+    normalized = normalize_model_runtime(runtime)
+    return get_model_runtime_operations_factory().for_runtime(normalized)
+
+
+def model_variant_format(runtime: str | None) -> str:
+    return RUNTIME_FORMATS[normalize_model_runtime(runtime)]
+
+
+def _size_cache_key(model_name: str, runtime: str | None = None) -> str:
+    return f"{normalize_model_runtime(runtime)}:{model_name}"
 
 
 def _model_cache_path(model_name: str) -> Path:
@@ -109,6 +165,38 @@ def _cache_path_for_repo_id(repo_id: str) -> Path:
     """
     cache_name = f"models--{repo_id.replace('/', '--')}"
     return get_hf_cache_dir() / "hub" / cache_name
+
+
+def _whisper_cpp_snapshots_dir() -> Path:
+    return _cache_path_for_repo_id(WHISPER_CPP_REPO_ID) / "snapshots"
+
+
+def whisper_cpp_model_filename(model_name: str) -> str:
+    if model_name not in MODEL_NAMES:
+        raise ValueError(f"Unknown model: {model_name}")
+    filename = WHISPER_CPP_MODEL_FILES.get(model_name)
+    if not filename:
+        raise RuntimeError(f"whisper.cpp model file mapping missing for model: {model_name}")
+    return filename
+
+
+def _find_cached_whisper_cpp_model(filename: str) -> Path | None:
+    snapshots = _whisper_cpp_snapshots_dir()
+    if not snapshots.exists():
+        return None
+
+    candidates: list[Path] = []
+    for snapshot in snapshots.iterdir():
+        if not snapshot.is_dir():
+            continue
+        candidate = snapshot / filename
+        if candidate.exists() and candidate.is_file():
+            candidates.append(candidate)
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0]
 
 
 def _model_repo_ids(model_name: str) -> tuple[str, ...]:
@@ -161,30 +249,27 @@ def _model_repo_id(model_name: str) -> str:
     return repo_id
 
 
-def is_model_installed(model_name: str) -> bool:
+def is_model_installed(model_name: str, runtime: str | None = "faster-whisper") -> bool:
     """
-    Determine whether a supported model has a complete installed snapshot in the local cache.
+    Determine whether a supported model variant is installed for a runtime.
+    
+    Parameters:
+        model_name (str): Supported model name.
+        runtime (str | None): Runtime identifier.
     
     Returns:
-        `True` if a complete installed snapshot exists for the given model, `False` otherwise.
+        bool: True if the model variant exists locally.
     """
     if model_name not in MODEL_NAMES:
         return False
-    return get_installed_model_path(model_name) is not None
+    return get_installed_model_path(model_name, runtime=runtime) is not None
 
 
-def get_installed_model_path(model_name: str) -> Path | None:
-    """
-    Locate the most recently installed complete snapshot path for a given model.
-    
-    Scans the model's cache locations and returns the most recently modified snapshot directory that contains all required model files.
-    
-    Parameters:
-        model_name (str): The canonical name of the model to search for.
-    
-    Returns:
-        Path | None: Path to the most recent complete snapshot directory for the model, or `None` if the model name is unknown or no complete snapshot is found.
-    """
+def is_model_variant_installed(model_name: str, runtime: str | None) -> bool:
+    return is_model_installed(model_name, runtime=runtime)
+
+
+def _get_installed_faster_model_path(model_name: str) -> Path | None:
     if model_name not in MODEL_NAMES:
         return None
     candidates: list[Path] = []
@@ -196,6 +281,31 @@ def get_installed_model_path(model_name: str) -> Path | None:
         return None
     candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     return candidates[0]
+
+
+def get_installed_whisper_cpp_model_path(model_name: str) -> Path | None:
+    if model_name not in MODEL_NAMES:
+        return None
+    return _find_cached_whisper_cpp_model(whisper_cpp_model_filename(model_name))
+
+
+def get_installed_model_path(
+    model_name: str, runtime: str | None = "faster-whisper"
+) -> Path | None:
+    """
+    Locate the most recently installed model path for a model/runtime combination.
+    
+    Parameters:
+        model_name (str): Model name to resolve.
+        runtime (str | None): Runtime identifier.
+    
+    Returns:
+        Path | None: Installed path or None when missing.
+    """
+    if model_name not in MODEL_NAMES:
+        return None
+    operations = _model_operations_for_runtime(runtime)
+    return operations.installed_path(model_name)
 
 
 def _cache_path_size_bytes(cache_path: Path) -> int:
@@ -321,6 +431,17 @@ def _prune_cache_path(cache_path: Path) -> None:
         logger.warning("Failed to remove empty model cache path: %s", cache_path)
 
 
+def _prune_whisper_cpp_cache() -> None:
+    cache_path = _cache_path_for_repo_id(WHISPER_CPP_REPO_ID)
+    blobs_path = cache_path / "blobs"
+    if blobs_path.exists():
+        for partial_path in blobs_path.glob("*.incomplete"):
+            try:
+                partial_path.unlink()
+            except Exception:
+                logger.warning("Failed to remove partial whisper.cpp blob: %s", partial_path)
+
+
 def prune_invalid_model_cache(model_name: str) -> None:
     """
     Remove incomplete or invalid cached snapshots and orphaned blobs for a model.
@@ -336,6 +457,7 @@ def prune_invalid_model_cache(model_name: str) -> None:
     for cache_path in _model_cache_paths(model_name):
         if cache_path.exists():
             _prune_cache_path(cache_path)
+    _prune_whisper_cpp_cache()
 
 
 def prune_invalid_model_caches() -> None:
@@ -348,24 +470,40 @@ def prune_invalid_model_caches() -> None:
         prune_invalid_model_cache(model_name)
 
 
-def model_cache_size_bytes(model_name: str) -> int:
-    """
-    Compute the total size of all cache directories for the specified model.
-    
-    Parameters:
-        model_name (str): The model's canonical name.
-    
-    Returns:
-        int: Total size in bytes of all cached snapshots and related files for the model.
-        Returns 0 when `model_name` is unknown.
-    """
-    if model_name not in MODEL_NAMES:
-        return 0
-
+def _faster_model_cache_size_bytes(model_name: str) -> int:
     total = 0
     for cache_path in _model_cache_paths(model_name):
         total += _cache_path_size_bytes(cache_path)
     return total
+
+
+def _whisper_cpp_model_cache_size_bytes(model_name: str) -> int:
+    path = get_installed_whisper_cpp_model_path(model_name)
+    if path is None:
+        return 0
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def model_cache_size_bytes(
+    model_name: str, runtime: str | None = "faster-whisper"
+) -> int:
+    """
+    Compute cache size bytes for a model/runtime combination.
+    
+    Parameters:
+        model_name (str): Model name.
+        runtime (str | None): Runtime identifier.
+    
+    Returns:
+        int: Cached byte size. Returns 0 for unknown model/runtime.
+    """
+    if model_name not in MODEL_NAMES:
+        return 0
+    operations = _model_operations_for_runtime(runtime)
+    return operations.cache_size_bytes(model_name)
 
 
 def list_available_models() -> list[str]:
@@ -379,22 +517,25 @@ def list_available_models() -> list[str]:
 
 
 def list_installed_models() -> list[ModelInfo]:
-    models = []
+    models: list[ModelInfo] = []
     for name in MODEL_NAMES:
-        installed_path = get_installed_model_path(name)
-        with _MODEL_SIZE_CACHE_LOCK:
-            exact_size = _MODEL_SIZE_CACHE.get(name)
-        estimated_size = MODEL_ESTIMATED_SIZE_BYTES.get(name)
-        size_bytes = exact_size if exact_size is not None else estimated_size
-        models.append(
-            ModelInfo(
-                name=name,
+        variants: dict[RuntimeName, ModelVariantInfo] = {}
+        for runtime in RUNTIME_NAMES:
+            operations = _model_operations_for_runtime(runtime)
+            installed_path = operations.installed_path(name)
+            with _MODEL_SIZE_CACHE_LOCK:
+                exact_size = _MODEL_SIZE_CACHE.get(_size_cache_key(name, runtime))
+            estimated_size = operations.estimated_size_bytes(name)
+            size_bytes = exact_size if exact_size is not None else estimated_size
+            variants[runtime] = ModelVariantInfo(
+                runtime=runtime,
+                format=RUNTIME_FORMATS[runtime],
                 installed=installed_path is not None,
                 path=installed_path,
                 size_bytes=size_bytes,
                 size_estimated=exact_size is None and size_bytes is not None,
             )
-        )
+        models.append(ModelInfo(name=name, variants=variants))
     return models
 
 
@@ -419,6 +560,30 @@ def _resolve_repo_total_bytes(repo_id: str) -> int | None:
         if isinstance(size, int) and size > 0:
             total += size
     return total or None
+
+
+def _resolve_repo_file_size_bytes(repo_id: str, filename: str) -> int | None:
+    """
+    Resolve byte size metadata for a specific repository file.
+
+    Returns:
+        int | None: Positive file size in bytes when available.
+    """
+    try:
+        info = HfApi().model_info(repo_id=repo_id, files_metadata=True)
+    except Exception as exc:
+        logger.debug("Unable to fetch file size metadata for %s/%s: %s", repo_id, filename, exc)
+        return None
+
+    for sibling in getattr(info, "siblings", []) or []:
+        sibling_name = str(getattr(sibling, "rfilename", "") or "")
+        if sibling_name != filename:
+            continue
+        size = getattr(sibling, "size", None)
+        if isinstance(size, int) and size > 0:
+            return size
+        break
+    return None
 
 
 def _make_progress_tqdm(
@@ -557,26 +722,11 @@ def _make_progress_tqdm(
     return _ProgressTqdm
 
 
-def download_model(
+def _download_faster_model(
     model_name: str,
     progress_callback: Callable[[int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> Path:
-    """
-    Download and install the specified model snapshot into the local cache.
-    
-    Parameters:
-        model_name (str): Supported model name to download.
-        progress_callback (Callable[[int], None] | None): Optional callback receiving download progress as an integer percentage (0–100).
-        cancel_check (Callable[[], bool] | None): Optional callable checked before start and periodically during download; return `True` to request cancellation.
-    
-    Returns:
-        Path: Filesystem path to the downloaded model snapshot.
-    
-    Raises:
-        ValueError: If `model_name` is not a known supported model.
-        DownloadCancelledError: If cancellation is requested before or during download.
-    """
     if model_name not in MODEL_NAMES:
         raise ValueError(f"Unknown model: {model_name}")
 
@@ -596,7 +746,9 @@ def download_model(
         expected_total_bytes = _resolve_repo_total_bytes(repo_id)
         if expected_total_bytes is not None:
             with _MODEL_SIZE_CACHE_LOCK:
-                _MODEL_SIZE_CACHE[model_name] = expected_total_bytes
+                _MODEL_SIZE_CACHE[_size_cache_key(model_name, "faster-whisper")] = (
+                    expected_total_bytes
+                )
         if expected_total_bytes is None:
             expected_total_bytes = MODEL_ESTIMATED_SIZE_BYTES.get(model_name)
         kwargs["tqdm_class"] = _make_progress_tqdm(
@@ -639,7 +791,72 @@ def download_model(
             raise
 
 
-def ensure_model_available(model_name: str) -> Path:
+def _download_whisper_cpp_model(
+    model_name: str,
+    progress_callback: Callable[[int], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> Path:
+    if model_name not in MODEL_NAMES:
+        raise ValueError(f"Unknown model: {model_name}")
+    filename = whisper_cpp_model_filename(model_name)
+    existing = get_installed_whisper_cpp_model_path(model_name)
+    if existing is not None:
+        if progress_callback is not None:
+            progress_callback(100)
+        return existing
+
+    if cancel_check is not None and cancel_check():
+        raise DownloadCancelledError("Download cancelled before start")
+
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
+    logger.info("Downloading whisper.cpp model %s (%s)", model_name, filename)
+    if progress_callback is not None:
+        progress_callback(0)
+    downloaded = Path(
+        hf_hub_download(repo_id=WHISPER_CPP_REPO_ID, filename=filename)
+    )
+    if cancel_check is not None and cancel_check():
+        raise DownloadCancelledError("Download cancelled after transfer")
+    with _MODEL_SIZE_CACHE_LOCK:
+        try:
+            _MODEL_SIZE_CACHE[_size_cache_key(model_name, "whisper.cpp")] = downloaded.stat().st_size
+        except OSError:
+            pass
+    if progress_callback is not None:
+        progress_callback(100)
+    return downloaded
+
+
+def download_model(
+    model_name: str,
+    runtime: str | None = "faster-whisper",
+    progress_callback: Callable[[int], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> Path:
+    """
+    Download and install a model variant for the requested runtime.
+    
+    Parameters:
+        model_name (str): Supported model name to download.
+        runtime (str | None): Runtime whose model variant should be downloaded.
+        progress_callback (Callable[[int], None] | None): Optional callback receiving integer progress 0-100.
+        cancel_check (Callable[[], bool] | None): Optional cancellation signal function.
+    
+    Returns:
+        Path: Filesystem path to the downloaded model artifact.
+    """
+    operations = _model_operations_for_runtime(runtime)
+    return operations.download(
+        model_name,
+        progress_callback=progress_callback,
+        cancel_check=cancel_check,
+    )
+
+
+def ensure_model_available(
+    model_name: str, runtime: str | None = "faster-whisper"
+) -> Path:
     """
     Ensure the specified model is installed and return the local snapshot path.
     
@@ -649,10 +866,14 @@ def ensure_model_available(model_name: str) -> Path:
     Returns:
         Path: Filesystem path to the installed model snapshot.
     """
-    installed_path = get_installed_model_path(model_name)
+    installed_path = get_installed_model_path(model_name, runtime=runtime)
     if installed_path is not None:
         return installed_path
-    return download_model(model_name)
+    normalized = normalize_model_runtime(runtime)
+    if normalized == "faster-whisper":
+        # Keep legacy invocation shape for callsites/tests that patch download_model.
+        return download_model(model_name)
+    return download_model(model_name, runtime=normalized)
 
 
 def _download_model_in_subprocess(
@@ -764,21 +985,48 @@ def _download_model_in_subprocess(
     return Path(output[-1])
 
 
-def remove_model(model_name: str) -> None:
-    """
-    Remove all cached installations for the given model.
-    
-    This deletes every cache directory associated with the model (including repo aliases)
-    from the Hugging Face cache. If the model name is not recognized, the function does nothing.
-    
-    Parameters:
-        model_name (str): Supported model name whose cached files should be removed.
-    """
-    if model_name not in MODEL_NAMES:
-        return
+def _remove_faster_model(model_name: str) -> None:
     for cache_path in _model_cache_paths(model_name):
         if cache_path.exists():
             shutil.rmtree(cache_path)
+
+
+def _remove_whisper_cpp_model(model_name: str) -> None:
+    filename = whisper_cpp_model_filename(model_name)
+    snapshots = _whisper_cpp_snapshots_dir()
+    if not snapshots.exists():
+        return
+    for snapshot in snapshots.iterdir():
+        if not snapshot.is_dir():
+            continue
+        candidate = snapshot / filename
+        if candidate.exists():
+            try:
+                candidate.unlink()
+            except Exception:
+                logger.warning("Failed to remove whisper.cpp model file: %s", candidate)
+        try:
+            if not any(snapshot.iterdir()):
+                snapshot.rmdir()
+        except Exception:
+            continue
+
+
+def remove_model(model_name: str, runtime: str | None = "faster-whisper") -> None:
+    """
+    Remove cached model files for a model/runtime combination.
+    
+    Parameters:
+        model_name (str): Supported model name whose files should be removed.
+        runtime (str | None): Runtime whose variant should be removed.
+    """
+    if model_name not in MODEL_NAMES:
+        return
+    normalized = normalize_model_runtime(runtime)
+    operations = _model_operations_for_runtime(normalized)
+    operations.remove(model_name)
+    with _MODEL_SIZE_CACHE_LOCK:
+        _MODEL_SIZE_CACHE.pop(_size_cache_key(model_name, normalized), None)
 
 
 def set_selected_model(model_name: str, path: Path | None = None) -> None:

@@ -1,6 +1,5 @@
 import { type JSX, For } from "solid-js";
 import { useTheme } from "../context/theme";
-import { useConfig } from "../context/config";
 
 const TITLE = "whisper.local";
 
@@ -24,23 +23,20 @@ function lerpColor(from: string, to: string, t: number): string {
 }
 
 interface HeaderProps {
-  onToggleAutoCopy?: () => void;
-  onToggleAutoPaste?: () => void;
+  onQuitClick?: () => void;
 }
 
 /**
- * Render the application header with an animated brand color strip and configuration toggles.
+ * Render the application header with an animated brand color strip and a quit hint.
  *
  * The left side displays " whisper.local " as a sequence of colored tiles whose background
  * interpolates between the theme's brandStart and brandEnd based on distance from a peak
- * near the dot. The right side shows toggle hints for auto copy (`c`) and auto paste (`p`)
- * reflecting the current configuration signals.
+ * near the dot. The right side shows the `esc/q` exit hint.
  *
- * @returns A JSX element containing the header UI: the animated brand strip on the left and the toggle hints on the right.
+ * @returns A JSX element containing the header UI: the animated brand strip on the left and the exit hint on the right.
  */
 export function Header(props: HeaderProps): JSX.Element {
   const { colors } = useTheme();
-  const config = useConfig();
   const titleChars = TITLE.split("");
   const titleStripChars = [" ", ...titleChars, " "];
   const titleLastIndex = Math.max(1, titleStripChars.length - 1);
@@ -78,25 +74,16 @@ export function Header(props: HeaderProps): JSX.Element {
           flexDirection="row"
           alignItems="center"
           flexShrink={0}
+          onMouseUp={() => props.onQuitClick?.()}
         >
-          <text>
-            <span style={{ fg: colors().textDim }}>auto </span>
-          </text>
-          <box onMouseUp={() => props.onToggleAutoCopy?.()}>
+          <box backgroundColor={colors().error} paddingX={1}>
             <text>
-              <span style={{ fg: colors().accent, bold: true }}>c</span>
-              <span style={{ fg: config.autoCopy() ? colors().success : colors().textDim }}>opy</span>
+              <span style={{ fg: colors().selectedText }}>esc/q</span>
             </text>
           </box>
           <text>
-            <span style={{ fg: colors().textDim }}> / </span>
+            <span style={{ fg: colors().textMuted }}> exit</span>
           </text>
-          <box onMouseUp={() => props.onToggleAutoPaste?.()}>
-            <text>
-              <span style={{ fg: colors().accent, bold: true }}>p</span>
-              <span style={{ fg: config.autoPaste() ? colors().success : colors().textDim }}>aste</span>
-            </text>
-          </box>
         </box>
       </box>
     </box>

@@ -14,8 +14,8 @@ import { useTheme } from "../context/theme";
 import { useBackend, type CapabilitiesResponse } from "../context/backend";
 import { useDialog } from "../context/dialog";
 import { useSpinnerFrame } from "./spinner";
-import { formatBytes } from "../util/format";
-import type { WelcomeDialogData } from "../types";
+import { formatBytes, formatDeviceLabel } from "../util/format";
+import type { RuntimeName, SelectSettingId, WelcomeDialogData } from "../types";
 
 // ---------------------------------------------------------------------------
 // Shared sub-components
@@ -179,14 +179,26 @@ function UIGuideStep(): JSX.Element {
 // Step 3: Device Detection
 // ---------------------------------------------------------------------------
 
+type HardwareSettingField = "runtime" | "device";
+
 function DeviceDetectionStep(props: {
   caps: CapabilitiesResponse | null;
-  onOpenSettings: () => void;
+  selectedField: HardwareSettingField;
+  onSelectField: (field: HardwareSettingField) => void;
+  onOpenSelector: (field: HardwareSettingField) => void;
 }): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();
 
   const loading = () => !props.caps;
+
+  function SuggestionToken(props: { children: string }): JSX.Element {
+    return (
+      <span style={{ fg: colors().accent, bold: true }}>
+        {props.children}
+      </span>
+    );
+  }
 
   const deviceSummary = () => {
     if (!props.caps) return "Detecting hardware...";
@@ -196,16 +208,61 @@ function DeviceDetectionStep(props: {
     return "CPU-only configuration detected";
   };
 
-  const recommendation = () => {
-    if (!props.caps) return "";
+  const recommendation = (): JSX.Element => {
+    if (!props.caps) {
+      return <span style={{ fg: colors().textMuted }}>Detecting recommendation...</span>;
+    }
     const rec = props.caps.recommended;
-    if (rec.device === "mps") return "Recommended: whisper.cpp with Metal for best performance on Mac.";
-    if (rec.device === "cuda") return "Recommended: faster-whisper with CUDA for GPU-accelerated transcription.";
-    return "Recommended: faster-whisper with CPU. Consider installing whisper.cpp for Metal support on Mac.";
+    if (rec.device === "mps") {
+      return (
+        <>
+          <span style={{ fg: colors().textMuted }}>Recommended: </span>
+          <SuggestionToken>whisper.cpp</SuggestionToken>
+          <span style={{ fg: colors().textMuted }}> with </span>
+          <SuggestionToken>Metal</SuggestionToken>
+          <span style={{ fg: colors().textMuted }}> for best performance on Mac.</span>
+        </>
+      );
+    }
+    if (rec.device === "cuda") {
+      return (
+        <>
+          <span style={{ fg: colors().textMuted }}>Recommended: </span>
+          <SuggestionToken>faster-whisper</SuggestionToken>
+          <span style={{ fg: colors().textMuted }}> with </span>
+          <SuggestionToken>CUDA</SuggestionToken>
+          <span style={{ fg: colors().textMuted }}> for GPU-accelerated transcription.</span>
+        </>
+      );
+    }
+    return (
+      <>
+        <span style={{ fg: colors().textMuted }}>Recommended: </span>
+        <SuggestionToken>faster-whisper</SuggestionToken>
+        <span style={{ fg: colors().textMuted }}> with </span>
+        <SuggestionToken>CPU</SuggestionToken>
+        <span style={{ fg: colors().textMuted }}>.</span>
+        <span style={{ fg: colors().textMuted }}> Consider installing </span>
+        <SuggestionToken>whisper.cpp</SuggestionToken>
+        <span style={{ fg: colors().textMuted }}> for </span>
+        <SuggestionToken>Metal</SuggestionToken>
+        <span style={{ fg: colors().textMuted }}> support on Mac.</span>
+      </>
+    );
   };
 
-  const currentBackend = () => backend.config()?.model.backend ?? "-";
-  const currentDevice = () => backend.config()?.model.device ?? "-";
+  const currentRuntime = () => backend.config()?.model.runtime ?? "-";
+  const currentDevice = () => formatDeviceLabel(backend.config()?.model.device);
+  const settingRows = createMemo<
+    Array<{
+      field: HardwareSettingField;
+      title: string;
+      value: string;
+    }>
+  >(() => [
+    { field: "runtime", title: "Runtime", value: currentRuntime() },
+    { field: "device", title: "Device", value: currentDevice() },
+  ]);
 
   return (
     <box flexDirection="column" gap={1} paddingX={2} paddingY={1} flexShrink={0}>
@@ -219,32 +276,56 @@ function DeviceDetectionStep(props: {
         <text>
           <span style={{ fg: colors().success, bold: true }}>{deviceSummary()}</span>
         </text>
-        <text>
-          <span style={{ fg: colors().textMuted }}>{recommendation()}</span>
-        </text>
+        <text>{recommendation()}</text>
 
         <box flexDirection="column" gap={0} marginTop={1}>
           <text>
             <span style={{ fg: colors().primary, bold: true }}>Current configuration:</span>
           </text>
-          <text>
-            <span style={{ fg: colors().textMuted }}>Engine: </span>
-            <span style={{ fg: colors().text }}>{currentBackend()}</span>
-          </text>
-          <text>
-            <span style={{ fg: colors().textMuted }}>Device: </span>
-            <span style={{ fg: colors().text }}>{currentDevice()}</span>
-          </text>
-        </box>
-
-        <box marginTop={1}>
-          <CommandHint keys="s" label="open settings to change" onClick={props.onOpenSettings} />
+          <box flexDirection="column" marginTop={1}>
+            <For each={settingRows()}>
+              {(row) => {
+                const selected = () => props.selectedField === row.field;
+                return (
+                  <box
+                    flexDirection="row"
+                    justifyContent="space-between"
+                    backgroundColor={selected() ? colors().backgroundElement : undefined}
+                    paddingRight={1}
+                    onMouseUp={() => {
+                      props.onSelectField(row.field);
+                      props.onOpenSelector(row.field);
+                    }}
+                  >
+                    <box flexDirection="row">
+                      <box
+                        width={1}
+                        backgroundColor={selected() ? colors().secondary : undefined}
+                      />
+                      <box paddingLeft={1}>
+                        <text>
+                          <span style={{ fg: selected() ? colors().text : colors().textMuted }}>
+                            {row.title}
+                          </span>
+                        </text>
+                      </box>
+                    </box>
+                    <box>
+                      <text>
+                        <span style={{ fg: colors().text }}>{row.value}</span>
+                      </text>
+                    </box>
+                  </box>
+                );
+              }}
+            </For>
+          </box>
         </box>
 
         <box marginTop={1}>
           <text>
             <span style={{ fg: colors().textDim }}>
-              These can also be changed anytime from settings.
+              Use up/down to pick a field, Enter to edit.
             </span>
           </text>
         </box>
@@ -277,40 +358,55 @@ function ModelDownloadStep(props: {
 
   const models = () => backend.models();
   const selectedModel = () => models()[props.selectedModelIndex] ?? null;
+  const activeRuntime = createMemo<RuntimeName>(
+    () => (backend.config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper",
+  );
 
-  const activePullingModelName = createMemo(() => {
+  const activePulling = createMemo(() => {
     const op = backend.activeModelOp();
     if (!op || op.type !== "pulling") return null;
-    return op.model;
+    return op;
   });
 
   const selectedModelIsPulling = createMemo(() => {
     const model = selectedModel();
-    const pulling = activePullingModelName();
-    return Boolean(model && pulling && model.name === pulling);
+    const pulling = activePulling();
+    return Boolean(model && pulling && model.name === pulling.model && pulling.runtime === activeRuntime());
+  });
+
+  const selectedModelIsQueued = createMemo(() => {
+    const model = selectedModel();
+    if (!model) return false;
+    return backend.isModelPullQueued(model.name, activeRuntime());
   });
 
   const selectedModelName = createMemo(() => {
     const configured = backend.config()?.model.name ?? null;
     if (!configured) return null;
     const match = models().find((m) => m.name === configured);
-    return match?.installed ? configured : null;
+    return match?.variants?.[activeRuntime()]?.installed ? configured : null;
   });
 
   function handlePullOrSelect() {
     const model = selectedModel();
     const op = backend.activeModelOp();
+    const variant = model?.variants?.[activeRuntime()];
     if (!model) return;
     if (selectedModelIsPulling()) {
-      backend.cancelModelDownload(model.name);
+      const pulling = activePulling();
+      backend.cancelModelDownload(model.name, pulling?.runtime ?? activeRuntime());
       return;
     }
-    if (model.installed) {
+    if (selectedModelIsQueued()) {
+      backend.cancelModelDownload(model.name, activeRuntime());
+      return;
+    }
+    if (variant?.installed) {
       if (op) return;
       backend.send({ type: "set_selected_model", name: model.name });
       return;
     }
-    backend.downloadModel(model.name);
+    backend.downloadModel(model.name, activeRuntime());
   }
 
   return (
@@ -335,32 +431,44 @@ function ModelDownloadStep(props: {
             {(model, index) => {
               const isSelected = () => index() === props.selectedModelIndex;
               const isActive = () => model.name === selectedModelName();
+              const variant = () => model.variants[activeRuntime()];
               const isPulling = () => {
-                const pulling = activePullingModelName();
-                return Boolean(pulling && pulling === model.name);
+                const pulling = activePulling();
+                return Boolean(
+                  pulling &&
+                  pulling.model === model.name &&
+                  pulling.runtime === activeRuntime(),
+                );
               };
+              const isQueued = () => backend.isModelPullQueued(model.name, activeRuntime());
               const sizeLabel = () => {
-                const size = model.size_bytes;
+                const size = variant()?.size_bytes;
                 if (typeof size !== "number" || size <= 0) return "";
-                const prefix = model.size_estimated ? "~" : "";
+                const prefix = variant()?.size_estimated ? "~" : "";
                 return ` ${prefix}${formatBytes(size)}`;
               };
               const statusText = () => {
                 if (isPulling()) {
                   const progress = backend.downloadProgress();
-                  if (progress && progress.model === model.name) {
+                  if (
+                    progress &&
+                    progress.model === model.name &&
+                    progress.runtime === activeRuntime()
+                  ) {
                     const pct = Math.max(0, Math.min(100, Math.round(progress.percent)));
                     return `${spinnerFrame()} ${pct}%`;
                   }
                   return `${spinnerFrame()} pulling`;
                 }
+                if (isQueued()) return "queued";
                 if (isActive()) return "● selected";
-                return model.installed ? "● pulled" : "";
+                return variant()?.installed ? "● pulled" : "";
               };
               const statusColor = () => {
                 if (isPulling()) return colors().transcribing;
+                if (isQueued()) return colors().accent;
                 if (isActive()) return colors().secondary;
-                return model.installed ? colors().success : colors().textDim;
+                return variant()?.installed ? colors().success : colors().textDim;
               };
 
               return (
@@ -409,7 +517,13 @@ function ModelDownloadStep(props: {
       <box flexDirection="row" gap={2} paddingTop={1} flexShrink={0}>
         <CommandHint
           keys="Enter"
-          label={selectedModelIsPulling() ? "cancel" : (selectedModel()?.installed ? "select" : "pull + select")}
+          label={
+            selectedModelIsPulling()
+              ? "cancel"
+              : selectedModelIsQueued()
+                ? "cancel queued"
+              : (selectedModel()?.variants?.[activeRuntime()]?.installed ? "select" : "pull + select")
+          }
           onClick={handlePullOrSelect}
         />
       </box>
@@ -426,8 +540,8 @@ function ReadyStep(props: { firstRun: boolean }): JSX.Element {
   const backend = useBackend();
 
   const modelName = () => backend.config()?.model.name ?? "-";
-  const backendName = () => backend.config()?.model.backend ?? "-";
-  const device = () => backend.config()?.model.device ?? "-";
+  const runtimeName = () => backend.config()?.model.runtime ?? "-";
+  const device = () => formatDeviceLabel(backend.config()?.model.device);
 
   return (
     <box flexDirection="column" gap={1} paddingX={2} paddingY={1} flexShrink={0}>
@@ -442,8 +556,8 @@ function ReadyStep(props: { firstRun: boolean }): JSX.Element {
       <Show when={props.firstRun}>
         <box flexDirection="column" gap={0}>
           <text>
-            <span style={{ fg: colors().textMuted }}>Engine: </span>
-            <span style={{ fg: colors().text }}>{backendName()}</span>
+            <span style={{ fg: colors().textMuted }}>Runtime: </span>
+            <span style={{ fg: colors().text }}>{runtimeName()}</span>
           </text>
           <text>
             <span style={{ fg: colors().textMuted }}>Device: </span>
@@ -505,12 +619,68 @@ export function Welcome(): JSX.Element {
     return ["welcome", "ui-guide", "ready"] as const;
   });
 
-  const [stepIndex, setStepIndex] = createSignal(0);
+  const initialStepIndex = () => {
+    const raw = Number(dialogData().resumeStepIndex ?? 0);
+    if (!Number.isFinite(raw)) return 0;
+    const normalized = Math.floor(raw);
+    return Math.max(0, Math.min(steps().length - 1, normalized));
+  };
+  const [stepIndex, setStepIndex] = createSignal(initialStepIndex());
   const currentStep = () => steps()[stepIndex()] ?? "welcome";
   const isLastStep = () => stepIndex() >= steps().length - 1;
   const isFirstStep = () => stepIndex() === 0;
 
-  const [modelIndex, setModelIndex] = createSignal(2); // Default to "small"
+  const initialModelIndex = () => {
+    const raw = Number(dialogData().resumeModelIndex ?? 2);
+    if (!Number.isFinite(raw)) return 2;
+    return Math.max(0, Math.floor(raw));
+  };
+  const [modelIndex, setModelIndex] = createSignal(initialModelIndex()); // Default to "small"
+  const hardwareFields: HardwareSettingField[] = ["runtime", "device"];
+  const [selectedHardwareFieldIndex, setSelectedHardwareFieldIndex] = createSignal(0);
+  const selectedHardwareField = createMemo<HardwareSettingField>(
+    () => hardwareFields[selectedHardwareFieldIndex()] ?? "runtime",
+  );
+  const [recommendationAutoApplied, setRecommendationAutoApplied] = createSignal(
+    Boolean(dialogData().recommendationAutoApplied),
+  );
+  const [recommendationAutoApplyInFlight, setRecommendationAutoApplyInFlight] = createSignal(
+    false,
+  );
+
+  const recommendedRuntime = createMemo<RuntimeName | null>(() => {
+    const value = backend.capabilitiesResponse()?.recommended.runtime;
+    if (value === "faster-whisper" || value === "whisper.cpp") {
+      return value;
+    }
+    return null;
+  });
+
+  const recommendedDevice = createMemo<"cpu" | "cuda" | "mps" | null>(() => {
+    const value = backend.capabilitiesResponse()?.recommended.device;
+    if (value === "cpu" || value === "cuda" || value === "mps") {
+      return value;
+    }
+    return null;
+  });
+
+  function buildWelcomeResumeData(): WelcomeDialogData {
+    return {
+      firstRun: firstRun(),
+      resumeStepIndex: stepIndex(),
+      resumeModelIndex: modelIndex(),
+      recommendationAutoApplied: recommendationAutoApplied(),
+    };
+  }
+
+  function openHardwareSettingSelector(field: HardwareSettingField) {
+    const settingId: SelectSettingId = field === "runtime" ? "model.runtime" : "model.device";
+    dialog.openDialog("settings-select", {
+      settingId,
+      returnToDialog: "welcome",
+      returnWelcomeData: buildWelcomeResumeData(),
+    });
+  }
 
   // Request capabilities when entering device detection step
   createEffect(on(() => currentStep(), (step) => {
@@ -519,12 +689,29 @@ export function Welcome(): JSX.Element {
     }
   }));
 
-  // Auto-apply recommended backend/device when capabilities arrive
-  createEffect(on(() => backend.capabilitiesResponse(), (caps) => {
-    if (!caps) return;
-    backend.send({ type: "set_model_backend", backend: caps.recommended.backend });
-    backend.send({ type: "set_model_device", device: caps.recommended.device });
-  }));
+  // Auto-apply hardware recommendation once per welcome session on first run:
+  // apply runtime first, then apply device after runtime config is reflected.
+  createEffect(() => {
+    if (!firstRun() || currentStep() !== "device-detection") return;
+    if (recommendationAutoApplied() || recommendationAutoApplyInFlight()) return;
+    const targetRuntime = recommendedRuntime();
+    const targetDevice = recommendedDevice();
+    if (!targetRuntime || !targetDevice) return;
+    setRecommendationAutoApplyInFlight(true);
+    backend.send({ type: "set_model_runtime", runtime: targetRuntime });
+  });
+
+  createEffect(() => {
+    if (!recommendationAutoApplyInFlight() || recommendationAutoApplied()) return;
+    const targetRuntime = recommendedRuntime();
+    const targetDevice = recommendedDevice();
+    const cfg = backend.config();
+    if (!targetRuntime || !targetDevice || !cfg) return;
+    if (cfg.model.runtime !== targetRuntime) return;
+    backend.send({ type: "set_model_device", device: targetDevice });
+    setRecommendationAutoApplied(true);
+    setRecommendationAutoApplyInFlight(false);
+  });
 
   // Clamp model index when models list changes
   createEffect(on(() => backend.models(), (models) => {
@@ -569,19 +756,26 @@ export function Welcome(): JSX.Element {
     setStepIndex((i) => Math.max(0, i - 1));
   }
 
-  function openSettingsFromWelcome() {
-    dialog.openDialog("settings");
-  }
-
   // Keyboard navigation
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "welcome") return;
 
-    // Device detection step: s opens settings
-    if (currentStep() === "device-detection" && key.name === "s") {
-      key.preventDefault();
-      openSettingsFromWelcome();
-      return;
+    if (currentStep() === "device-detection") {
+      if (key.name === "up" || key.name === "k") {
+        key.preventDefault();
+        setSelectedHardwareFieldIndex((value) => Math.max(0, value - 1));
+        return;
+      }
+      if (key.name === "down" || key.name === "j") {
+        key.preventDefault();
+        setSelectedHardwareFieldIndex((value) => Math.min(hardwareFields.length - 1, value + 1));
+        return;
+      }
+      if (key.name === "return" || key.name === "enter") {
+        key.preventDefault();
+        openHardwareSettingSelector(selectedHardwareField());
+        return;
+      }
     }
 
     // Model download step: arrow keys navigate model list
@@ -600,22 +794,31 @@ export function Welcome(): JSX.Element {
         key.preventDefault();
         const model = backend.models()[modelIndex()];
         const op = backend.activeModelOp();
+        const activeRuntime = (backend.config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
         if (!model) return;
-        const pulling = op?.type === "pulling" && op.model === model.name;
-        if (pulling) {
-          backend.cancelModelDownload(model.name);
-        } else if (model.installed) {
+        const pullingOp =
+          op?.type === "pulling" &&
+          op.model === model.name &&
+          op.runtime === activeRuntime
+            ? op
+            : null;
+        const queued = backend.isModelPullQueued(model.name, activeRuntime);
+        if (pullingOp) {
+          backend.cancelModelDownload(model.name, pullingOp.runtime);
+        } else if (queued) {
+          backend.cancelModelDownload(model.name, activeRuntime);
+        } else if (model.variants?.[activeRuntime]?.installed) {
           if (op) return;
           backend.send({ type: "set_selected_model", name: model.name });
         } else {
-          backend.downloadModel(model.name);
+          backend.downloadModel(model.name, activeRuntime);
         }
         return;
       }
       if (key.name === "x") {
         const pulling = backend.activeModelOp();
         if (pulling?.type === "pulling") {
-          backend.cancelModelDownload(pulling.model);
+          backend.cancelModelDownload(pulling.model, pulling.runtime);
         }
         return;
       }
@@ -630,8 +833,8 @@ export function Welcome(): JSX.Element {
         break;
       case "return":
       case "enter":
-        // Enter already handled in model-download step above
-        if (currentStep() !== "model-download") {
+        // Enter is handled in step-specific flows above where needed.
+        if (currentStep() !== "model-download" && currentStep() !== "device-detection") {
           handleNext();
         }
         break;
@@ -672,7 +875,7 @@ export function Welcome(): JSX.Element {
               </span>
             </text>
             <Show when={canClose()}>
-              <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={handleClose}>
+              <box backgroundColor={colors().error} paddingX={1} onMouseUp={handleClose}>
                 <text>
                   <span style={{ fg: colors().selectedText }}>esc</span>
                 </text>
@@ -701,7 +904,14 @@ export function Welcome(): JSX.Element {
         <scrollbox flexGrow={1} flexShrink={1}>
           <DeviceDetectionStep
             caps={backend.capabilitiesResponse()}
-            onOpenSettings={openSettingsFromWelcome}
+            selectedField={selectedHardwareField()}
+            onSelectField={(field) => {
+              const idx = hardwareFields.indexOf(field);
+              if (idx >= 0) {
+                setSelectedHardwareFieldIndex(idx);
+              }
+            }}
+            onOpenSelector={openHardwareSettingSelector}
           />
         </scrollbox>
       </Show>

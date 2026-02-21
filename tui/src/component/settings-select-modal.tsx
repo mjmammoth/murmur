@@ -5,21 +5,8 @@ import { useTheme } from "../context/theme";
 import { useDialog } from "../context/dialog";
 import { useBackend } from "../context/backend";
 import { useConfig } from "../context/config";
-
-type SelectSettingId =
-  | "model.backend"
-  | "model.device"
-  | "model.compute"
-  | "model.language"
-  | "audio.sample_rate"
-  | "vad.aggressiveness";
-
-interface SettingsSelectDialogData {
-  settingId: SelectSettingId;
-  returnToSettings?: boolean;
-  returnSettingId?: string;
-  returnFilterQuery?: string;
-}
+import { formatDeviceLabel } from "../util/format";
+import type { SelectSettingId, SettingsSelectDialogData } from "../types";
 
 interface SelectOption {
   value: string | null;
@@ -110,14 +97,16 @@ export function SettingsSelectModal(): JSX.Element {
   const returnToSettings = createMemo(() => Boolean(dialogData()?.returnToSettings));
   const returnSettingId = createMemo(() => dialogData()?.returnSettingId ?? null);
   const returnFilterQuery = createMemo(() => dialogData()?.returnFilterQuery ?? null);
+  const returnToDialog = createMemo(() => dialogData()?.returnToDialog ?? null);
+  const returnWelcomeData = createMemo(() => dialogData()?.returnWelcomeData ?? null);
   const isLanguagePicker = createMemo(() => settingId() === "model.language");
   const runtimeModel = createMemo(() => config.config()?.runtime?.model);
 
   const currentValue = createMemo(() => {
     const model = config.config()?.model;
     switch (settingId()) {
-      case "model.backend":
-        return model?.backend ?? "faster-whisper";
+      case "model.runtime":
+        return model?.runtime ?? "faster-whisper";
       case "model.device":
         return model?.device ?? "cpu";
       case "model.compute":
@@ -135,8 +124,8 @@ export function SettingsSelectModal(): JSX.Element {
 
   const title = createMemo(() => {
     switch (settingId()) {
-      case "model.backend":
-        return "Model Backend";
+      case "model.runtime":
+        return "Model Runtime";
       case "model.device":
         return "Model Device";
       case "model.compute":
@@ -154,10 +143,10 @@ export function SettingsSelectModal(): JSX.Element {
 
   const subtitle = createMemo(() => {
     switch (settingId()) {
-      case "model.backend":
-        return "choose transcription engine";
+      case "model.runtime":
+        return "choose model runtime";
       case "model.device":
-        return "choose runtime backend";
+        return "choose runtime device";
       case "model.compute":
         return "choose quantization profile";
       case "model.language":
@@ -171,22 +160,22 @@ export function SettingsSelectModal(): JSX.Element {
     }
   });
 
-  const backendOptions = createMemo<SelectOption[]>(() => {
-    const backends = runtimeModel()?.backends ?? {};
+  const runtimeOptions = createMemo<SelectOption[]>(() => {
+    const runtimes = runtimeModel()?.runtimes ?? {};
     return [
       {
         value: "faster-whisper",
         label: "faster-whisper",
-        description: "CTranslate2 backend",
-        disabled: backends["faster-whisper"] ? !backends["faster-whisper"].enabled : false,
-        reason: backends["faster-whisper"]?.reason,
+        description: "CTranslate2 runtime",
+        disabled: runtimes["faster-whisper"] ? !runtimes["faster-whisper"].enabled : false,
+        reason: runtimes["faster-whisper"]?.reason,
       },
       {
         value: "whisper.cpp",
         label: "whisper.cpp",
-        description: "CLI backend (Metal capable)",
-        disabled: backends["whisper.cpp"] ? !backends["whisper.cpp"].enabled : false,
-        reason: backends["whisper.cpp"]?.reason,
+        description: "CLI runtime (Metal capable)",
+        disabled: runtimes["whisper.cpp"] ? !runtimes["whisper.cpp"].enabled : false,
+        reason: runtimes["whisper.cpp"]?.reason,
       },
     ];
   });
@@ -194,22 +183,22 @@ export function SettingsSelectModal(): JSX.Element {
   const deviceOptions = createMemo<SelectOption[]>(() => [
     {
       value: "cpu",
-      label: "CPU",
+      label: formatDeviceLabel("cpu"),
       description: "Most compatible",
       disabled: runtimeModel()?.devices?.cpu ? !runtimeModel()!.devices.cpu.enabled : false,
       reason: runtimeModel()?.devices?.cpu?.reason,
     },
     {
       value: "cuda",
-      label: "CUDA",
+      label: formatDeviceLabel("cuda"),
       description: "NVIDIA GPU acceleration",
       disabled: runtimeModel()?.devices?.cuda ? !runtimeModel()!.devices.cuda.enabled : false,
       reason: runtimeModel()?.devices?.cuda?.reason,
     },
     {
       value: "mps",
-      label: "MPS",
-      description: "Apple GPU backend",
+      label: formatDeviceLabel("mps"),
+      description: "Apple GPU runtime",
       disabled: runtimeModel()?.devices?.mps ? !runtimeModel()!.devices.mps.enabled : false,
       reason: runtimeModel()?.devices?.mps?.reason,
     },
@@ -226,7 +215,7 @@ export function SettingsSelectModal(): JSX.Element {
         {
           value: "default",
           label: "default",
-          description: "Backend-managed compute profile",
+          description: "Runtime-managed compute profile",
           disabled: deviceState ? !deviceState.enabled : false,
           reason: deviceState?.reason,
         },
@@ -267,7 +256,7 @@ export function SettingsSelectModal(): JSX.Element {
         return {
           ...option,
           disabled: true,
-          reason: `Not supported on ${device.toUpperCase()}`,
+          reason: `Not supported on ${formatDeviceLabel(device, device.toUpperCase())}`,
         };
       }
 
@@ -297,8 +286,8 @@ export function SettingsSelectModal(): JSX.Element {
 
   const allOptions = createMemo<SelectOption[]>(() => {
     switch (settingId()) {
-      case "model.backend":
-        return backendOptions();
+      case "model.runtime":
+        return runtimeOptions();
       case "model.device":
         return deviceOptions();
       case "model.compute":
@@ -341,6 +330,10 @@ export function SettingsSelectModal(): JSX.Element {
           ? { selectedSettingId: selectedSettingId ?? undefined, filterQuery: filterQuery ?? undefined }
           : undefined,
       );
+      return;
+    }
+    if (returnToDialog() === "welcome") {
+      dialog.openDialog("welcome", returnWelcomeData() ?? undefined);
       return;
     }
     dialog.closeDialog();
@@ -399,8 +392,8 @@ export function SettingsSelectModal(): JSX.Element {
     if (option.disabled) return;
 
     switch (settingId()) {
-      case "model.backend":
-        backend.send({ type: "set_model_backend", backend: option.value ?? "faster-whisper" });
+      case "model.runtime":
+        backend.send({ type: "set_model_runtime", runtime: option.value ?? "faster-whisper" });
         break;
       case "model.device":
         backend.send({ type: "set_model_device", device: option.value ?? "cpu" });
@@ -534,7 +527,7 @@ export function SettingsSelectModal(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>{subtitle()}</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={closeModal}>
+            <box backgroundColor={colors().error} paddingX={1} onMouseUp={closeModal}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>

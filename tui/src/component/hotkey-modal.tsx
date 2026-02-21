@@ -136,8 +136,6 @@ export function HotkeyModal(): JSX.Element {
       flexDirection="column"
       width={58}
       backgroundColor={colors().backgroundPanel}
-      borderStyle="single"
-      borderColor={colors().borderSubtle}
       paddingY={1}
     >
       <box paddingX={3} paddingTop={1} paddingBottom={0} flexDirection="column">
@@ -149,7 +147,7 @@ export function HotkeyModal(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>press combo</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={closeModal}>
+            <box backgroundColor={colors().error} paddingX={1} onMouseUp={closeModal}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>

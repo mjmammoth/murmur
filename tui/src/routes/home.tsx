@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { useKeyHandler, usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid";
 import { BorderChars, RGBA, type KeyEvent, type MouseEvent } from "@opentui/core";
 import { useTheme } from "../context/theme";
@@ -19,6 +19,7 @@ import { SettingsSelectModal } from "../component/settings-select-modal";
 import { ThemePickerModal } from "../component/theme-picker-modal";
 import { SettingsEditModal } from "../component/settings-edit-modal";
 import { ExitConfirmModal } from "../component/exit-confirm-modal";
+import { RuntimeSwitchConfirmModal } from "../component/runtime-switch-confirm-modal";
 import { Welcome } from "../component/welcome";
 import { exitApp } from "../util/exit";
 import { setSigintHandler } from "../util/interrupt";
@@ -87,8 +88,7 @@ export function Home(): JSX.Element {
     if (models.length === 0) return;
 
     const currentDialog = dialog.currentDialog();
-    if (currentDialog?.type === "welcome") return;
-    if (currentDialog?.type === "model-manager") return;
+    if (currentDialog) return;
 
     dialog.openDialog("welcome", { firstRun: !welcomeShown() || firstRunSetupRequired() });
   });
@@ -105,12 +105,23 @@ export function Home(): JSX.Element {
   function requestExit() {
     const activeOp = backend.activeModelOp();
     const currentDialog = dialog.currentDialog();
-    if (activeOp?.type === "pulling" && currentDialog?.type !== "exit-confirm") {
-      dialog.openDialog("exit-confirm", { model: activeOp.model });
+    if (backend.hasPendingModelDownloads() && currentDialog?.type !== "exit-confirm") {
+      dialog.openDialog(
+        "exit-confirm",
+        activeOp?.type === "pulling"
+          ? { model: activeOp.model, runtime: activeOp.runtime }
+          : undefined,
+      );
       return;
     }
     exitApp(renderer);
   }
+
+  onMount(() => {
+    backend.onRuntimeSwitchRequired((payload) => {
+      dialog.openDialog("runtime-switch-confirm", payload);
+    });
+  });
 
   function toggleLogsPanel() {
     setShowLogs((prev) => {
@@ -328,10 +339,7 @@ export function Home(): JSX.Element {
           gap={1}
         >
           <box flexShrink={0}>
-            <Header
-              onToggleAutoCopy={config.toggleAutoCopy}
-              onToggleAutoPaste={config.toggleAutoPaste}
-            />
+            <Header onQuitClick={requestExit} />
           </box>
           <box flexGrow={1} flexShrink={1} height="100%">
             <TranscriptList />
@@ -350,7 +358,6 @@ export function Home(): JSX.Element {
               onHelpClick={() => dialog.openDialog("welcome", { firstRun: false })}
             />
           </box>
-          <ToastContainer />
         </box>
       </box>
 
@@ -497,6 +504,22 @@ export function Home(): JSX.Element {
         </box>
       </Show>
 
+      <Show when={dialog.currentDialog()?.type === "runtime-switch-confirm"}>
+        <box
+          position="absolute"
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={modalOverlayColor()}
+          onMouseUp={dismissDialogFromBackdrop}
+        >
+          <box onMouseUp={stopModalMouseBubble}>
+            <RuntimeSwitchConfirmModal />
+          </box>
+        </box>
+      </Show>
+
       <Show when={dialog.currentDialog()?.type === "welcome"}>
         <box
           position="absolute"
@@ -512,6 +535,8 @@ export function Home(): JSX.Element {
           </box>
         </box>
       </Show>
+
+      <ToastContainer />
     </box>
   );
 }

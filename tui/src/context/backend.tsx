@@ -8,6 +8,7 @@ import {
 import { createContextHelper } from "./helper";
 import type {
   AppConfig,
+  RuntimeName,
   ClientMessage,
   ServerMessage,
   ModelInfo,
@@ -19,17 +20,19 @@ import type {
 
 export interface DownloadProgress {
   model: string;
+  runtime: RuntimeName;
   percent: number;
 }
 
 export interface ActiveModelOp {
   type: "pulling" | "removing";
   model: string;
+  runtime: RuntimeName;
 }
 
 export interface CapabilitiesResponse {
   capabilities: RuntimeCapabilities;
-  recommended: { backend: string; device: string };
+  recommended: { runtime: string; device: string };
 }
 
 export interface BackendContextValue {
@@ -42,15 +45,23 @@ export interface BackendContextValue {
   models: Accessor<ModelInfo[]>;
   autoCopy: Accessor<boolean>;
   autoPaste: Accessor<boolean>;
+  autoRevertClipboard: Accessor<boolean>;
   logs: Accessor<LogEntry[]>;
   configFileContent: Accessor<string>;
   configFilePath: Accessor<string>;
   downloadProgress: Accessor<DownloadProgress | null>;
   activeModelOp: Accessor<ActiveModelOp | null>;
   capabilitiesResponse: Accessor<CapabilitiesResponse | null>;
-  downloadModel: (name: string) => void;
-  cancelModelDownload: (name: string) => void;
-  removeModel: (name: string) => void;
+  isModelPullQueued: (name: string, runtime?: RuntimeName) => boolean;
+  downloadModel: (
+    name: string,
+    runtime?: RuntimeName,
+    activateRuntime?: RuntimeName | null,
+  ) => void;
+  cancelModelDownload: (name: string, runtime?: RuntimeName) => void;
+  cancelAllModelDownloads: () => void;
+  hasPendingModelDownloads: () => boolean;
+  removeModel: (name: string, runtime?: RuntimeName) => void;
   send: (message: ClientMessage) => void;
   requestConfigFile: () => void;
   requestCapabilities: () => void;
@@ -58,6 +69,9 @@ export interface BackendContextValue {
   onHotkeyPress: (handler: () => void) => void;
   onHotkeyRelease: (handler: () => void) => void;
   onToast: (handler: (message: string, level: "info" | "error") => void) => void;
+  onRuntimeSwitchRequired: (
+    handler: (payload: { runtime: RuntimeName; model: string; format: string }) => void,
+  ) => void;
 }
 
 const [BackendProvider, useBackend] = createContextHelper<BackendContextValue>("Backend");
@@ -66,11 +80,11 @@ export { useBackend };
 const RECONNECT_DELAY = 2000;
 
 /**
- * Provide a backend WebSocket context and manage connection, server-derived state, and related actions for child components.
+ * Provide a runtime WebSocket context and manage connection, server-derived state, and related actions for child components.
  *
- * @param props.host - Optional backend host (default: "localhost")
- * @param props.port - Optional backend port (default: 7878)
- * @param props.children - The component subtree that consumes the backend context
+ * @param props.host - Optional runtime host (default: "localhost")
+ * @param props.port - Optional runtime port (default: 7878)
+ * @param props.children - The component subtree that consumes the runtime context
  * @returns A JSX element that supplies the BackendContext to `props.children`
  */
 export function BackendContextProvider(props: {
@@ -90,12 +104,14 @@ export function BackendContextProvider(props: {
   const [models, setModels] = createSignal<ModelInfo[]>([]);
   const [autoCopy, setAutoCopy] = createSignal(false);
   const [autoPaste, setAutoPaste] = createSignal(false);
+  const [autoRevertClipboard, setAutoRevertClipboard] = createSignal(false);
   const [logs, setLogs] = createSignal<LogEntry[]>([]);
   const [configFileContent, setConfigFileContent] = createSignal("");
   const [configFilePath, setConfigFilePath] = createSignal("");
   const [downloadProgress, setDownloadProgress] = createSignal<DownloadProgress | null>(null);
   const [activeModelOp, setActiveModelOp] = createSignal<ActiveModelOp | null>(null);
   const [capabilitiesResponse, setCapabilitiesResponse] = createSignal<CapabilitiesResponse | null>(null);
+  const [queuedModelPullKeys, setQueuedModelPullKeys] = createSignal<string[]>([]);
   let logIdCounter = 0;
 
   let ws: WebSocket | null = null;
@@ -113,10 +129,48 @@ export function BackendContextProvider(props: {
   const hotkeyPressHandlers: (() => void)[] = [];
   const hotkeyReleaseHandlers: (() => void)[] = [];
   const toastHandlers: ((message: string, level: "info" | "error") => void)[] = [];
+  const runtimeSwitchRequiredHandlers: (
+    (payload: { runtime: RuntimeName; model: string; format: string }) => void
+  )[] = [];
+
+  function modelPullKey(name: string, runtime: RuntimeName) {
+    return `${runtime}:${name}`;
+  }
+
+  function queueModelPull(name: string, runtime: RuntimeName) {
+    const key = modelPullKey(name, runtime);
+    setQueuedModelPullKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
+  }
+
+  function dequeueModelPull(name: string, runtime: RuntimeName) {
+    const key = modelPullKey(name, runtime);
+    setQueuedModelPullKeys((prev) => prev.filter((candidate) => candidate !== key));
+  }
+
+  function dequeueModelPullByName(name: string) {
+    setQueuedModelPullKeys((prev) => prev.filter((candidate) => !candidate.endsWith(`:${name}`)));
+  }
+
+  function isModelPullQueued(
+    name: string,
+    runtime: RuntimeName = (config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper",
+  ) {
+    return queuedModelPullKeys().includes(modelPullKey(name, runtime));
+  }
 
   function emitToast(message: string, level: "info" | "error") {
     for (const handler of toastHandlers) {
       handler(message, level);
+    }
+  }
+
+  function emitRuntimeSwitchRequired(payload: {
+    runtime: RuntimeName;
+    model: string;
+    format: string;
+  }) {
+    for (const handler of runtimeSwitchRequiredHandlers) {
+      handler(payload);
     }
   }
 
@@ -154,6 +208,7 @@ export function BackendContextProvider(props: {
       setConnected(false);
       setStatus("connecting");
       setStatusMessage("Disconnected. Reconnecting...");
+      setQueuedModelPullKeys([]);
       scheduleReconnect();
     };
 
@@ -185,7 +240,7 @@ export function BackendContextProvider(props: {
   }
 
   /**
-   * Process an incoming ServerMessage, update backend signals, and notify registered handlers.
+   * Process an incoming ServerMessage, update runtime signals, and notify registered handlers.
    *
    * This updates connection and application state (status, config, models, download progress, active model operations, suppress-paste timers, and logs) and invokes transcript, hotkey, and toast handlers as appropriate based on the message type.
    *
@@ -207,17 +262,26 @@ export function BackendContextProvider(props: {
 
       case "models": {
         setModels(message.models);
+        const installedPullKeys = new Set<string>();
+        for (const model of message.models) {
+          for (const variantRuntime of Object.keys(model.variants) as RuntimeName[]) {
+            if (model.variants[variantRuntime]?.installed) {
+              installedPullKeys.add(modelPullKey(model.name, variantRuntime));
+            }
+          }
+        }
+        setQueuedModelPullKeys((prev) => prev.filter((key) => !installedPullKeys.has(key)));
 
         const modelOp = activeModelOp();
         if (modelOp?.type === "pulling") {
           const pulled = message.models.find((model) => model.name === modelOp.model);
-          if (pulled?.installed) {
+          if (pulled?.variants?.[modelOp.runtime]?.installed) {
             setActiveModelOp(null);
             setDownloadProgress(null);
           }
         } else if (modelOp?.type === "removing") {
           const removed = message.models.find((model) => model.name === modelOp.model);
-          if (!removed || !removed.installed) {
+          if (!removed || !removed.variants?.[modelOp.runtime]?.installed) {
             setActiveModelOp(null);
             setDownloadProgress(null);
           }
@@ -232,6 +296,9 @@ export function BackendContextProvider(props: {
         }
         if ("auto_paste" in message.config) {
           setAutoPaste(message.config.auto_paste ?? false);
+        }
+        if ("auto_revert_clipboard" in message.config) {
+          setAutoRevertClipboard(message.config.auto_revert_clipboard ?? false);
         }
         break;
 
@@ -257,16 +324,27 @@ export function BackendContextProvider(props: {
         setStatusMessage(message.message);
         setActiveModelOp(null);
         setDownloadProgress(null);
+        setQueuedModelPullKeys([]);
         emitToast(message.message, "error");
         break;
 
       case "toast": {
         const modelOp = activeModelOp();
+        const pullAction = message.action === "download_cancelled" ||
+          message.action === "download_failed" ||
+          message.action === "download_complete";
+        if (pullAction && message.model) {
+          if (message.runtime) {
+            dequeueModelPull(message.model, message.runtime);
+          } else {
+            dequeueModelPullByName(message.model);
+          }
+        }
         if (
           modelOp?.type === "pulling" &&
-          (message.action === "download_cancelled" ||
-            message.action === "download_failed" ||
-            message.action === "download_complete")
+          pullAction &&
+          (!message.model || message.model === modelOp.model) &&
+          (!message.runtime || message.runtime === modelOp.runtime)
         ) {
           setActiveModelOp(null);
           setDownloadProgress(null);
@@ -283,11 +361,30 @@ export function BackendContextProvider(props: {
       }
 
       case "download_progress":
-        setDownloadProgress({ model: message.model, percent: message.percent });
+        dequeueModelPull(message.model, message.runtime);
+        setDownloadProgress({
+          model: message.model,
+          runtime: message.runtime,
+          percent: message.percent,
+        });
         setActiveModelOp((prev) => {
           if (prev?.type === "removing") return prev;
-          if (prev?.type === "pulling" && prev.model === message.model) return prev;
-          return { type: "pulling", model: message.model };
+          if (
+            prev?.type === "pulling" &&
+            prev.model === message.model &&
+            prev.runtime === message.runtime
+          ) {
+            return prev;
+          }
+          return { type: "pulling", model: message.model, runtime: message.runtime };
+        });
+        break;
+
+      case "runtime_switch_requires_model_variant":
+        emitRuntimeSwitchRequired({
+          runtime: message.runtime,
+          model: message.model,
+          format: message.format,
         });
         break;
 
@@ -374,8 +471,8 @@ export function BackendContextProvider(props: {
       case "set_default_model":
         patchModelConfig((model) => ({ ...model, name: message.name, path: null }));
         return;
-      case "set_model_backend":
-        patchModelConfig((model) => ({ ...model, backend: message.backend }));
+      case "set_model_runtime":
+        // Runtime switch can now require explicit model-variant confirmation.
         return;
       case "set_model_device":
         patchModelConfig((model) => ({ ...model, device: message.device }));
@@ -419,6 +516,13 @@ export function BackendContextProvider(props: {
       case "set_theme":
         patchUiConfig((ui) => ({ ...ui, theme: message.theme }));
         return;
+      case "toggle_auto_revert_clipboard":
+        setAutoRevertClipboard(message.enabled);
+        setConfig((prev) => {
+          if (!prev) return prev;
+          return { ...prev, auto_revert_clipboard: message.enabled };
+        });
+        return;
       default:
         return;
     }
@@ -428,32 +532,53 @@ export function BackendContextProvider(props: {
     sendInternal(message);
   }
 
-  function downloadModel(name: string) {
+  function downloadModel(
+    name: string,
+    runtime?: RuntimeName,
+    activateRuntime: RuntimeName | null = null,
+  ) {
+    const selectedRuntime = runtime ?? (config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
+    if (isModelPullQueued(name, selectedRuntime)) return;
     const op = activeModelOp();
     if (op) {
-      if (op.type === "pulling" && op.model === name) return;
-      const sent = sendInternal({ type: "download_model", name });
+      if (op.type === "pulling" && op.model === name && op.runtime === selectedRuntime) return;
+      const sent = sendInternal({
+        type: "download_model",
+        name,
+        runtime: selectedRuntime,
+        activate_runtime: activateRuntime,
+      });
       if (!sent) return;
-      const pendingOp = op.type === "pulling" ? `pulling ${op.model}` : `removing ${op.model}`;
+      queueModelPull(name, selectedRuntime);
+      const pendingOp = op.type === "pulling"
+        ? `pulling ${op.model} (${op.runtime})`
+        : `removing ${op.model} (${op.runtime})`;
       emitToast(`Queued ${name}. It will start after ${pendingOp}.`, "info");
       return;
     }
-    setActiveModelOp({ type: "pulling", model: name });
-    setDownloadProgress({ model: name, percent: 0 });
-    sendInternal({ type: "download_model", name });
+    dequeueModelPull(name, selectedRuntime);
+    setActiveModelOp({ type: "pulling", model: name, runtime: selectedRuntime });
+    setDownloadProgress({ model: name, runtime: selectedRuntime, percent: 0 });
+    sendInternal({
+      type: "download_model",
+      name,
+      runtime: selectedRuntime,
+      activate_runtime: activateRuntime,
+    });
   }
 
   /**
-   * Initiates removal of a model on the backend.
+   * Initiates removal of a model on the runtime.
    *
    * Marks the model as being removed, clears any active download progress for it, and sends a `remove_model` request to the server.
    *
    * @param name - The name of the model to remove
    */
-  function removeModel(name: string) {
-    setActiveModelOp({ type: "removing", model: name });
+  function removeModel(name: string, runtime?: RuntimeName) {
+    const selectedRuntime = runtime ?? (config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
+    setActiveModelOp({ type: "removing", model: name, runtime: selectedRuntime });
     setDownloadProgress(null);
-    send({ type: "remove_model", name });
+    send({ type: "remove_model", name, runtime: selectedRuntime });
   }
 
   /**
@@ -461,12 +586,25 @@ export function BackendContextProvider(props: {
    *
    * @param name - The name of the model whose download should be canceled
    */
-  function cancelModelDownload(name: string) {
-    send({ type: "cancel_model_download", name });
+  function cancelModelDownload(name: string, runtime?: RuntimeName) {
+    const selectedRuntime = runtime ?? (config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
+    dequeueModelPull(name, selectedRuntime);
+    send({ type: "cancel_model_download", name, runtime: selectedRuntime });
+  }
+
+  function cancelAllModelDownloads() {
+    setQueuedModelPullKeys([]);
+    send({ type: "cancel_all_model_downloads" });
+  }
+
+  function hasPendingModelDownloads() {
+    const op = activeModelOp();
+    if (op?.type === "pulling") return true;
+    return queuedModelPullKeys().length > 0;
   }
 
   /**
-   * Request the backend to send the current configuration file.
+   * Request the runtime to send the current configuration file.
    *
    * Sends a `get_config_file` request to the server so the client will receive the configuration file content and path.
    */
@@ -494,6 +632,12 @@ export function BackendContextProvider(props: {
     toastHandlers.push(handler);
   }
 
+  function onRuntimeSwitchRequired(
+    handler: (payload: { runtime: RuntimeName; model: string; format: string }) => void,
+  ) {
+    runtimeSwitchRequiredHandlers.push(handler);
+  }
+
   onMount(() => {
     unmounted = false;
     connect();
@@ -516,14 +660,18 @@ export function BackendContextProvider(props: {
     models,
     autoCopy,
     autoPaste,
+    autoRevertClipboard,
     logs,
     configFileContent,
     configFilePath,
     downloadProgress,
     activeModelOp,
     capabilitiesResponse,
+    isModelPullQueued,
     downloadModel,
     cancelModelDownload,
+    cancelAllModelDownloads,
+    hasPendingModelDownloads,
     removeModel,
     send,
     requestConfigFile,
@@ -532,6 +680,7 @@ export function BackendContextProvider(props: {
     onHotkeyPress,
     onHotkeyRelease,
     onToast,
+    onRuntimeSwitchRequired,
   };
 
   return <BackendProvider value={value}>{props.children}</BackendProvider>;

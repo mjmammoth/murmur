@@ -33,9 +33,17 @@ export function ExitConfirmModal(): JSX.Element {
     return "selected model";
   });
 
+  const runtimeName = createMemo(() => {
+    const explicitRuntime = dialogData().runtime?.trim();
+    if (explicitRuntime) return explicitRuntime;
+    const op = backend.activeModelOp();
+    if (op?.type === "pulling") return op.runtime;
+    return backend.config()?.model.runtime ?? "faster-whisper";
+  });
+
   const progressText = createMemo(() => {
     const progress = backend.downloadProgress();
-    if (!progress || progress.model !== modelName()) return "";
+    if (!progress || progress.model !== modelName() || progress.runtime !== runtimeName()) return "";
     const percent = Math.max(0, Math.min(99, Math.floor(progress.percent || 0)));
     return `${percent}% downloaded`;
   });
@@ -51,15 +59,10 @@ export function ExitConfirmModal(): JSX.Element {
   onCleanup(unregisterDismissHandler);
 
   /**
-   * Cancel the in-progress model download (if any) and exit the application.
-   *
-   * If a concrete model name is available and not the placeholder "selected model", requests the backend to cancel that model's download, then calls the renderer exit utility to terminate the app.
+   * Cancel all pending model downloads and exit the application.
    */
   function confirmExit() {
-    const model = modelName();
-    if (model && model !== "selected model") {
-      backend.cancelModelDownload(model);
-    }
+    backend.cancelAllModelDownloads();
     exitApp(renderer);
   }
 
@@ -101,6 +104,7 @@ export function ExitConfirmModal(): JSX.Element {
         <text>
           <span style={{ fg: colors().textMuted }}>Model: </span>
           <span style={{ fg: colors().text }}>{modelName()}</span>
+          <span style={{ fg: colors().textMuted }}>{` (${runtimeName()})`}</span>
           <span style={{ fg: colors().textDim }}>{progressText() ? ` (${progressText()})` : ""}</span>
         </text>
         <text>
@@ -122,7 +126,7 @@ export function ExitConfirmModal(): JSX.Element {
       </box>
 
       <box paddingX={3} paddingTop={1} flexDirection="row" alignItems="center" gap={2} onMouseUp={cancelExit}>
-        <box backgroundColor={colors().secondary} paddingX={1}>
+        <box backgroundColor={colors().error} paddingX={1}>
           <text>
             <span style={{ fg: colors().selectedText }}>esc/n</span>
           </text>

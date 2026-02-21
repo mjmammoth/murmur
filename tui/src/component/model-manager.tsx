@@ -14,17 +14,10 @@ import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
 import { useDialog } from "../context/dialog";
 import { useConfig } from "../context/config";
-import { ModelItem } from "./model-item";
+import { ModelItem, MODEL_TABLE_LAYOUT } from "./model-item";
 import { useSpinnerFrame } from "./spinner";
-import type { ModelManagerDialogData } from "../types";
+import type { RuntimeName, ModelManagerDialogData } from "../types";
 
-/**
- * Render a compact key badge with an adjacent descriptive label for keyboard command hints.
- *
- * @param props.keys - The key or key sequence text displayed inside the colored badge (for example: "Esc", "Enter", "x/Enter").
- * @param props.label - The descriptive label shown next to the badge (for example: "close", "select").
- * @returns A JSX element containing a colored key badge and a muted label, arranged horizontally.
- */
 function CommandHint(props: { keys: string; label: string; onClick?: () => void }): JSX.Element {
   const { colors } = useTheme();
 
@@ -42,14 +35,6 @@ function CommandHint(props: { keys: string; label: string; onClick?: () => void 
   );
 }
 
-/**
- * Renders the Models management dialog that lets users browse, download (pull), select, and remove models.
- *
- * The UI shows available models, the currently selected model, active operations (download/remove), and status messages.
- * It also handles keyboard shortcuts for navigation and actions when the dialog is active.
- *
- * @returns The JSX element for the Models management dialog
- */
 export function ModelManager(): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();
@@ -60,7 +45,9 @@ export function ModelManager(): JSX.Element {
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [statusMessage, setStatusMessage] = createSignal("");
   const [mouseArmedIndex, setMouseArmedIndex] = createSignal<number | null>(null);
+  const [pendingSwitchConfirmVisible, setPendingSwitchConfirmVisible] = createSignal(false);
   const spinnerFrame = useSpinnerFrame();
+
   const dialogData = createMemo<ModelManagerDialogData>(
     () => (dialog.currentDialog()?.data as ModelManagerDialogData | undefined) ?? {},
   );
@@ -68,8 +55,13 @@ export function ModelManager(): JSX.Element {
   const returnSettingId = createMemo(() => dialogData().returnSettingId ?? null);
   const returnFilterQuery = createMemo(() => dialogData().returnFilterQuery ?? null);
   const firstRunSetup = createMemo(() => Boolean(dialogData().firstRunSetup));
+  const pendingRuntimeSwitch = createMemo(() => dialogData().pendingRuntimeSwitch ?? null);
   const setupRequired = createMemo(() => Boolean(backend.config()?.first_run_setup_required));
   const setupLocked = createMemo(() => firstRunSetup() && setupRequired());
+
+  const activeRuntime = createMemo<RuntimeName>(
+    () => (config.config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper",
+  );
 
   function closeManager() {
     if (setupLocked()) {
@@ -110,6 +102,16 @@ export function ModelManager(): JSX.Element {
     }
   });
 
+  createEffect(() => {
+    const pending = pendingRuntimeSwitch();
+    setPendingSwitchConfirmVisible(Boolean(pending));
+    if (!pending) return;
+    const idx = backend.models().findIndex((model) => model.name === pending.model);
+    if (idx >= 0) {
+      setSelectedIndex(idx);
+    }
+  });
+
   const selectedModel = () => {
     const models = backend.models();
     const idx = selectedIndex();
@@ -117,34 +119,58 @@ export function ModelManager(): JSX.Element {
     return models[idx];
   };
 
-  const activePullingModelName = createMemo(() => {
+  const selectedModelVariant = createMemo(() => {
+    const model = selectedModel();
+    if (!model) return null;
+    return model.variants[activeRuntime()] ?? null;
+  });
+
+  const activePullingModel = createMemo(() => {
     const op = backend.activeModelOp();
     if (!op || op.type !== "pulling") return null;
-    return op.model;
+    return op;
   });
 
   const selectedModelIsPulling = createMemo(() => {
     const model = selectedModel();
-    const pullingModelName = activePullingModelName();
-    return Boolean(model && pullingModelName && model.name === pullingModelName);
+    const pulling = activePullingModel();
+    return Boolean(
+      model &&
+      pulling &&
+      model.name === pulling.model &&
+      pulling.runtime === activeRuntime(),
+    );
   });
 
+  const selectedModelIsQueued = createMemo(() => {
+    const model = selectedModel();
+    if (!model) return false;
+    return backend.isModelPullQueued(model.name, activeRuntime());
+  });
+
+  const selectedModelInstalledOnActiveRuntime = createMemo(
+    () => Boolean(selectedModelVariant()?.installed),
+  );
+
   const primaryActionLabel = createMemo(() => {
+    if (pendingSwitchConfirmVisible()) return "confirm download";
     const model = selectedModel();
     if (!model) return "pull/select";
     if (selectedModelIsPulling()) return "cancel pull";
-    return model.installed ? "select" : "pull + select";
+    if (selectedModelIsQueued()) return "cancel queued";
+    return selectedModelInstalledOnActiveRuntime() ? "select" : "pull + select";
   });
 
   const primaryActionKeys = createMemo(() => {
-    if (selectedModelIsPulling()) return "x/enter";
+    if (selectedModelIsPulling() || selectedModelIsQueued()) return "x/enter";
+    if (pendingSwitchConfirmVisible()) return "enter/y";
     return "enter";
   });
 
   const modalHeight = createMemo(() => {
-    const minHeight = 16;
+    const minHeight = 18;
     const maxHeight = Math.max(minHeight, terminal().height - 4);
-    const preferred = Math.floor(terminal().height * 0.68);
+    const preferred = Math.floor(terminal().height * 0.72);
     return Math.max(minHeight, Math.min(preferred, maxHeight));
   });
 
@@ -152,14 +178,38 @@ export function ModelManager(): JSX.Element {
     const configured = config.config()?.model.name ?? null;
     if (!configured) return null;
     const match = backend.models().find((model) => model.name === configured);
-    return match?.installed ? configured : null;
+    const variant = match?.variants?.[activeRuntime()];
+    return variant?.installed ? configured : null;
   });
+
+  function confirmPendingSwitchDownload() {
+    const pending = pendingRuntimeSwitch();
+    if (!pending) return;
+    setPendingSwitchConfirmVisible(false);
+    setStatusMessage("");
+    backend.downloadModel(pending.model, pending.runtime, pending.runtime);
+  }
 
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "model-manager") return;
 
     const models = backend.models();
     const keyName = key.name;
+
+    if (pendingSwitchConfirmVisible()) {
+      switch (keyName) {
+        case "escape":
+        case "q":
+        case "n":
+          closeManager();
+          return;
+        case "return":
+        case "enter":
+        case "y":
+          confirmPendingSwitchDownload();
+          return;
+      }
+    }
 
     switch (keyName) {
       case "escape":
@@ -184,29 +234,29 @@ export function ModelManager(): JSX.Element {
       case "x":
         handleCancelDownload();
         break;
-      case "r":
       case "backspace":
         handleRemove();
         break;
     }
   });
 
-  /**
-   * Perform the primary action for the currently highlighted model.
-   *
-   * If no model is selected, no action is taken. If the selected model is currently being downloaded,
-   * the download is cancelled. If the selected model is installed, it is set as active only when no
-   * other model operation is running. Otherwise, a download for the selected model is requested and may
-   * be queued behind an active model operation.
-   */
   function handlePrimaryAction() {
+    if (pendingSwitchConfirmVisible()) {
+      confirmPendingSwitchDownload();
+      return;
+    }
+
     const model = selectedModel();
     if (!model) return;
     if (selectedModelIsPulling()) {
       handleCancelDownload();
       return;
     }
-    if (model.installed) {
+    if (selectedModelIsQueued()) {
+      handleCancelDownload();
+      return;
+    }
+    if (selectedModelInstalledOnActiveRuntime()) {
       if (backend.activeModelOp()) return;
       handleSelect();
       return;
@@ -214,42 +264,37 @@ export function ModelManager(): JSX.Element {
     handlePull();
   }
 
-  /**
-   * Cancels the currently active model download if one exists.
-   *
-   * If no model is being downloaded, this function has no effect.
-   */
   function handleCancelDownload() {
-    const pullingModelName = activePullingModelName();
-    if (!pullingModelName) return;
-    backend.cancelModelDownload(pullingModelName);
+    const model = selectedModel();
+    if (model && backend.isModelPullQueued(model.name, activeRuntime())) {
+      backend.cancelModelDownload(model.name, activeRuntime());
+      return;
+    }
+    const pulling = activePullingModel();
+    if (!pulling) return;
+    backend.cancelModelDownload(pulling.model, pulling.runtime);
   }
 
-  /**
-   * Starts downloading the currently selected model if one exists.
-   *
-   * Clears the visible status message and requests the backend to download the selected model. If another
-   * model operation is active, the backend queues the pull request.
-   */
   function handlePull() {
     const model = selectedModel();
     if (!model) return;
     const op = backend.activeModelOp();
-    if (op?.type === "pulling" && op.model === model.name) return;
+    const active = activeRuntime();
+    if (op?.type === "pulling" && op.model === model.name && op.runtime === active) return;
     setStatusMessage("");
-    backend.downloadModel(model.name);
+    backend.downloadModel(model.name, active);
   }
 
   function handleRemove() {
     const model = selectedModel();
-    if (!model || !model.installed || backend.activeModelOp()) return;
+    if (!model || !selectedModelInstalledOnActiveRuntime() || backend.activeModelOp()) return;
     setStatusMessage("");
-    backend.removeModel(model.name);
+    backend.removeModel(model.name, activeRuntime());
   }
 
   function handleSelect() {
     const model = selectedModel();
-    if (!model || !model.installed) return;
+    if (!model || !selectedModelInstalledOnActiveRuntime()) return;
     backend.send({ type: "set_selected_model", name: model.name });
     setStatusMessage(`Selected ${model.name}`);
   }
@@ -269,7 +314,7 @@ export function ModelManager(): JSX.Element {
     const op = backend.activeModelOp();
     if (op) {
       if (op.type === "removing") {
-        return `${spinnerFrame()} Removing ${op.model}...`;
+        return `${spinnerFrame()} Removing ${op.model} (${op.runtime})...`;
       }
       return "";
     }
@@ -287,7 +332,7 @@ export function ModelManager(): JSX.Element {
   return (
     <box
       flexDirection="column"
-      width={72}
+      width={84}
       height={modalHeight()}
       backgroundColor={colors().backgroundPanel}
       padding={1}
@@ -298,11 +343,11 @@ export function ModelManager(): JSX.Element {
             <span style={{ fg: colors().primary, bold: true }}>Models</span>
           </text>
           <box flexDirection="row" alignItems="center" gap={2}>
-            <text>
-              <span style={{ fg: colors().textMuted }}>
-                {setupLocked() ? "first run setup required" : "pull and selection"}
-              </span>
-            </text>
+            <Show when={setupLocked()}>
+              <text>
+                <span style={{ fg: colors().textMuted }}>first run setup required</span>
+              </text>
+            </Show>
             <Show
               when={!setupLocked()}
               fallback={(
@@ -311,7 +356,7 @@ export function ModelManager(): JSX.Element {
                 </text>
               )}
             >
-              <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={closeManager}>
+              <box backgroundColor={colors().error} paddingX={1} onMouseUp={closeManager}>
                 <text>
                   <span style={{ fg: colors().selectedText }}>esc/q</span>
                 </text>
@@ -325,6 +370,14 @@ export function ModelManager(): JSX.Element {
         </box>
       </box>
 
+      <box paddingX={2} paddingTop={1} flexDirection="column" flexShrink={0}>
+        <text>
+          <span style={{ fg: colors().textMuted }}>
+            Download OpenAI Whisper models locally and select which to use for transcription.
+          </span>
+        </text>
+      </box>
+
       <Show when={firstRunSetup()}>
         <box paddingX={2} paddingTop={1} flexDirection="column" flexShrink={0}>
           <text>
@@ -335,6 +388,51 @@ export function ModelManager(): JSX.Element {
           </text>
         </box>
       </Show>
+
+      <Show when={pendingSwitchConfirmVisible() && pendingRuntimeSwitch()}>
+        <box paddingX={2} paddingTop={1} flexDirection="column" flexShrink={0}>
+          <text>
+            <span style={{ fg: colors().warning, bold: true }}>Runtime switch confirmation</span>
+          </text>
+          <text>
+            <span style={{ fg: colors().textMuted }}>
+              {`Download ${pendingRuntimeSwitch()!.model} for ${pendingRuntimeSwitch()!.runtime}?`}
+            </span>
+          </text>
+          <text>
+            <span style={{ fg: colors().textDim }}>Enter/Y to confirm, Esc/N to cancel.</span>
+          </text>
+        </box>
+      </Show>
+
+      <box paddingX={2} paddingTop={1} flexShrink={0}>
+        <box
+          flexDirection="row"
+          width="100%"
+          borderStyle="single"
+          border={["bottom"]}
+          borderColor={colors().borderSubtle}
+          paddingBottom={0}
+        >
+          <box width={MODEL_TABLE_LAYOUT.rowPrefix} />
+          <box width={MODEL_TABLE_LAYOUT.model} justifyContent="flex-start" alignItems="center">
+            <text>
+              <span style={{ fg: colors().accent, bold: true }}>Model</span>
+            </text>
+          </box>
+          <box width={MODEL_TABLE_LAYOUT.size} justifyContent="flex-end" alignItems="center">
+            <text>
+              <span style={{ fg: colors().accent, bold: true }}>Size</span>
+            </text>
+          </box>
+          <box width={MODEL_TABLE_LAYOUT.separator} />
+          <box width={MODEL_TABLE_LAYOUT.runtime} justifyContent="center" alignItems="center">
+            <text>
+              <span style={{ fg: colors().accent, bold: true }}>Downloaded</span>
+            </text>
+          </box>
+        </box>
+      </box>
 
       <scrollbox flexGrow={1} flexShrink={1} paddingY={1}>
         <box flexDirection="column">
@@ -362,8 +460,12 @@ export function ModelManager(): JSX.Element {
       <box paddingX={2} paddingTop={1} flexShrink={0}>
         <box flexDirection="row" gap={2} alignItems="center">
           <CommandHint keys={primaryActionKeys()} label={primaryActionLabel()} onClick={handlePrimaryAction} />
-          <CommandHint keys="p" label="pull" onClick={handlePull} />
-          <CommandHint keys="r/backspace" label="remove" onClick={handleRemove} />
+          <Show when={!pendingSwitchConfirmVisible()}>
+            <CommandHint keys="p" label="pull" onClick={handlePull} />
+          </Show>
+          <Show when={!pendingSwitchConfirmVisible()}>
+            <CommandHint keys="backspace" label="remove" onClick={handleRemove} />
+          </Show>
         </box>
       </box>
     </box>

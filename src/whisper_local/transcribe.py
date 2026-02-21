@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-# Disable HF transfer backends that can trigger FD issues in TUI/threaded runtimes.
+# Disable HF transfer runtimes that can trigger FD issues in TUI/threaded runtimes.
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
 
@@ -29,27 +29,14 @@ try:  # pragma: no cover - optional runtime import
 except Exception:  # pragma: no cover - optional runtime import
     ctranslate2 = None  # type: ignore[assignment]
 
-from whisper_local.config import normalize_backend_name
+from whisper_local.config import normalize_runtime_name
 from whisper_local.model_manager import (
-    MODEL_NAMES,
-    ensure_model_available,
-    get_hf_cache_dir,
     get_installed_model_path,
 )
 
 
 logger = logging.getLogger(__name__)
-WHISPER_CPP_REPO_ID = "ggerganov/whisper.cpp"
 WHISPER_CPP_BINARIES = ("whisper-cli", "whisper-cpp", "main")
-WHISPER_CPP_MODEL_FILES: dict[str, str] = {
-    "tiny": "ggml-tiny.bin",
-    "base": "ggml-base.bin",
-    "small": "ggml-small.bin",
-    "medium": "ggml-medium.bin",
-    "large-v2": "ggml-large-v2.bin",
-    "large-v3": "ggml-large-v3.bin",
-    "large-v3-turbo": "ggml-large-v3-turbo.bin",
-}
 
 
 @dataclass
@@ -58,8 +45,8 @@ class TranscriptionResult:
     language: str | None
 
 
-class _BackendBase(ABC):
-    backend_name = "unknown"
+class _RuntimeBase(ABC):
+    runtime_name = "unknown"
 
     @abstractmethod
     def load(self) -> None:
@@ -73,15 +60,15 @@ class _BackendBase(ABC):
 
     def runtime_info(self) -> dict[str, str]:
         return {
-            "backend": self.backend_name,
+            "runtime": self.runtime_name,
             "effective_device": "unknown",
             "effective_compute_type": "unknown",
             "model_source": "unknown",
         }
 
 
-class FasterWhisperBackend(_BackendBase):
-    backend_name = "faster-whisper"
+class FasterWhisperRuntime(_RuntimeBase):
+    runtime_name = "faster-whisper"
 
     def __init__(
         self,
@@ -89,13 +76,11 @@ class FasterWhisperBackend(_BackendBase):
         device: str,
         compute_type: str,
         model_path: str | None = None,
-        auto_download: bool = True,
     ) -> None:
         self.model_name = model_name
         self.device = device
         self.compute_type = compute_type
         self.model_path = model_path
-        self.auto_download = auto_download
         self._model = None
         self._effective_device = "cpu"
         self._effective_compute_type = "int8"
@@ -105,12 +90,10 @@ class FasterWhisperBackend(_BackendBase):
         """Resolve the model source path from config, cache, or download."""
         if self.model_path:
             return self.model_path
-        if self.auto_download:
-            return str(ensure_model_available(self.model_name))
-        local_path = get_installed_model_path(self.model_name)
+        local_path = get_installed_model_path(self.model_name, runtime=self.runtime_name)
         if local_path is None:
             raise RuntimeError(
-                f"Model {self.model_name} is not installed and auto_download is disabled"
+                f"Model {self.model_name} ({self.runtime_name}) is not installed"
             )
         return str(local_path)
 
@@ -119,7 +102,7 @@ class FasterWhisperBackend(_BackendBase):
             return
         if WhisperModel is None:
             raise RuntimeError(
-                "faster-whisper backend unavailable. Install with: python -m pip install faster-whisper"
+                "faster-whisper runtime unavailable. Install with: python -m pip install faster-whisper"
             )
 
         model_source = self._resolve_model_source()
@@ -130,8 +113,8 @@ class FasterWhisperBackend(_BackendBase):
         self._model_source = model_source
 
         logger.info(
-            "Loading model backend=%s model=%s source=%s device=%s compute_type=%s",
-            self.backend_name,
+            "Loading model runtime=%s model=%s source=%s device=%s compute_type=%s",
+            self.runtime_name,
             self.model_name,
             model_source,
             device,
@@ -211,15 +194,15 @@ class FasterWhisperBackend(_BackendBase):
 
     def runtime_info(self) -> dict[str, str]:
         return {
-            "backend": self.backend_name,
+            "runtime": self.runtime_name,
             "effective_device": self._effective_device,
             "effective_compute_type": self._effective_compute_type,
             "model_source": self._model_source or self.model_path or self.model_name,
         }
 
 
-class WhisperCppBackend(_BackendBase):
-    backend_name = "whisper.cpp"
+class WhisperCppRuntime(_RuntimeBase):
+    runtime_name = "whisper.cpp"
 
     def __init__(
         self,
@@ -227,13 +210,11 @@ class WhisperCppBackend(_BackendBase):
         device: str,
         compute_type: str,
         model_path: str | None = None,
-        auto_download: bool = True,
     ) -> None:
         self.model_name = model_name
         self.device = device
         self.compute_type = compute_type
         self.model_path = model_path
-        self.auto_download = auto_download
         self._binary_path: str | None = None
         self._resolved_model_path: str | None = None
         self._effective_device = _resolve_whispercpp_device(device)
@@ -243,7 +224,7 @@ class WhisperCppBackend(_BackendBase):
         self._binary_path = _resolve_whisper_cpp_binary()
         if not self._binary_path:
             raise RuntimeError(
-                "whisper.cpp backend unavailable. Install whisper.cpp (e.g. brew install whisper-cpp)"
+                "whisper.cpp runtime unavailable. Install whisper.cpp (e.g. brew install whisper-cpp)"
             )
         self._gpu_control_mode = _detect_whisper_cpp_gpu_control(self._binary_path)
 
@@ -262,15 +243,19 @@ class WhisperCppBackend(_BackendBase):
             if not Path(resolved).exists():
                 raise RuntimeError(f"Configured local model path does not exist: {resolved}")
         else:
-            resolved = _ensure_whisper_cpp_model_available(
-                self.model_name,
-                auto_download=self.auto_download,
+            installed_path = get_installed_model_path(
+                self.model_name, runtime=self.runtime_name
             )
+            if installed_path is None:
+                raise RuntimeError(
+                    f"Model {self.model_name} ({self.runtime_name}) is not installed"
+                )
+            resolved = str(installed_path)
 
         self._resolved_model_path = resolved
         logger.info(
-            "Loading model backend=%s model=%s source=%s device=%s compute_type=%s binary=%s gpu_control=%s",
-            self.backend_name,
+            "Loading model runtime=%s model=%s source=%s device=%s compute_type=%s binary=%s gpu_control=%s",
+            self.runtime_name,
             self.model_name,
             resolved,
             self._effective_device,
@@ -285,7 +270,7 @@ class WhisperCppBackend(_BackendBase):
         if not self._binary_path or not self._resolved_model_path:
             self.load()
         if not self._binary_path or not self._resolved_model_path:
-            raise RuntimeError("whisper.cpp backend failed to initialize")
+            raise RuntimeError("whisper.cpp runtime failed to initialize")
 
         audio = _to_float32(audio)
         if sample_rate != 16000:
@@ -333,7 +318,7 @@ class WhisperCppBackend(_BackendBase):
 
     def runtime_info(self) -> dict[str, str]:
         return {
-            "backend": self.backend_name,
+            "runtime": self.runtime_name,
             "effective_device": self._effective_device,
             "effective_compute_type": "default",
             "model_source": self._resolved_model_path or self.model_path or self.model_name,
@@ -347,44 +332,41 @@ class Transcriber:
         device: str,
         compute_type: str,
         model_path: str | None = None,
-        backend: str = "faster-whisper",
-        auto_download: bool = True,
+        runtime: str = "faster-whisper",
     ) -> None:
         self.model_name = model_name
-        self.backend = normalize_backend_name(backend)
+        self.runtime = normalize_runtime_name(runtime)
         self.device = device
         self.compute_type = compute_type
         self.model_path = model_path
-        self.auto_download = auto_download
-        self._backend_impl = _create_backend(
-            backend=self.backend,
+        self._runtime_impl = _create_runtime(
+            runtime=self.runtime,
             model_name=model_name,
             device=device,
             compute_type=compute_type,
             model_path=model_path,
-            auto_download=auto_download,
         )
 
     def load(self) -> None:
-        self._backend_impl.load()
+        self._runtime_impl.load()
 
     def transcribe(
         self, audio: np.ndarray, sample_rate: int, language: str | None = None
     ) -> TranscriptionResult:
-        return self._backend_impl.transcribe(audio, sample_rate, language)
+        return self._runtime_impl.transcribe(audio, sample_rate, language)
 
     def runtime_info(self) -> dict[str, str]:
-        info = self._backend_impl.runtime_info()
+        info = self._runtime_impl.runtime_info()
         info["model_name"] = self.model_name
         return info
 
 
-def detect_runtime_capabilities(selected_backend: str | None = None) -> dict[str, Any]:
-    backend_name = normalize_backend_name(selected_backend or "faster-whisper")
+def detect_runtime_capabilities(selected_runtime: str | None = None) -> dict[str, Any]:
+    runtime_name = normalize_runtime_name(selected_runtime or "faster-whisper")
 
-    faster_backend_enabled = WhisperModel is not None
-    faster_backend_reason = (
-        None if faster_backend_enabled else "Python package faster-whisper is missing"
+    faster_runtime_enabled = WhisperModel is not None
+    faster_runtime_reason = (
+        None if faster_runtime_enabled else "Python package faster-whisper is missing"
     )
 
     cpu_compute = _supported_compute_types("cpu")
@@ -399,18 +381,18 @@ def detect_runtime_capabilities(selected_backend: str | None = None) -> dict[str
         except Exception:
             cuda_count = 0
 
-    cuda_enabled = faster_backend_enabled and cuda_count > 0 and len(cuda_compute) > 0
+    cuda_enabled = faster_runtime_enabled and cuda_count > 0 and len(cuda_compute) > 0
     if cuda_enabled:
         cuda_reason = None
-    elif not faster_backend_enabled:
-        cuda_reason = faster_backend_reason
+    elif not faster_runtime_enabled:
+        cuda_reason = faster_runtime_reason
     elif cuda_count <= 0:
         cuda_reason = "No CUDA GPU detected"
     else:
         cuda_reason = "CTranslate2 build lacks CUDA support"
 
     faster_devices = {
-        "cpu": {"enabled": faster_backend_enabled, "reason": faster_backend_reason},
+        "cpu": {"enabled": faster_runtime_enabled, "reason": faster_runtime_reason},
         "cuda": {"enabled": cuda_enabled, "reason": cuda_reason},
         "mps": {
             "enabled": False,
@@ -448,7 +430,7 @@ def detect_runtime_capabilities(selected_backend: str | None = None) -> dict[str
         },
         "cuda": {
             "enabled": False,
-            "reason": "Use faster-whisper backend for CUDA",
+            "reason": "Use faster-whisper runtime for CUDA",
         },
     }
     whisper_cpp_compute = {
@@ -457,33 +439,33 @@ def detect_runtime_capabilities(selected_backend: str | None = None) -> dict[str
         "cuda": [],
     }
 
-    backends = {
+    runtimes = {
         "faster-whisper": {
-            "enabled": faster_backend_enabled,
-            "reason": faster_backend_reason,
+            "enabled": faster_runtime_enabled,
+            "reason": faster_runtime_reason,
         },
         "whisper.cpp": {
             "enabled": whisper_cpp_enabled,
             "reason": whisper_cpp_reason,
         },
     }
-    devices_by_backend = {
+    devices_by_runtime = {
         "faster-whisper": faster_devices,
         "whisper.cpp": whisper_cpp_devices,
     }
-    compute_by_backend_device = {
+    compute_by_runtime_device = {
         "faster-whisper": faster_compute,
         "whisper.cpp": whisper_cpp_compute,
     }
 
-    selected_devices = devices_by_backend.get(backend_name) or faster_devices
-    selected_compute = compute_by_backend_device.get(backend_name) or faster_compute
+    selected_devices = devices_by_runtime.get(runtime_name) or faster_devices
+    selected_compute = compute_by_runtime_device.get(runtime_name) or faster_compute
 
     return {
         "model": {
-            "backends": backends,
-            "devices_by_backend": devices_by_backend,
-            "compute_types_by_backend_device": compute_by_backend_device,
+            "runtimes": runtimes,
+            "devices_by_runtime": devices_by_runtime,
+            "compute_types_by_runtime_device": compute_by_runtime_device,
             "devices": selected_devices,
             "compute_types_by_device": selected_compute,
         }
@@ -499,18 +481,17 @@ def ensure_whisper_cpp_installed() -> None:
     )
 
 
-def _create_backend(
+def _create_runtime(
     *,
-    backend: str,
+    runtime: str,
     model_name: str,
     device: str,
     compute_type: str,
     model_path: str | None,
-    auto_download: bool,
-) -> _BackendBase:
-    if backend == "whisper.cpp":
-        return WhisperCppBackend(model_name, device, compute_type, model_path, auto_download)
-    return FasterWhisperBackend(model_name, device, compute_type, model_path, auto_download)
+) -> _RuntimeBase:
+    if runtime == "whisper.cpp":
+        return WhisperCppRuntime(model_name, device, compute_type, model_path)
+    return FasterWhisperRuntime(model_name, device, compute_type, model_path)
 
 
 def _supported_compute_types(device: str) -> list[str]:
@@ -578,59 +559,6 @@ def _detect_whisper_cpp_gpu_control(binary_path: str) -> str:
     if "--no-gpu" in help_text or "-ng" in help_text:
         return "no-gpu"
     return "unknown"
-
-
-def _whisper_cpp_snapshots_dir() -> Path:
-    return get_hf_cache_dir() / "hub" / "models--ggerganov--whisper.cpp" / "snapshots"
-
-
-def _find_cached_whisper_cpp_model(filename: str) -> Path | None:
-    snapshots = _whisper_cpp_snapshots_dir()
-    if not snapshots.exists():
-        return None
-
-    candidates: list[Path] = []
-    for snapshot in snapshots.iterdir():
-        if not snapshot.is_dir():
-            continue
-        candidate = snapshot / filename
-        if candidate.exists() and candidate.is_file():
-            candidates.append(candidate)
-
-    if not candidates:
-        return None
-    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return candidates[0]
-
-
-def _ensure_whisper_cpp_model_available(model_name: str, auto_download: bool) -> str:
-    if model_name not in MODEL_NAMES:
-        raise ValueError(f"Unknown model: {model_name}")
-
-    filename = WHISPER_CPP_MODEL_FILES.get(model_name)
-    if not filename:
-        raise RuntimeError(f"whisper.cpp model file mapping missing for model: {model_name}")
-
-    cached = _find_cached_whisper_cpp_model(filename)
-    if cached is not None:
-        return str(cached)
-
-    if not auto_download:
-        raise RuntimeError(
-            f"whisper.cpp model {model_name} is not installed and auto_download is disabled"
-        )
-
-    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
-    os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
-
-    try:
-        from huggingface_hub import hf_hub_download
-
-        downloaded = hf_hub_download(repo_id=WHISPER_CPP_REPO_ID, filename=filename)
-    except Exception as exc:  # pragma: no cover - network/runtime dependent
-        raise RuntimeError(f"Failed to download whisper.cpp model {model_name}: {exc}") from exc
-
-    return str(Path(downloaded))
 
 
 def _write_wav_mono16(path: Path, audio: np.ndarray, sample_rate: int) -> None:

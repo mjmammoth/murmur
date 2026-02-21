@@ -5,10 +5,12 @@ export interface RuntimeOptionState {
   reason: string | null;
 }
 
+export type RuntimeName = "faster-whisper" | "whisper.cpp";
+
 export interface RuntimeModelCapabilities {
-  backends: Record<string, RuntimeOptionState>;
-  devices_by_backend: Record<string, Record<string, RuntimeOptionState>>;
-  compute_types_by_backend_device: Record<string, Record<string, string[]>>;
+  runtimes: Record<string, RuntimeOptionState>;
+  devices_by_runtime: Record<string, Record<string, RuntimeOptionState>>;
+  compute_types_by_runtime_device: Record<string, Record<string, string[]>>;
   devices: Record<string, RuntimeOptionState>;
   compute_types_by_device: Record<string, string[]>;
 }
@@ -19,10 +21,9 @@ export interface RuntimeCapabilities {
 
 export interface ModelConfig {
   name: string;
-  backend: string;
+  runtime: string;
   device: string;
   compute_type: string;
-  auto_download: boolean;
   path: string | null;
   language: string | null;
 }
@@ -79,6 +80,7 @@ export interface AppConfig {
   ui?: UiConfig;
   auto_copy?: boolean;
   auto_paste?: boolean;
+  auto_revert_clipboard?: boolean;
   first_run_setup_required?: boolean;
   runtime?: RuntimeCapabilities;
 }
@@ -94,6 +96,12 @@ export interface TranscriptEntry {
 
 export interface ModelInfo {
   name: string;
+  variants: Record<RuntimeName, ModelVariantInfo>;
+}
+
+export interface ModelVariantInfo {
+  runtime: RuntimeName;
+  format: string;
   installed: boolean;
   path: string | null;
   size_bytes?: number | null;
@@ -121,6 +129,7 @@ export type ClientMessage =
   | { type: "toggle_vad"; enabled: boolean }
   | { type: "toggle_auto_copy"; enabled: boolean }
   | { type: "toggle_auto_paste"; enabled: boolean }
+  | { type: "toggle_auto_revert_clipboard"; enabled: boolean }
   | { type: "set_hotkey_blocked"; enabled: boolean }
   | { type: "set_hotkey_mode"; mode: "ptt" | "toggle" }
   | { type: "set_hotkey"; hotkey: string }
@@ -133,14 +142,15 @@ export type ClientMessage =
   | { type: "set_selected_model"; name: string }
   // Backward-compatible alias for set_selected_model
   | { type: "set_default_model"; name: string }
-  | { type: "set_model_backend"; backend: string }
+  | { type: "set_model_runtime"; runtime: string }
   | { type: "set_model_device"; device: string }
   | { type: "set_model_compute_type"; compute_type: string }
   | { type: "set_model_language"; language: string | null }
   | { type: "set_theme"; theme: string }
-  | { type: "download_model"; name: string }
-  | { type: "cancel_model_download"; name: string }
-  | { type: "remove_model"; name: string }
+  | { type: "download_model"; name: string; runtime?: RuntimeName; activate_runtime?: RuntimeName | null }
+  | { type: "cancel_model_download"; name: string; runtime?: RuntimeName }
+  | { type: "cancel_all_model_downloads" }
+  | { type: "remove_model"; name: string; runtime?: RuntimeName }
   | { type: "list_models" }
   | { type: "get_config" }
   | { type: "get_config_file" }
@@ -162,6 +172,8 @@ export type ServerMessage =
       type: "toast";
       message: string;
       level?: "info" | "error";
+      model?: string;
+      runtime?: RuntimeName;
       action?:
         | "download_cancelled"
         | "download_failed"
@@ -171,8 +183,14 @@ export type ServerMessage =
     }
   | { type: "log"; level: string; message: string; timestamp: string; source: string }
   | { type: "suppress_paste_input"; duration_ms?: number }
-  | { type: "download_progress"; model: string; percent: number }
-  | { type: "capabilities"; capabilities: RuntimeCapabilities; recommended: { backend: string; device: string } };
+  | { type: "download_progress"; model: string; runtime: RuntimeName; percent: number }
+  | {
+      type: "runtime_switch_requires_model_variant";
+      runtime: RuntimeName;
+      model: string;
+      format: string;
+    }
+  | { type: "capabilities"; capabilities: RuntimeCapabilities; recommended: { runtime: string; device: string } };
 
 // Log types
 
@@ -202,21 +220,54 @@ export type DialogType =
   | "hotkey"
   | "theme-picker"
   | "exit-confirm"
+  | "runtime-switch-confirm"
   | "welcome";
+
+export type SelectSettingId =
+  | "model.runtime"
+  | "model.device"
+  | "model.compute"
+  | "model.language"
+  | "audio.sample_rate"
+  | "vad.aggressiveness";
 
 export interface ModelManagerDialogData {
   returnToSettings?: boolean;
   returnSettingId?: string;
   returnFilterQuery?: string;
   firstRunSetup?: boolean;
+  pendingRuntimeSwitch?: {
+    runtime: RuntimeName;
+    model: string;
+    format: string;
+  };
 }
 
 export interface WelcomeDialogData {
   firstRun?: boolean;
+  resumeStepIndex?: number;
+  resumeModelIndex?: number;
+  recommendationAutoApplied?: boolean;
+}
+
+export interface SettingsSelectDialogData {
+  settingId: SelectSettingId;
+  returnToSettings?: boolean;
+  returnSettingId?: string;
+  returnFilterQuery?: string;
+  returnToDialog?: "welcome";
+  returnWelcomeData?: WelcomeDialogData;
 }
 
 export interface ExitConfirmDialogData {
   model?: string;
+  runtime?: RuntimeName;
+}
+
+export interface RuntimeSwitchConfirmDialogData {
+  runtime: RuntimeName;
+  model: string;
+  format: string;
 }
 
 export interface DialogState {

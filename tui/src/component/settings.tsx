@@ -5,12 +5,13 @@ import { useTheme } from "../context/theme";
 import { useDialog } from "../context/dialog";
 import { useConfig } from "../context/config";
 import { useBackend } from "../context/backend";
+import { formatDeviceLabel } from "../util/format";
 
 type SettingSection = "Capture" | "Model" | "Output" | "Appearance" | "Advanced";
 type ControlKind = "toggle" | "select" | "open" | "edit" | "read-only";
 
 type SelectSettingId =
-  | "model.backend"
+  | "model.runtime"
   | "model.device"
   | "model.compute"
   | "model.language"
@@ -58,12 +59,12 @@ function isPrintableKey(key: KeyEvent): boolean {
   return key.name.length === 1;
 }
 
-function LegendHint(props: { keys: string; label: string }): JSX.Element {
+function LegendHint(props: { keys: string; label: string; danger?: boolean }): JSX.Element {
   const { colors } = useTheme();
 
   return (
     <box flexDirection="row" alignItems="center" gap={1}>
-      <box backgroundColor={colors().secondary} paddingX={1}>
+      <box backgroundColor={props.danger ? colors().error : colors().secondary} paddingX={1}>
         <text>
           <span style={{ fg: colors().selectedText }}>{props.keys}</span>
         </text>
@@ -110,8 +111,11 @@ export function Settings(): JSX.Element {
   const selectedInstalledModelName = createMemo(() => {
     const selected = config.config()?.model.name;
     if (!selected) return "none";
+    const activeRuntime = config.config()?.model.runtime ?? "faster-whisper";
     const match = backend.models().find((model) => model.name === selected);
-    return match?.installed ? selected : "none";
+    return match?.variants?.[activeRuntime as "faster-whisper" | "whisper.cpp"]?.installed
+      ? selected
+      : "none";
   });
 
   function returnFilterQuery() {
@@ -255,16 +259,16 @@ export function Settings(): JSX.Element {
           }),
       },
       {
-        id: "model.backend",
+        id: "model.runtime",
         section: "Model",
-        title: "Backend",
-        description: "Choose transcription backend",
-        keywords: ["backend", "faster-whisper", "whisper.cpp"],
+        title: "Runtime",
+        description: "Choose model runtime",
+        keywords: ["runtime", "faster-whisper", "whisper.cpp"],
         controlKind: "select",
         affordance: "select",
         interactive: true,
-        value: () => withFallback(cfg?.model.backend, "faster-whisper"),
-        activate: () => openSelector("model.backend"),
+        value: () => withFallback(cfg?.model.runtime, "faster-whisper"),
+        activate: () => openSelector("model.runtime"),
       },
       {
         id: "model.device",
@@ -275,7 +279,7 @@ export function Settings(): JSX.Element {
         controlKind: "select",
         affordance: "select",
         interactive: true,
-        value: () => withFallback(cfg?.model.device),
+        value: () => formatDeviceLabel(cfg?.model.device),
         activate: () => openSelector("model.device"),
       },
       {
@@ -347,6 +351,24 @@ export function Settings(): JSX.Element {
         setToggleValue: (value: boolean) => {
           if (config.autoPaste() !== value) {
             config.toggleAutoPaste();
+          }
+        },
+      },
+      {
+        id: "recording.autorevertclipboard",
+        section: "Output",
+        title: "Auto Revert Clipboard",
+        description: "Restore previous clipboard after auto-paste",
+        keywords: ["clipboard", "paste", "restore", "automatic"],
+        controlKind: "toggle",
+        affordance: "toggle",
+        interactive: true,
+        value: () => boolLabel(config.autoRevertClipboard()),
+        isOn: config.autoRevertClipboard,
+        toggle: config.toggleAutoRevertClipboard,
+        setToggleValue: (value: boolean) => {
+          if (config.autoRevertClipboard() !== value) {
+            config.toggleAutoRevertClipboard();
           }
         },
       },
@@ -805,7 +827,7 @@ export function Settings(): JSX.Element {
             <text>
               <span style={{ fg: colors().textMuted }}>task-first controls</span>
             </text>
-            <box backgroundColor={colors().secondary} paddingX={1} onMouseUp={() => dialog.closeDialog()}>
+            <box backgroundColor={colors().error} paddingX={1} onMouseUp={() => dialog.closeDialog()}>
               <text>
                 <span style={{ fg: colors().selectedText }}>esc/q</span>
               </text>
@@ -915,7 +937,7 @@ export function Settings(): JSX.Element {
           <LegendHint keys="←/→" label="toggle off/on" />
           <LegendHint keys="/" label="filter" />
           <Show when={filterQuery().length > 0}>
-            <LegendHint keys="esc/q" label="clear filter" />
+            <LegendHint keys="esc/q" label="clear filter" danger />
           </Show>
         </box>
       </box>

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { formatDeviceLabel } from "../util/format";
 
 /**
  * Tests for Settings component
@@ -8,6 +9,17 @@ import { describe, expect, test } from "bun:test";
 
 describe("Settings", () => {
   const SECTION_ORDER = ["Capture", "Model", "Output", "Appearance", "Advanced"];
+
+  describe("device display labels", () => {
+    test("should format mps as Metal (mps)", () => {
+      expect(formatDeviceLabel("mps")).toBe("Metal (mps)");
+    });
+
+    test("should keep cpu and cuda labels uppercase", () => {
+      expect(formatDeviceLabel("cpu")).toBe("CPU");
+      expect(formatDeviceLabel("cuda")).toBe("CUDA");
+    });
+  });
 
   describe("boolLabel function", () => {
     test("should return 'on' for true", () => {

@@ -39,3 +39,20 @@ export function truncate(text: string, maxLength: number): string {
   }
   return text.slice(0, maxLength - 3) + "...";
 }
+
+/**
+ * Format model runtime device names for user-facing UI labels.
+ */
+export function formatDeviceLabel(value: string | null | undefined, fallback = "-"): string {
+  if (value === null || value === undefined) return fallback;
+
+  const text = String(value).trim();
+  if (!text) return fallback;
+
+  const normalized = text.toLowerCase();
+  if (normalized === "cpu") return "CPU";
+  if (normalized === "cuda") return "CUDA";
+  if (normalized === "mps") return "Metal (mps)";
+
+  return text;
+}

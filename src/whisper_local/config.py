@@ -17,10 +17,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ModelConfig:
     name: str = "small"
-    backend: str = "faster-whisper"
+    runtime: str = "faster-whisper"
     device: str = "cpu"
     compute_type: str = "int8"
-    auto_download: bool = True
     path: str | None = None
     language: str | None = None
 
@@ -28,10 +27,9 @@ class ModelConfig:
     def from_dict(cls, data: dict[str, Any]) -> ModelConfig:
         return cls(
             name=data.get("name", "small"),
-            backend=normalize_backend_name(str(data.get("backend", "faster-whisper"))),
+            runtime=normalize_runtime_name(str(data.get("runtime", "faster-whisper"))),
             device=data.get("device", "cpu"),
             compute_type=data.get("compute_type", "int8"),
-            auto_download=data.get("auto_download", True),
             path=data.get("path"),
             language=data.get("language"),
         )
@@ -143,29 +141,30 @@ class AppConfig:
     vad: VadConfig = field(default_factory=VadConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     ui: UiConfig = field(default_factory=UiConfig)
-    auto_copy: bool = False
-    auto_paste: bool = False
+    auto_copy: bool = True
+    auto_paste: bool = True
+    auto_revert_clipboard: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["output"]["file"]["path"] = str(self.output.file.path)
-        data["model"]["backend"] = self.model.backend
+        data["model"]["runtime"] = self.model.runtime
         data["model"]["path"] = self.model.path
         data["model"]["language"] = self.model.language
         return data
 
 
-SUPPORTED_BACKENDS = ("faster-whisper", "whisper.cpp")
+SUPPORTED_RUNTIMES = ("faster-whisper", "whisper.cpp")
 
 
-def normalize_backend_name(name: str) -> str:
-    """Normalize a backend name to a canonical form."""
+def normalize_runtime_name(name: str) -> str:
+    """Normalize a runtime name to a canonical form."""
     normalized = (name or "").strip().lower()
-    if normalized in SUPPORTED_BACKENDS:
+    if normalized in SUPPORTED_RUNTIMES:
         return normalized
     if normalized in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
         return "whisper.cpp"
-    logger.warning("Unknown backend '%s', falling back to 'faster-whisper'", name)
+    logger.warning("Unknown runtime '%s', falling back to 'faster-whisper'", name)
     return "faster-whisper"
 
 
@@ -205,8 +204,9 @@ def load_config(path: Path | None = None) -> AppConfig:
         vad=VadConfig.from_dict(merged.get("vad", {})),
         output=OutputConfig.from_dict(merged.get("output", {})),
         ui=UiConfig.from_dict(merged.get("ui", {})),
-        auto_copy=bool(merged.get("auto_copy", False)),
-        auto_paste=bool(merged.get("auto_paste", False)),
+        auto_copy=bool(merged.get("auto_copy", True)),
+        auto_paste=bool(merged.get("auto_paste", True)),
+        auto_revert_clipboard=bool(merged.get("auto_revert_clipboard", True)),
     )
 
     if config.model.path:

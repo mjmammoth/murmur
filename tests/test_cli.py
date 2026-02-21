@@ -58,7 +58,6 @@ def test_build_parser_run_defaults():
     args = parser.parse_args(['run'])
     assert args.host == 'localhost'
     assert args.port == 7878
-    assert args.legacy is False
     assert args.no_status_indicator is False
 
 
@@ -70,11 +69,11 @@ def test_build_parser_run_with_custom_host_port():
     assert args.port == 8080
 
 
-def test_build_parser_run_legacy_flag():
-    """Test 'run' command with --legacy flag."""
+def test_build_parser_run_rejects_legacy_flag():
+    """Test 'run' command rejects removed --legacy flag."""
     parser = cli.build_parser()
-    args = parser.parse_args(['run', '--legacy'])
-    assert args.legacy is True
+    with pytest.raises(SystemExit):
+        parser.parse_args(['run', '--legacy'])
 
 
 def test_build_parser_run_no_status_indicator():
@@ -115,12 +114,30 @@ def test_build_parser_models_pull():
     assert args.name == 'tiny'
 
 
+def test_build_parser_models_pull_with_backend():
+    """Test 'models pull' supports runtime variant selection."""
+    parser = cli.build_parser()
+    args = parser.parse_args(['models', 'pull', 'tiny', '--runtime', 'whisper.cpp'])
+    assert args.models_command == 'pull'
+    assert args.name == 'tiny'
+    assert args.runtime == 'whisper.cpp'
+
+
 def test_build_parser_models_remove():
     """Test 'models remove' subcommand."""
     parser = cli.build_parser()
     args = parser.parse_args(['models', 'remove', 'base'])
     assert args.models_command == 'remove'
     assert args.name == 'base'
+
+
+def test_build_parser_models_remove_with_backend():
+    """Test 'models remove' supports runtime variant selection."""
+    parser = cli.build_parser()
+    args = parser.parse_args(['models', 'remove', 'base', '--runtime', 'whisper.cpp'])
+    assert args.models_command == 'remove'
+    assert args.name == 'base'
+    assert args.runtime == 'whisper.cpp'
 
 
 def test_build_parser_models_select():
@@ -323,6 +340,25 @@ def test_main_models_list(mock_list_models, monkeypatch, capsys):
     assert 'base: available' in captured.out
 
 
+@patch('whisper_local.model_manager.list_installed_models')
+def test_main_models_list_backend_variants(mock_list_models, monkeypatch, capsys):
+    """Test models list prints per-runtime variant states when available."""
+    monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'list'])
+
+    mock_model = Mock()
+    mock_model.name = 'small'
+    mock_model.variants = {
+        'faster-whisper': Mock(installed=True),
+        'whisper.cpp': Mock(installed=False),
+    }
+    mock_list_models.return_value = [mock_model]
+
+    cli.main()
+
+    captured = capsys.readouterr()
+    assert 'small: faster-whisper=installed, whisper.cpp=available' in captured.out
+
+
 @patch('whisper_local.model_manager.download_model')
 def test_main_models_pull(mock_download, monkeypatch, capsys):
     """Test main handles 'models pull' command."""
@@ -376,7 +412,7 @@ def test_main_config_command(mock_load_config, monkeypatch, capsys):
 
     mock_config = Mock()
     mock_config.to_dict.return_value = {
-        'model': {'name': 'tiny', 'backend': 'faster-whisper'},
+        'model': {'name': 'tiny', 'runtime': 'faster-whisper'},
         'audio': {'sample_rate': 16000},
         'simple_value': 'test'
     }
@@ -402,8 +438,8 @@ def test_main_no_command_defaults_to_run(mock_run_combined, monkeypatch):
 
 
 @patch('whisper_local.cli._run_combined')
-def test_main_run_command_without_legacy(mock_run_combined, monkeypatch):
-    """Test main 'run' command without --legacy flag."""
+def test_main_run_command(mock_run_combined, monkeypatch):
+    """Test main 'run' command."""
     monkeypatch.setattr(sys, 'argv', ['cli', 'run'])
 
     cli.main()
@@ -411,14 +447,13 @@ def test_main_run_command_without_legacy(mock_run_combined, monkeypatch):
     mock_run_combined.assert_called_once_with('localhost', 7878, status_indicator=True)
 
 
-@patch('whisper_local.tui.run_app')
-def test_main_run_command_with_legacy(mock_run_app, monkeypatch):
-    """Test main 'run' command with --legacy flag."""
+def test_main_run_command_rejects_legacy_flag(monkeypatch):
+    """Test main exits when removed --legacy flag is used."""
     monkeypatch.setattr(sys, 'argv', ['cli', 'run', '--legacy'])
 
-    cli.main()
-
-    mock_run_app.assert_called_once()
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 2
 
 
 @patch('whisper_local.cli._run_combined')

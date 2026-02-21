@@ -22,24 +22,33 @@ from whisper_local.audio import AudioRecorder
 from whisper_local.audio_file import DEFAULT_DECODE_SAMPLE_RATE, load_audio_file
 from whisper_local.config import (
     AppConfig,
-    SUPPORTED_BACKENDS,
+    SUPPORTED_RUNTIMES,
     default_config_path,
     load_config,
-    normalize_backend_name,
+    normalize_runtime_name,
     save_config,
 )
 from whisper_local.hotkey import HotkeyListener, parse_hotkey
 from whisper_local.model_manager import (
+    RUNTIME_NAMES,
     DownloadCancelledError,
     MODEL_NAMES,
     download_model,
     get_installed_model_path,
     list_installed_models,
+    model_variant_format,
     prune_invalid_model_caches,
     remove_model,
 )
+from whisper_local.model_task_queue import SerialModelTaskQueue
 from whisper_local.noise import RNNoiseSuppressor
-from whisper_local.output import append_to_file, copy_to_clipboard, paste_from_clipboard
+from whisper_local.output import (
+    append_to_file,
+    capture_clipboard_snapshot,
+    copy_to_clipboard,
+    paste_from_clipboard,
+    restore_clipboard_snapshot,
+)
 from whisper_local.vad import VadProcessor
 
 logger = logging.getLogger(__name__)
@@ -49,6 +58,7 @@ MAX_DROP_FILES = 32
 MAX_DROP_FILE_BYTES = 512 * 1024 * 1024
 MAX_DROP_AUDIO_SECONDS = 4 * 60 * 60
 AUTO_PASTE_INPUT_SUPPRESS_MS = 1000
+AUTO_REVERT_CLIPBOARD_DELAY_MS = 120
 
 
 class WebSocketLogHandler(logging.Handler):
@@ -94,7 +104,7 @@ class BridgeLogFilter(logging.Filter):
 
 
 class BridgeServer:
-    """WebSocket server bridging the TypeScript TUI to Python backend."""
+    """WebSocket server bridging the TypeScript TUI to Python runtime."""
 
     def __init__(self, config: AppConfig) -> None:
         """
@@ -111,6 +121,7 @@ class BridgeServer:
         self._recording = False
         self._auto_copy = bool(config.auto_copy)
         self._auto_paste = bool(config.auto_paste)
+        self._auto_revert_clipboard = bool(getattr(config, "auto_revert_clipboard", True))
         if self._auto_paste and not self._auto_copy:
             self._auto_copy = True
             self.config.auto_copy = True
@@ -128,6 +139,7 @@ class BridgeServer:
         self._model_reload_lock = asyncio.Lock()
         self._model_op_lock = asyncio.Lock()
         self._file_transcription_lock = asyncio.Lock()
+        self._clipboard_output_lock = asyncio.Lock()
         self._runtime_capabilities: dict[str, Any] = {}
         self._runtime_capabilities_updated_at = 0.0
         self._runtime_capabilities_dirty = True
@@ -135,7 +147,7 @@ class BridgeServer:
 
         self._background_tasks: set[asyncio.Task] = set()
         self._model_tasks: dict[str, asyncio.Task] = {}
-        self._download_cancel_events: dict[str, threading.Event] = {}
+        self._download_queue = SerialModelTaskQueue()
 
         # Audio/transcription components (initialized lazily)
         self.recorder: AudioRecorder | None = None
@@ -190,6 +202,28 @@ class BridgeServer:
         task.add_done_callback(_cleanup)
         return task
 
+    @staticmethod
+    def _download_task_key(name: str, runtime: str) -> str:
+        return f"{runtime}:{name}"
+
+    def _resolve_download_cancel_key(self, name: str, runtime: str | None) -> str | None:
+        model_name = str(name or "").strip()
+        runtime_name = str(runtime or "").strip()
+
+        if not model_name:
+            return self._download_queue.resolve_single_candidate()
+
+        if ":" in model_name:
+            return model_name
+
+        if runtime_name:
+            return self._download_task_key(model_name, normalize_runtime_name(runtime_name))
+
+        matches = self._download_queue.keys_matching(model_name)
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
     def _client_path(self, websocket: WebSocketServerProtocol) -> str:
         """
         Resolve the connection path for a client WebSocket across different websockets library versions.
@@ -227,11 +261,22 @@ class BridgeServer:
     def _active_client_count(self) -> int:
         return sum(1 for client in self.clients if client not in self._passive_clients)
 
-    def _installed_model_names(self) -> list[str]:
-        return [model.name for model in list_installed_models() if model.installed]
+    def _installed_model_names(self, runtime: str | None = None) -> list[str]:
+        target_runtime = normalize_runtime_name(runtime or self.config.model.runtime)
+        installed: list[str] = []
+        for model in list_installed_models():
+            variants = getattr(model, "variants", None)
+            if isinstance(variants, dict):
+                variant = variants.get(target_runtime)
+                if variant and getattr(variant, "installed", False):
+                    installed.append(model.name)
+                continue
+            if bool(getattr(model, "installed", False)):
+                installed.append(model.name)
+        return installed
 
-    def _has_installed_models(self) -> bool:
-        return bool(self._installed_model_names())
+    def _has_installed_models(self, runtime: str | None = None) -> bool:
+        return bool(self._installed_model_names(runtime=runtime))
 
     async def start(
         self,
@@ -295,11 +340,10 @@ class BridgeServer:
 
         return Transcriber(
             model_name=self.config.model.name,
-            backend=self.config.model.backend,
+            runtime=self.config.model.runtime,
             device=self.config.model.device,
             compute_type=self.config.model.compute_type,
             model_path=self.config.model.path,
-            auto_download=self.config.model.auto_download,
         )
 
     def _ensure_whisper_cpp_installed(self) -> None:
@@ -310,10 +354,10 @@ class BridgeServer:
             "whisper.cpp is required but not installed. Install with: brew install whisper-cpp"
         )
 
-    def _detect_runtime_capabilities(self, selected_backend: str | None = None) -> dict[str, Any]:
+    def _detect_runtime_capabilities(self, selected_runtime: str | None = None) -> dict[str, Any]:
         from whisper_local.transcribe import detect_runtime_capabilities
 
-        return detect_runtime_capabilities(selected_backend or self.config.model.backend)
+        return detect_runtime_capabilities(selected_runtime or self.config.model.runtime)
 
     _RUNTIME_CAPS_TTL = 30.0
 
@@ -355,7 +399,7 @@ class BridgeServer:
             runtime_capabilities = await loop.run_in_executor(
                 None,
                 self._detect_runtime_capabilities,
-                self.config.model.backend,
+                self.config.model.runtime,
             )
             self._set_runtime_capabilities(runtime_capabilities)
         except Exception:
@@ -370,13 +414,49 @@ class BridgeServer:
             )
             return
 
+        selected_installed = get_installed_model_path(
+            self.config.model.name, runtime=self.config.model.runtime
+        )
+        if selected_installed is None:
+            installed_names = self._installed_model_names(runtime=self.config.model.runtime)
+            if not installed_names:
+                self._first_run_setup_required = True
+                await self._set_status(
+                    "connecting",
+                    "First run setup required. Download and select a model in Model Manager.",
+                )
+                await self._broadcast_config()
+                return
+            self.config.model.name = installed_names[0]
+            self.config.model.path = None
+            persist_error = self._persist_config("fallback selected model")
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": (
+                        f"Selected model unavailable for runtime {self.config.model.runtime}. "
+                        f"Using {self.config.model.name}."
+                    ),
+                    "level": "info",
+                }
+            )
+            if persist_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Failed to persist fallback model: {persist_error}",
+                        "level": "error",
+                    }
+                )
+            await self._broadcast_config()
+
         await self._load_model_async()
 
     async def _load_model_async(self) -> None:
         """Load the transcription model asynchronously."""
         await self._set_status(
             "downloading",
-            f"Loading {self.config.model.backend} model {self.config.model.name}...",
+            f"Loading {self.config.model.runtime} model {self.config.model.name}...",
         )
         try:
             transcriber = self.transcriber
@@ -394,8 +474,8 @@ class BridgeServer:
             self._start_hotkey()
             info = transcriber.runtime_info()
             logger.info(
-                "Transcriber ready backend=%s model=%s device=%s compute_type=%s source=%s",
-                info.get("backend", "unknown"),
+                "Transcriber ready runtime=%s model=%s device=%s compute_type=%s source=%s",
+                info.get("runtime", "unknown"),
                 info.get("model_name", self.config.model.name),
                 info.get("effective_device", "unknown"),
                 info.get("effective_compute_type", "unknown"),
@@ -581,12 +661,24 @@ class BridgeServer:
             # Handle output
             copied_to_clipboard = True
             if self.config.output.clipboard or self._auto_copy or self._auto_paste:
-                copied_to_clipboard = copy_to_clipboard(result.text)
-            if self._auto_paste and copied_to_clipboard:
-                await self._broadcast(
-                    {"type": "suppress_paste_input", "duration_ms": AUTO_PASTE_INPUT_SUPPRESS_MS}
-                )
-                await asyncio.to_thread(paste_from_clipboard)
+                async with self._clipboard_output_lock:
+                    should_revert_clipboard = self._auto_paste and self._auto_revert_clipboard
+                    clipboard_snapshot = None
+                    if should_revert_clipboard:
+                        clipboard_snapshot = await asyncio.to_thread(capture_clipboard_snapshot)
+
+                    copied_to_clipboard = copy_to_clipboard(result.text)
+                    if self._auto_paste and copied_to_clipboard:
+                        await self._broadcast(
+                            {"type": "suppress_paste_input", "duration_ms": AUTO_PASTE_INPUT_SUPPRESS_MS}
+                        )
+                        pasted = await asyncio.to_thread(paste_from_clipboard)
+                        if should_revert_clipboard:
+                            if pasted:
+                                await asyncio.sleep(AUTO_REVERT_CLIPBOARD_DELAY_MS / 1000)
+                            await asyncio.to_thread(restore_clipboard_snapshot, clipboard_snapshot)
+                    elif should_revert_clipboard:
+                        await asyncio.to_thread(restore_clipboard_snapshot, clipboard_snapshot)
             if self.config.output.file.enabled:
                 append_to_file(self.config.output.file.path, result.text)
             final_status = "ready"
@@ -615,17 +707,17 @@ class BridgeServer:
             post_vad_ms = int((post_vad_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
             preprocess_ms = max(0, total_ms - transcribe_ms)
             rtf = (transcribe_ms / input_ms) if input_ms > 0 else 0.0
-            backend_info = job_transcriber.runtime_info()
+            runtime_info = job_transcriber.runtime_info()
 
             logger.info(
-                "bench backend=%s model_size=%s device=%s compute_type=%s input_ms=%d post_noise_ms=%d post_ms=%d "
-                "noise(enabled=%s,available=%s,applied=%s,backend=%s) "
+                "bench runtime=%s model_size=%s device=%s compute_type=%s input_ms=%d post_noise_ms=%d post_ms=%d "
+                "noise(enabled=%s,available=%s,applied=%s,runtime=%s) "
                 "vad(enabled=%s,available=%s,applied=%s) preprocess_ms=%d transcribe_ms=%d total_ms=%d rtf=%.3f "
                 "language(requested=%s,detected=%s)",
-                backend_info.get("backend", self.config.model.backend),
-                backend_info.get("model_name", self.config.model.name),
-                backend_info.get("effective_device", self.config.model.device),
-                backend_info.get("effective_compute_type", self.config.model.compute_type),
+                runtime_info.get("runtime", self.config.model.runtime),
+                runtime_info.get("model_name", self.config.model.name),
+                runtime_info.get("effective_device", self.config.model.device),
+                runtime_info.get("effective_compute_type", self.config.model.compute_type),
                 input_ms,
                 post_noise_ms,
                 post_vad_ms,
@@ -719,7 +811,7 @@ class BridgeServer:
         """
         Dispatch a JSON-encoded control message from a client to the appropriate bridge handler.
         
-        Parses the provided message and routes it by the top-level "type" field to perform actions such as recording control, model management (download, cancel, remove, select), backend/device/compute configuration, audio/VAD/noise toggles, hotkey and theme updates, clipboard/file output changes, requests for model/config data, and initiating transcription from pasted text or files. Direct replies are sent to the given websocket when required; other responses are broadcast to connected clients. Invalid JSON or unknown message types are ignored.
+        Parses the provided message and routes it by the top-level "type" field to perform actions such as recording control, model management (download, cancel, remove, select), runtime/device/compute configuration, audio/VAD/noise toggles, hotkey and theme updates, clipboard/file output changes, requests for model/config data, and initiating transcription from pasted text or files. Direct replies are sent to the given websocket when required; other responses are broadcast to connected clients. Invalid JSON or unknown message types are ignored.
         
         Parameters:
             websocket (WebSocketServerProtocol): The client's WebSocket connection used for direct replies when applicable.
@@ -812,6 +904,38 @@ class BridgeServer:
                         }
                     )
                 await self._broadcast_config()
+            elif msg_type == "toggle_auto_revert_clipboard":
+                self._auto_revert_clipboard = bool(
+                    data.get("enabled", not self._auto_revert_clipboard)
+                )
+                self.config.auto_revert_clipboard = self._auto_revert_clipboard
+                persist_error = None
+                try:
+                    save_config(self.config)
+                except Exception as exc:
+                    logger.exception("Failed to persist auto revert clipboard config")
+                    persist_error = str(exc)
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": (
+                            f"Auto revert clipboard {'on' if self._auto_revert_clipboard else 'off'}"
+                        ),
+                        "level": "success",
+                    }
+                )
+                if persist_error:
+                    await self._broadcast(
+                        {
+                            "type": "toast",
+                            "message": (
+                                "Auto revert clipboard updated for this session, but failed to save: "
+                                f"{persist_error}"
+                            ),
+                            "level": "error",
+                        }
+                    )
+                await self._broadcast_config()
             elif msg_type == "set_hotkey_blocked":
                 self._hotkey_blocked = bool(data.get("enabled", False))
             elif msg_type == "set_hotkey_mode":
@@ -830,8 +954,8 @@ class BridgeServer:
                 await self._set_output_file_path(data.get("path", ""))
             elif msg_type == "set_model_path":
                 await self._set_model_path(data.get("path"))
-            elif msg_type == "set_model_backend":
-                await self._set_model_backend(data.get("backend", ""))
+            elif msg_type == "set_model_runtime":
+                await self._set_model_runtime(data.get("runtime", ""))
             elif msg_type == "set_model_device":
                 await self._set_model_device(data.get("device", ""))
             elif msg_type == "set_model_compute_type":
@@ -839,11 +963,37 @@ class BridgeServer:
             elif msg_type == "set_model_language":
                 await self._set_model_language(data.get("language"))
             elif msg_type == "download_model":
-                self._spawn_model_task(data.get("name", ""), self._download_model(data.get("name", "")))
+                name = data.get("name", "")
+                if not name:
+                    return
+                runtime = normalize_runtime_name(data.get("runtime", self.config.model.runtime))
+                activate_runtime = data.get("activate_runtime")
+                activate_target = (
+                    normalize_runtime_name(activate_runtime)
+                    if isinstance(activate_runtime, str) and activate_runtime.strip()
+                    else None
+                )
+                download_key = self._download_task_key(name, runtime)
+                self._download_queue.enqueue_download(download_key, model=name, runtime=runtime)
+                task = self._spawn_model_task(
+                    download_key,
+                    self._download_model(name, runtime=runtime, activate_runtime=activate_target),
+                )
+                self._download_queue.bind_task(download_key, task)
             elif msg_type == "cancel_model_download":
-                await self._cancel_model_download(data.get("name", ""))
+                await self._cancel_model_download(
+                    data.get("name", ""),
+                    runtime=data.get("runtime"),
+                )
+            elif msg_type == "cancel_all_model_downloads":
+                await self._cancel_all_model_downloads()
             elif msg_type == "remove_model":
-                self._spawn_model_task(data.get("name", ""), self._remove_model(data.get("name", "")))
+                name = data.get("name", "")
+                runtime = normalize_runtime_name(data.get("runtime", self.config.model.runtime))
+                self._spawn_model_task(
+                    f"remove:{runtime}:{name}",
+                    self._remove_model(name, runtime=runtime),
+                )
             elif msg_type == "set_selected_model":
                 await self._set_selected_model(data.get("name", ""))
             elif msg_type == "set_default_model":
@@ -1183,7 +1333,12 @@ class BridgeServer:
         await self._broadcast({"type": "toast", "message": f"VAD {state}", "level": "success"})
         await self._broadcast_config()
 
-    async def _download_model(self, name: str) -> None:
+    async def _download_model(
+        self,
+        name: str,
+        runtime: str | None = None,
+        activate_runtime: str | None = None,
+    ) -> None:
         """
         Download and activate a model while broadcasting progress and status updates to connected clients.
         
@@ -1194,13 +1349,33 @@ class BridgeServer:
         """
         if not name:
             return
+        normalized_runtime = normalize_runtime_name(runtime or self.config.model.runtime)
+        activate_runtime_name = (
+            normalize_runtime_name(activate_runtime)
+            if activate_runtime
+            else None
+        )
+        download_key = self._download_task_key(name, normalized_runtime)
+        cancel_event = self._download_queue.cancel_event_for(download_key)
+        if cancel_event is None:
+            cancel_event = self._download_queue.enqueue_download(
+                download_key,
+                model=name,
+                runtime=normalized_runtime,
+            )
+        if cancel_event.is_set():
+            self._download_queue.mark_cancelled(download_key)
+            return
+
         async with self._model_op_lock:
-            cancel_event = threading.Event()
-            self._download_cancel_events[name] = cancel_event
+            self._download_queue.mark_running(download_key)
+            if cancel_event.is_set():
+                self._download_queue.mark_cancelled(download_key)
+                return
             await self._broadcast(
                 {
                     "type": "toast",
-                    "message": f"Downloading {name}...",
+                    "message": f"Downloading {name} ({normalized_runtime})...",
                     "level": "info",
                 }
             )
@@ -1217,7 +1392,12 @@ class BridgeServer:
                 last_percent = percent
                 asyncio.run_coroutine_threadsafe(
                     self._broadcast(
-                        {"type": "download_progress", "model": name, "percent": percent}
+                        {
+                            "type": "download_progress",
+                            "model": name,
+                            "runtime": normalized_runtime,
+                            "percent": percent,
+                        }
                     ),
                     loop,
                 )
@@ -1227,31 +1407,62 @@ class BridgeServer:
                     None,
                     lambda: download_model(
                         name,
+                        runtime=normalized_runtime,
                         progress_callback=on_progress,
                         cancel_check=lambda: self._shutdown_requested.is_set() or cancel_event.is_set(),
                     ),
                 )
+                self._download_queue.mark_completed(download_key)
                 # Send 100% to ensure TUI sees completion
                 await self._broadcast(
-                    {"type": "download_progress", "model": name, "percent": 100}
+                    {
+                        "type": "download_progress",
+                        "model": name,
+                        "runtime": normalized_runtime,
+                        "percent": 100,
+                    }
                 )
                 await self._broadcast(
                     {
                         "type": "toast",
-                        "message": f"Downloaded {name}",
+                        "message": f"Downloaded {name} ({normalized_runtime})",
+                        "model": name,
+                        "runtime": normalized_runtime,
                         "action": "download_complete",
                         "level": "success",
                     }
                 )
-                # After a successful pull, make the downloaded model active.
-                await self._set_selected_model(name)
+                if activate_runtime_name:
+                    self.config.model.name = name
+                    self.config.model.path = None
+                    persist_error = self._persist_config("model selection for runtime activation")
+                    if persist_error:
+                        await self._broadcast(
+                            {
+                                "type": "toast",
+                                "message": (
+                                    "Downloaded model, but failed to persist selection: "
+                                    f"{persist_error}"
+                                ),
+                                "level": "error",
+                            }
+                        )
+                    await self._set_model_runtime(
+                        activate_runtime_name, allow_missing_variant_prompt=False
+                    )
+                elif normalized_runtime == self.config.model.runtime:
+                    # After a successful pull for the active runtime, make it active.
+                    await self._set_selected_model(name)
                 await self._broadcast_models()
             except DownloadCancelledError:
+                self._download_queue.mark_cancelled(download_key)
                 if not self._shutdown_requested.is_set():
                     await self._broadcast(
                         {
                             "type": "toast",
-                            "message": f"Download cancelled: {name}",
+                            "message": f"Download cancelled: {name} ({normalized_runtime})",
+                            "model": name,
+                            "runtime": normalized_runtime,
                             "action": "download_cancelled",
                             "level": "info",
                         }
@@ -1259,27 +1470,31 @@ class BridgeServer:
                     await self._broadcast_models()
             except asyncio.CancelledError:
                 cancel_event.set()
+                self._download_queue.mark_cancelled(download_key)
                 raise
             except Exception as exc:
+                if cancel_event.is_set():
+                    self._download_queue.mark_cancelled(download_key)
+                else:
+                    self._download_queue.mark_failed(download_key)
                 if not self._shutdown_requested.is_set():
                     await self._broadcast(
                         {
                             "type": "toast",
                             "message": f"Download failed: {exc}",
+                            "model": name,
+                            "runtime": normalized_runtime,
                             "level": "error",
                             "action": "download_failed",
                         }
                     )
                     await self._broadcast_models()
-            finally:
-                if self._download_cancel_events.get(name) is cancel_event:
-                    self._download_cancel_events.pop(name, None)
 
-    async def _cancel_model_download(self, name: str) -> None:
+    async def _cancel_model_download(self, name: str, runtime: Any = None) -> None:
         """
         Request cancellation of an in-progress model download.
         
-        If `name` is empty and exactly one download is active, that download will be cancelled.
+        If `name` is empty and exactly one download is active or queued, that download will be cancelled.
         If no active download matches `name`, an error toast with message
         "No active download matches request" is broadcast to clients.
         If a cancellation is already in progress for the named model, this is a no-op.
@@ -1288,24 +1503,9 @@ class BridgeServer:
         Parameters:
             name (str): The model name to cancel; may be an empty string to infer a single active download.
         """
-        model_name = str(name or "").strip()
         no_active_download_message = "No active download matches request"
-        if not model_name:
-            active = [model for model, event in self._download_cancel_events.items() if not event.is_set()]
-            if len(active) == 1:
-                model_name = active[0]
-            else:
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": no_active_download_message,
-                        "level": "error",
-                    }
-                )
-                return
-
-        cancel_event = self._download_cancel_events.get(model_name)
-        if cancel_event is None:
+        resolved_key = self._resolve_download_cancel_key(str(name or ""), runtime=str(runtime or ""))
+        if resolved_key is None:
             await self._broadcast(
                 {
                     "type": "toast",
@@ -1315,19 +1515,84 @@ class BridgeServer:
             )
             return
 
-        if cancel_event.is_set():
+        result = self._download_queue.cancel(resolved_key)
+        snapshot = result.task
+        if snapshot is None:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": no_active_download_message,
+                    "level": "error",
+                }
+            )
             return
 
-        cancel_event.set()
+        if result.status == "active":
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Cancelling download {snapshot.model}...",
+                    "model": snapshot.model,
+                    "runtime": snapshot.runtime,
+                    "level": "info",
+                }
+            )
+            return
+
+        if result.status == "queued":
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Cancelled queued download {snapshot.model}.",
+                    "model": snapshot.model,
+                    "runtime": snapshot.runtime,
+                    "action": "download_cancelled",
+                    "level": "info",
+                }
+            )
+            return
+
+        if result.status in {"already_cancelling", "already_cancelled"}:
+            return
+
         await self._broadcast(
             {
                 "type": "toast",
-                "message": f"Cancelling download {model_name}...",
-                "level": "info",
+                "message": no_active_download_message,
+                "level": "error",
             }
         )
 
-    async def _remove_model(self, name: str) -> None:
+    async def _cancel_all_model_downloads(self) -> None:
+        results = self._download_queue.cancel_all()
+        for result in results:
+            snapshot = result.task
+            if snapshot is None:
+                continue
+            if result.status == "queued":
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Cancelled queued download {snapshot.model}.",
+                        "model": snapshot.model,
+                        "runtime": snapshot.runtime,
+                        "action": "download_cancelled",
+                        "level": "info",
+                    }
+                )
+                continue
+            if result.status == "active":
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"Cancelling download {snapshot.model}...",
+                        "model": snapshot.model,
+                        "runtime": snapshot.runtime,
+                        "level": "info",
+                    }
+                )
+
+    async def _remove_model(self, name: str, runtime: str | None = None) -> None:
         """
         Remove the installed model identified by `name` and notify connected clients of the outcome.
         
@@ -1338,20 +1603,26 @@ class BridgeServer:
         """
         if not name:
             return
+        normalized_runtime = normalize_runtime_name(runtime or self.config.model.runtime)
         async with self._model_op_lock:
             try:
                 await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: remove_model(name)
+                    None,
+                    lambda: remove_model(name, runtime=normalized_runtime),
                 )
                 await self._broadcast(
                     {
                         "type": "toast",
-                        "message": f"Removed {name}",
+                        "message": f"Removed {name} ({normalized_runtime})",
+                        "model": name,
+                        "runtime": normalized_runtime,
                         "action": "remove_complete",
                         "level": "success",
                     }
                 )
-                installed_model_names = self._installed_model_names()
+                installed_model_names = self._installed_model_names(
+                    runtime=self.config.model.runtime
+                )
 
                 if not installed_model_names:
                     await self._enter_first_run_setup()
@@ -1372,6 +1643,8 @@ class BridgeServer:
                     {
                         "type": "toast",
                         "message": f"Remove failed: {exc}",
+                        "model": name,
+                        "runtime": normalized_runtime,
                         "level": "error",
                         "action": "remove_failed",
                     }
@@ -1406,11 +1679,14 @@ class BridgeServer:
             await self._broadcast_config()
             return
 
-        if get_installed_model_path(name) is None:
+        if get_installed_model_path(name, runtime=self.config.model.runtime) is None:
             await self._broadcast(
                 {
                     "type": "toast",
-                    "message": f"Model {name} is not pulled. Download it before selecting.",
+                    "message": (
+                        f"Model {name} is not pulled for runtime "
+                        f"{self.config.model.runtime}. Download it before selecting."
+                    ),
                     "level": "error",
                 }
             )
@@ -1497,13 +1773,17 @@ class BridgeServer:
             if not self._recording and self._transcribing_jobs <= 0:
                 await self._set_status("ready", "Ready")
 
-    async def _set_model_backend(self, backend_name: str) -> None:
-        normalized = normalize_backend_name(backend_name)
-        if normalized not in SUPPORTED_BACKENDS:
+    async def _set_model_runtime(
+        self,
+        runtime_name: str,
+        allow_missing_variant_prompt: bool = True,
+    ) -> None:
+        normalized = normalize_runtime_name(runtime_name)
+        if normalized not in SUPPORTED_RUNTIMES:
             await self._broadcast(
                 {
                     "type": "toast",
-                    "message": f"Invalid model backend: {backend_name}",
+                    "message": f"Invalid model runtime: {runtime_name}",
                     "level": "error",
                 }
             )
@@ -1511,15 +1791,15 @@ class BridgeServer:
             return
 
         capabilities = self._detect_runtime_capabilities(normalized)
-        backend_options = capabilities.get("model", {}).get("backends", {})
-        backend_state = backend_options.get(normalized, {"enabled": False, "reason": "Unsupported"})
-        if not backend_state.get("enabled", False):
+        runtime_options = capabilities.get("model", {}).get("runtimes", {})
+        runtime_state = runtime_options.get(normalized, {"enabled": False, "reason": "Unsupported"})
+        if not runtime_state.get("enabled", False):
             await self._broadcast(
                 {
                     "type": "toast",
                     "message": (
-                        f"Backend {normalized} unavailable: "
-                        f"{backend_state.get('reason', 'unsupported')}"
+                        f"Runtime {normalized} unavailable: "
+                        f"{runtime_state.get('reason', 'unsupported')}"
                     ),
                     "level": "error",
                 }
@@ -1528,64 +1808,101 @@ class BridgeServer:
             await self._broadcast_config()
             return
 
-        if self.config.model.backend == normalized:
+        if self.config.model.runtime == normalized:
             self._set_runtime_capabilities(capabilities)
             await self._broadcast_config()
             return
 
-        previous_backend = self.config.model.backend
+        selected_model = self.config.model.name
+        selected_variant_path = get_installed_model_path(selected_model, runtime=normalized)
+        if selected_variant_path is None and not self._first_run_setup_required:
+            if allow_missing_variant_prompt:
+                await self._broadcast(
+                    {
+                        "type": "runtime_switch_requires_model_variant",
+                        "runtime": normalized,
+                        "model": selected_model,
+                        "format": model_variant_format(normalized),
+                    }
+                )
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": (
+                            f"Switching to {normalized} requires downloading "
+                            f"{selected_model} ({model_variant_format(normalized)})."
+                        ),
+                        "level": "info",
+                    }
+                )
+                self._set_runtime_capabilities(capabilities)
+                await self._broadcast_config()
+                return
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": (
+                        f"Runtime {normalized} requires model files for {selected_model}. "
+                        "Download the model variant first."
+                    ),
+                    "level": "error",
+                    }
+                )
+            self._set_runtime_capabilities(capabilities)
+            await self._broadcast_config()
+            return
+
+        previous_runtime = self.config.model.runtime
         previous_device = self.config.model.device
         previous_compute_type = self.config.model.compute_type
-        self.config.model.backend = normalized
+        self.config.model.runtime = normalized
         self._set_runtime_capabilities(capabilities)
 
-        runtime_model = capabilities.get("model", {})
-        runtime_devices = runtime_model.get("devices", {})
-        current_device_state = runtime_devices.get(self.config.model.device, {"enabled": False})
-        if not current_device_state.get("enabled", False):
-            for candidate in ("mps", "cpu", "cuda"):
-                candidate_state = runtime_devices.get(candidate, {"enabled": False})
-                if candidate_state.get("enabled", False):
-                    self.config.model.device = candidate
-                    break
+        normalized_device, normalized_compute_type = self._normalize_model_runtime_for_runtime(
+            capabilities,
+            device=self.config.model.device,
+            compute_type=self.config.model.compute_type,
+        )
+        self.config.model.device = normalized_device
+        self.config.model.compute_type = normalized_compute_type
 
-        compute_map = runtime_model.get("compute_types_by_device", {})
-        valid_compute_types = {
-            str(item).strip().lower()
-            for item in compute_map.get(self.config.model.device, [])
-            if str(item).strip()
-        }
-        if valid_compute_types and self.config.model.compute_type not in valid_compute_types:
-            for candidate in (
-                "int8",
-                "default",
-                "int8_float32",
-                "float32",
-                "float16",
-                "int8_float16",
-            ):
-                if candidate in valid_compute_types:
-                    self.config.model.compute_type = candidate
-                    break
-            else:
-                self.config.model.compute_type = sorted(valid_compute_types)[0]
+        persist_error = self._persist_config("model runtime")
 
-        persist_error = self._persist_config("model backend")
-
-        try:
-            await self._reload_transcriber()
-        except Exception as exc:
-            logger.exception("Failed to apply model backend")
-            self.config.model.backend = previous_backend
-            self.config.model.device = previous_device
-            self.config.model.compute_type = previous_compute_type
-            self._set_runtime_capabilities(self._detect_runtime_capabilities(previous_backend))
-            rollback_error = self._persist_config("model backend rollback")
+        if self._first_run_setup_required:
             await self._broadcast_config()
             await self._broadcast(
                 {
                     "type": "toast",
-                    "message": f"Failed to apply model backend: {exc}",
+                    "message": f"Model runtime {normalized}",
+                    "level": "success",
+                }
+            )
+            if persist_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": (
+                            f"Model runtime applied, but failed to save: {persist_error}"
+                        ),
+                        "level": "error",
+                    }
+                )
+            return
+
+        try:
+            await self._reload_transcriber()
+        except Exception as exc:
+            logger.exception("Failed to apply model runtime")
+            self.config.model.runtime = previous_runtime
+            self.config.model.device = previous_device
+            self.config.model.compute_type = previous_compute_type
+            self._set_runtime_capabilities(self._detect_runtime_capabilities(previous_runtime))
+            rollback_error = self._persist_config("model runtime rollback")
+            await self._broadcast_config()
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Failed to apply model runtime: {exc}",
                     "level": "error",
                 }
             )
@@ -1603,7 +1920,7 @@ class BridgeServer:
         await self._broadcast(
             {
                 "type": "toast",
-                "message": f"Model backend {normalized}",
+                "message": f"Model runtime {normalized}",
                 "level": "success",
             }
         )
@@ -1611,10 +1928,53 @@ class BridgeServer:
             await self._broadcast(
                 {
                     "type": "toast",
-                    "message": f"Model backend applied, but failed to save: {persist_error}",
+                    "message": f"Model runtime applied, but failed to save: {persist_error}",
                     "level": "error",
                 }
             )
+
+    def _normalize_model_runtime_for_runtime(
+        self,
+        capabilities: dict[str, Any],
+        *,
+        device: str,
+        compute_type: str,
+    ) -> tuple[str, str]:
+        runtime_model = capabilities.get("model", {})
+        runtime_devices = runtime_model.get("devices", {})
+        normalized_device = str(device).strip().lower() or "cpu"
+        normalized_compute_type = str(compute_type).strip().lower() or "int8"
+
+        current_device_state = runtime_devices.get(normalized_device, {"enabled": False})
+        if not current_device_state.get("enabled", False):
+            for candidate in ("mps", "cpu", "cuda"):
+                candidate_state = runtime_devices.get(candidate, {"enabled": False})
+                if candidate_state.get("enabled", False):
+                    normalized_device = candidate
+                    break
+
+        compute_map = runtime_model.get("compute_types_by_device", {})
+        valid_compute_types = {
+            str(item).strip().lower()
+            for item in compute_map.get(normalized_device, [])
+            if str(item).strip()
+        }
+        if valid_compute_types and normalized_compute_type not in valid_compute_types:
+            for candidate in (
+                "int8",
+                "default",
+                "int8_float32",
+                "float32",
+                "float16",
+                "int8_float16",
+            ):
+                if candidate in valid_compute_types:
+                    normalized_compute_type = candidate
+                    break
+            else:
+                normalized_compute_type = sorted(valid_compute_types)[0]
+
+        return normalized_device, normalized_compute_type
 
     async def _set_model_device(self, device: str) -> None:
         self._refresh_runtime_capabilities(force=True)
@@ -1650,6 +2010,27 @@ class BridgeServer:
         previous_device = self.config.model.device
         self.config.model.device = normalized
         persist_error = self._persist_config("model device")
+
+        if self._first_run_setup_required:
+            await self._broadcast_config()
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Model device {normalized}",
+                    "level": "success",
+                }
+            )
+            if persist_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": (
+                            f"Model device applied, but failed to save: {persist_error}"
+                        ),
+                        "level": "error",
+                    }
+                )
+            return
 
         try:
             await self._reload_transcriber()
@@ -2253,16 +2634,7 @@ class BridgeServer:
         await websocket.send(
             json.dumps({
                 "type": "models",
-                "models": [
-                    {
-                        "name": m.name,
-                        "installed": m.installed,
-                        "path": str(m.path) if m.path else None,
-                        "size_bytes": m.size_bytes,
-                        "size_estimated": m.size_estimated,
-                    }
-                    for m in models
-                ],
+                "models": self._serialize_models(models),
             })
         )
 
@@ -2271,17 +2643,27 @@ class BridgeServer:
         models = list_installed_models()
         await self._broadcast({
             "type": "models",
-            "models": [
-                {
-                    "name": m.name,
-                    "installed": m.installed,
-                    "path": str(m.path) if m.path else None,
-                    "size_bytes": m.size_bytes,
-                    "size_estimated": m.size_estimated,
-                }
-                for m in models
-            ],
+            "models": self._serialize_models(models),
         })
+
+    def _serialize_models(self, models: list[Any]) -> list[dict[str, Any]]:
+        payload: list[dict[str, Any]] = []
+        for model in models:
+            variants: dict[str, Any] = {}
+            for runtime in RUNTIME_NAMES:
+                variant = model.variants.get(runtime)
+                if variant is None:
+                    continue
+                variants[runtime] = {
+                    "runtime": variant.runtime,
+                    "format": variant.format,
+                    "installed": variant.installed,
+                    "path": str(variant.path) if variant.path else None,
+                    "size_bytes": variant.size_bytes,
+                    "size_estimated": variant.size_estimated,
+                }
+            payload.append({"name": model.name, "variants": variants})
+        return payload
 
     async def _set_welcome_shown(self) -> None:
         """Mark the welcome journey as shown and persist to config."""
@@ -2293,33 +2675,33 @@ class BridgeServer:
         await self._broadcast_config()
 
     async def _send_capabilities(self, websocket: WebSocketServerProtocol) -> None:
-        """Send runtime capabilities with a recommended backend/device to a client."""
+        """Send runtime capabilities with a recommended runtime/device to a client."""
         import sys
         caps = self._runtime_capabilities or {}
         model_caps = caps.get("model", {})
-        devices_by_backend = model_caps.get("devices_by_backend", {})
+        devices_by_runtime = model_caps.get("devices_by_runtime", {})
 
         # Build recommendation
-        recommended_backend = "faster-whisper"
+        recommended_runtime = "faster-whisper"
         recommended_device = "cpu"
 
         # Check for MPS (Mac with Apple Silicon)
-        wcpp_devices = devices_by_backend.get("whisper.cpp", {})
+        wcpp_devices = devices_by_runtime.get("whisper.cpp", {})
         if sys.platform == "darwin" and wcpp_devices.get("mps", {}).get("enabled"):
-            recommended_backend = "whisper.cpp"
+            recommended_runtime = "whisper.cpp"
             recommended_device = "mps"
         else:
             # Check for CUDA
-            fw_devices = devices_by_backend.get("faster-whisper", {})
+            fw_devices = devices_by_runtime.get("faster-whisper", {})
             if fw_devices.get("cuda", {}).get("enabled"):
-                recommended_backend = "faster-whisper"
+                recommended_runtime = "faster-whisper"
                 recommended_device = "cuda"
 
         await websocket.send(json.dumps({
             "type": "capabilities",
             "capabilities": caps,
             "recommended": {
-                "backend": recommended_backend,
+                "runtime": recommended_runtime,
                 "device": recommended_device,
             },
         }))
@@ -2357,6 +2739,7 @@ class BridgeServer:
         config_dict["bridge"] = {"host": "localhost", "port": 7878}
         config_dict["auto_copy"] = self._auto_copy
         config_dict["auto_paste"] = self._auto_paste
+        config_dict["auto_revert_clipboard"] = self._auto_revert_clipboard
         config_dict["first_run_setup_required"] = self._first_run_setup_required
         config_dict["runtime"] = self._runtime_capabilities
         return config_dict
@@ -2368,8 +2751,13 @@ class BridgeServer:
         Signals shutdown, cancels any in-progress model downloads, stops the audio recorder if active, stops the global hotkey listener if running, and closes the noise suppression component.
         """
         self._shutdown_requested.set()
-        for cancel_event in list(self._download_cancel_events.values()):
-            cancel_event.set()
+        pending_download_keys = self._download_queue.pending_keys()
+        self._download_queue.cancel_all()
+        for key in pending_download_keys:
+            task = self._model_tasks.get(key)
+            if task is None or task.done():
+                continue
+            task.cancel()
         if self.recorder and self._recording:
             try:
                 self.recorder.stop()

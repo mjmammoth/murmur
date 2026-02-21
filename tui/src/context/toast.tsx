@@ -12,7 +12,7 @@ export interface ToastContextValue {
 const [ToastProvider, useToast] = createContextHelper<ToastContextValue>("Toast");
 export { useToast };
 
-const TOAST_DURATION = 2500;
+const TOAST_DURATION = 4000;
 
 export function ToastContextProvider(props: { children: JSX.Element }): JSX.Element {
   const backend = useBackend();
