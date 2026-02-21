@@ -108,7 +108,7 @@ def restore_clipboard_snapshot(snapshot: ClipboardSnapshot | None) -> bool:
     if snapshot is None:
         return False
 
-    if snapshot.macos_items is not None and _restore_macos_snapshot(snapshot.macos_items):
+    if snapshot.macos_items and _restore_macos_snapshot(snapshot.macos_items):
         return True
 
     if snapshot.text is None:
