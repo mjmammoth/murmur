@@ -561,7 +561,10 @@ export function BackendContextProvider(props: {
         runtime: selectedRuntime,
         activate_runtime: activateRuntime,
       });
-      if (!sent) return;
+      if (!sent) {
+        emitToast("Unable to queue model download while disconnected from runtime.", "error");
+        return;
+      }
       queueModelPull(name, selectedRuntime);
       const pendingOp = op.type === "pulling"
         ? `pulling ${op.model} (${op.runtime})`
@@ -569,15 +572,19 @@ export function BackendContextProvider(props: {
       emitToast(`Queued ${name}. It will start after ${pendingOp}.`, "info");
       return;
     }
-    dequeueModelPull(name, selectedRuntime);
-    setActiveModelOp({ type: "pulling", model: name, runtime: selectedRuntime });
-    setDownloadProgress({ model: name, runtime: selectedRuntime, percent: 0 });
-    sendInternal({
+    const sent = sendInternal({
       type: "download_model",
       name,
       runtime: selectedRuntime,
       activate_runtime: activateRuntime,
     });
+    if (!sent) {
+      emitToast("Unable to start model download while disconnected from runtime.", "error");
+      return;
+    }
+    dequeueModelPull(name, selectedRuntime);
+    setActiveModelOp({ type: "pulling", model: name, runtime: selectedRuntime });
+    setDownloadProgress({ model: name, runtime: selectedRuntime, percent: 0 });
   }
 
   /**
@@ -589,9 +596,13 @@ export function BackendContextProvider(props: {
    */
   function removeModel(name: string, runtime?: RuntimeName) {
     const selectedRuntime = runtime ?? (config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
+    const sent = sendInternal({ type: "remove_model", name, runtime: selectedRuntime });
+    if (!sent) {
+      emitToast("Unable to remove model while disconnected from runtime.", "error");
+      return;
+    }
     setActiveModelOp({ type: "removing", model: name, runtime: selectedRuntime });
     setDownloadProgress(null);
-    send({ type: "remove_model", name, runtime: selectedRuntime });
   }
 
   /**

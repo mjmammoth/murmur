@@ -807,6 +807,7 @@ export function Welcome(): JSX.Element {
   // Keyboard navigation
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "welcome") return;
+    if (key.eventType === "release" || key.repeated) return;
 
     // Scroll content for text-only steps (help, welcome)
     const step = currentStep();
@@ -841,20 +842,12 @@ export function Welcome(): JSX.Element {
         openHardwareSettingSelector(selectedHardwareField());
         return;
       }
-  // Keyboard navigation
-  useKeyHandler((key: KeyEvent) => {
-    if (dialog.currentDialog()?.type !== "welcome") return;
-    if (key.eventType === "release" || key.repeated) return;
-
-    // Device detection step: s opens settings
-    if (currentStep() === "device-detection" && key.name === "s") {
-      key.preventDefault();
-      openSettingsFromWelcome();
-      return;
     }
 
     // Model download step: arrow keys navigate model list
     if (currentStep() === "model-download") {
+      const selectedRuntime =
+        (backend.config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
       if (key.name === "up" || key.name === "k") {
         key.preventDefault();
         setModelIndex((i) => Math.max(0, i - 1));
@@ -870,21 +863,23 @@ export function Welcome(): JSX.Element {
         const model = backend.models()[modelIndex()];
         const op = backend.activeModelOp();
         if (!model) return;
-        const pulling = op?.type === "pulling" && op.model === model.name;
-        if (pulling) {
-          backend.cancelModelDownload(model.name);
-        } else if (model.installed) {
+        const pulling =
+          op?.type === "pulling" && op.model === model.name && op.runtime === selectedRuntime;
+        const queued = backend.isModelPullQueued(model.name, selectedRuntime);
+        if (pulling || queued) {
+          backend.cancelModelDownload(model.name, selectedRuntime);
+        } else if (model.variants?.[selectedRuntime]?.installed) {
           if (op) return;
           backend.send({ type: "set_selected_model", name: model.name });
         } else {
-          backend.downloadModel(model.name);
+          backend.downloadModel(model.name, selectedRuntime);
         }
         return;
       }
       if (key.name === "x") {
         const pulling = backend.activeModelOp();
         if (pulling?.type === "pulling") {
-          backend.cancelModelDownload(pulling.model);
+          backend.cancelModelDownload(pulling.model, pulling.runtime);
         }
         return;
       }
