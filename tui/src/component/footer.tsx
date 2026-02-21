@@ -119,8 +119,10 @@ export function Footer(props: FooterProps): JSX.Element {
   const rightSectionWidth = () => Math.floor(availableWidth() * 0.33);
   const compactRightOverflow = () =>
     compactFooterLayout() ? Math.max(0, RIGHT_COMPACT_HINT_ROW_WIDTH - rightSectionWidth()) : 0;
-  const compactCenterLineWidth = () =>
-    Math.max(12, centerSectionWidth() - compactRightOverflow() - 2);
+  const compactCenterLineWidth = () => {
+    const target = centerSectionWidth() - compactRightOverflow() - 2;
+    return Math.min(centerSectionWidth(), Math.max(12, target));
+  };
 
   const compactModel = () => {
     if (!compactFooterLayout()) return truncateLabel(modelName(), 14);
