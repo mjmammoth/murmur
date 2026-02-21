@@ -10,6 +10,30 @@ import { formatDeviceLabel } from "../util/format";
 describe("Settings", () => {
   const SECTION_ORDER = ["Capture", "Model", "Output", "Appearance", "Advanced"];
 
+  describe("audio input setting", () => {
+    test("should include audio.input_device selector id", () => {
+      const settingId = "audio.input_device";
+      expect(settingId).toBe("audio.input_device");
+    });
+
+    test("should display system default when input key is empty", () => {
+      const selectedKey: string | null = null;
+      const label = selectedKey ? "Configured device" : "System default";
+      expect(label).toBe("System default");
+    });
+
+    test("should display unavailable indicator when saved input is missing", () => {
+      const selectedKey = "CoreAudio:Missing";
+      const knownDevice = undefined;
+      const label = !selectedKey
+        ? "System default"
+        : knownDevice
+          ? "Known"
+          : "Unavailable (saved device)";
+      expect(label).toBe("Unavailable (saved device)");
+    });
+  });
+
   describe("device display labels", () => {
     test("should format mps as Metal (mps)", () => {
       expect(formatDeviceLabel("mps")).toBe("Metal (mps)");

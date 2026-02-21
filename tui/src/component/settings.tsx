@@ -16,6 +16,7 @@ type SelectSettingId =
   | "model.device"
   | "model.compute"
   | "model.language"
+  | "audio.input_device"
   | "audio.sample_rate"
   | "vad.aggressiveness";
 
@@ -167,6 +168,14 @@ export function Settings(): JSX.Element {
   const items = createMemo<SettingItem[]>(() => {
     const cfg = config.config();
     const outputFileEnabled = Boolean(cfg?.output.file.enabled);
+    const inputDevices = cfg?.audio_inputs;
+    const selectedInputKey = cfg?.audio.input_device ?? null;
+    const selectedInputDevice = inputDevices?.devices.find((device) => device.key === selectedInputKey);
+    const inputDeviceValue = () => {
+      if (!selectedInputKey) return "System default";
+      if (selectedInputDevice) return `${selectedInputDevice.name} (${selectedInputDevice.hostapi})`;
+      return "Unavailable (saved device)";
+    };
 
     return [
       {
@@ -239,6 +248,18 @@ export function Settings(): JSX.Element {
             config.toggleVad();
           }
         },
+      },
+      {
+        id: "audio.input_device",
+        section: "Capture",
+        title: "Input Device",
+        description: "Choose microphone/input source",
+        keywords: ["audio", "input", "microphone", "device", "mic"],
+        controlKind: "select",
+        affordance: "select",
+        interactive: true,
+        value: inputDeviceValue,
+        activate: () => openSelector("audio.input_device"),
       },
       {
         id: "audio.sample_rate",

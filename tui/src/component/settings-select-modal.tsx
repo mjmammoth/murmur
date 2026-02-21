@@ -120,6 +120,8 @@ export function SettingsSelectModal(): JSX.Element {
         return model?.compute_type ?? "int8";
       case "model.language":
         return model?.language ?? null;
+      case "audio.input_device":
+        return config.config()?.audio.input_device ?? null;
       case "audio.sample_rate":
         return String(config.config()?.audio.sample_rate ?? 48000);
       case "vad.aggressiveness":
@@ -139,6 +141,8 @@ export function SettingsSelectModal(): JSX.Element {
         return "Compute Type";
       case "model.language":
         return "Model Language";
+      case "audio.input_device":
+        return "Input Device";
       case "audio.sample_rate":
         return "Sample Rate";
       case "vad.aggressiveness":
@@ -158,6 +162,8 @@ export function SettingsSelectModal(): JSX.Element {
         return "choose quantization profile";
       case "model.language":
         return "type to filter languages";
+      case "audio.input_device":
+        return "choose capture input";
       case "audio.sample_rate":
         return "choose capture sample rate";
       case "vad.aggressiveness":
@@ -284,6 +290,56 @@ export function SettingsSelectModal(): JSX.Element {
     { value: "48000", label: "48000 Hz", description: "Required for RNNoise processing" },
   ]);
 
+  const audioInputOptions = createMemo<SelectOption[]>(() => {
+    const cfg = config.config();
+    const inputs = cfg?.audio_inputs;
+    const devices = inputs?.devices ?? [];
+    const selectedKey = cfg?.audio.input_device ?? null;
+    const selectedExists = selectedKey
+      ? devices.some((device) => device.key === selectedKey)
+      : true;
+    const defaultDevice = devices.find((device) => device.is_default);
+
+    const options: SelectOption[] = [
+      {
+        value: null,
+        label: "System default",
+        description: defaultDevice
+          ? `${defaultDevice.name} (${defaultDevice.hostapi})`
+          : "Use your operating system default input device",
+      },
+    ];
+
+    if (selectedKey && !selectedExists) {
+      options.push({
+        value: selectedKey,
+        label: "Saved device (unavailable)",
+        description: inputs?.selected_missing_reason ?? "Previously selected input is unavailable",
+        disabled: true,
+        reason: inputs?.selected_missing_reason ?? "Unavailable",
+      });
+    }
+
+    for (const device of devices) {
+      const details = `${device.hostapi} • ${device.max_input_channels}ch`;
+      options.push({
+        value: device.key,
+        label: `${device.name}${device.is_default ? " (default)" : ""}`,
+        description:
+          device.sample_rate_supported === false
+            ? (device.sample_rate_reason ?? "Unsupported at current sample rate")
+            : details,
+        disabled: device.sample_rate_supported === false,
+        reason:
+          device.sample_rate_supported === false
+            ? (device.sample_rate_reason ?? "Unsupported at current sample rate")
+            : null,
+      });
+    }
+
+    return options;
+  });
+
   const vadAggressivenessOptions = createMemo<SelectOption[]>(() => [
     { value: "0", label: "0", description: "Least aggressive (keeps more audio)" },
     { value: "1", label: "1", description: "Balanced sensitivity" },
@@ -301,6 +357,8 @@ export function SettingsSelectModal(): JSX.Element {
         return computeOptions();
       case "model.language":
         return LANGUAGE_OPTIONS;
+      case "audio.input_device":
+        return audioInputOptions();
       case "audio.sample_rate":
         return sampleRateOptions();
       case "vad.aggressiveness":
@@ -411,6 +469,9 @@ export function SettingsSelectModal(): JSX.Element {
       case "model.language":
         backend.send({ type: "set_model_language", language: option.value });
         break;
+      case "audio.input_device":
+        config.setAudioInputDevice(option.value);
+        break;
       case "audio.sample_rate": {
         const sampleRate = Number(option.value ?? "0");
         if (!Number.isFinite(sampleRate) || sampleRate <= 0) return;
@@ -461,6 +522,11 @@ export function SettingsSelectModal(): JSX.Element {
     setTimeout(() => {
       scrollSelectedIntoView();
     }, 0);
+  });
+
+  createEffect(() => {
+    if (settingId() !== "audio.input_device") return;
+    backend.send({ type: "refresh_audio_inputs" });
   });
 
   useKeyHandler((key: KeyEvent) => {

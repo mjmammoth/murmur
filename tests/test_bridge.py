@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from whisper_local.audio import AudioInputDeviceInfo
 from whisper_local.bridge import (
     BridgeLogFilter,
     BridgeServer,
@@ -21,7 +22,7 @@ from whisper_local.config import AppConfig
 def mock_config():
     """
     Provide a Mock AppConfig preconfigured with typical test defaults.
-    
+
     The returned Mock mimics an AppConfig instance used by tests and includes preset values:
     - top-level flags: auto_copy=False, auto_paste=False, auto_revert_clipboard=True
     - audio: sample_rate=16000, noise_suppression.enabled=False
@@ -30,7 +31,7 @@ def mock_config():
     - hotkey: key='f3', mode='ptt'
     - ui: theme='default'
     - output: clipboard=False, file.enabled=False, file.path=Path('/tmp/output.txt')
-    
+
     Returns:
         Mock: A Mock object spec'd as AppConfig with the above attributes.
     """
@@ -40,6 +41,7 @@ def mock_config():
     config.auto_revert_clipboard = True
     config.audio = Mock()
     config.audio.sample_rate = 16000
+    config.audio.input_device = None
     config.audio.noise_suppression = Mock()
     config.audio.noise_suppression.enabled = False
     config.vad = Mock()
@@ -308,6 +310,141 @@ def test_config_payload_includes_auto_revert_clipboard(mock_config):
     assert payload["auto_revert_clipboard"] is False
 
 
+def test_config_payload_includes_audio_inputs(mock_config):
+    """Bridge config payload should include audio input diagnostics."""
+    server = BridgeServer(mock_config)
+    mock_config.to_dict.return_value = {
+        "model": {"runtime": "faster-whisper"},
+        "audio": {"sample_rate": 16000, "input_device": None},
+    }
+    server._audio_inputs = [
+        AudioInputDeviceInfo(
+            key="CoreAudio:Built-in Mic",
+            index=0,
+            name="Built-in Mic",
+            hostapi="CoreAudio",
+            max_input_channels=2,
+            default_samplerate=48000.0,
+            is_default=True,
+            sample_rate_supported=True,
+            sample_rate_reason=None,
+        )
+    ]
+    server._audio_inputs_dirty = False
+    server._audio_inputs_updated_at = monotonic()
+
+    payload = server._config_payload()
+
+    assert "audio_inputs" in payload
+    assert payload["audio_inputs"]["devices"][0]["key"] == "CoreAudio:Built-in Mic"
+
+
+def test_set_audio_input_device_updates_recorder_and_config(mock_config):
+    """Selecting input device should update config, recorder, and broadcasts."""
+    server = BridgeServer(mock_config)
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+    server.recorder = Mock()
+    server._audio_inputs = [
+        AudioInputDeviceInfo(
+            key="CoreAudio:USB Mic",
+            index=3,
+            name="USB Mic",
+            hostapi="CoreAudio",
+            max_input_channels=1,
+            default_samplerate=48000.0,
+            is_default=False,
+            sample_rate_supported=True,
+            sample_rate_reason=None,
+        )
+    ]
+    with patch.object(server, "_refresh_audio_inputs"), patch.object(
+        server, "_persist_config", return_value=None
+    ):
+        asyncio.run(server._set_audio_input_device("CoreAudio:USB Mic"))
+
+    assert mock_config.audio.input_device == "CoreAudio:USB Mic"
+    assert server.recorder.device == 3
+    assert server._active_audio_input_key == "CoreAudio:USB Mic"
+    server._broadcast_config.assert_awaited_once()
+    server._broadcast.assert_awaited_with(
+        {"type": "toast", "message": "Input device USB Mic", "level": "success"}
+    )
+
+
+def test_set_audio_input_device_rejects_unknown_key(mock_config):
+    """Unknown input keys should be rejected without state changes."""
+    server = BridgeServer(mock_config)
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+    server._audio_inputs = []
+    with patch.object(server, "_refresh_audio_inputs"):
+        asyncio.run(server._set_audio_input_device("Missing Device"))
+
+    assert mock_config.audio.input_device is None
+    server._broadcast.assert_awaited_with(
+        {"type": "toast", "message": "Selected input device is unavailable", "level": "error"}
+    )
+    server._broadcast_config.assert_awaited_once()
+
+
+def test_set_audio_input_device_rejects_while_recording(mock_config):
+    """Input device change should be blocked while recording."""
+    server = BridgeServer(mock_config)
+    server._recording = True
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    asyncio.run(server._set_audio_input_device("CoreAudio:USB Mic"))
+
+    assert mock_config.audio.input_device is None
+    server._broadcast.assert_awaited_with(
+        {"type": "toast", "message": "Cannot change input device while recording", "level": "error"}
+    )
+    server._broadcast_config.assert_awaited_once()
+
+
+def test_init_components_falls_back_to_default_when_saved_device_missing(mock_config):
+    """Startup should fallback to system default when saved input device is unavailable."""
+    mock_config.audio.input_device = "CoreAudio:Missing Mic"
+    server = BridgeServer(mock_config)
+
+    def fake_refresh(*, force=False):
+        del force
+        server._audio_inputs = []
+        server._audio_inputs_dirty = False
+        server._audio_inputs_updated_at = monotonic()
+
+    with patch.object(server, "_refresh_audio_inputs", side_effect=fake_refresh), patch.object(
+        server, "_persist_config", return_value=None
+    ), patch("whisper_local.bridge.AudioRecorder") as mock_recorder, patch(
+        "whisper_local.bridge.RNNoiseSuppressor"
+    ), patch("whisper_local.bridge.VadProcessor"), patch("whisper_local.bridge.HotkeyListener"):
+        server._init_components()
+
+    assert mock_config.audio.input_device is None
+    assert server._active_audio_input_key is None
+    assert server._startup_audio_notice == "Saved input device unavailable; using system default"
+    mock_recorder.assert_called_once()
+    assert mock_recorder.call_args.kwargs["device"] is None
+
+
+def test_refresh_audio_inputs_message_forces_refresh_and_broadcast(mock_config):
+    """refresh_audio_inputs should force capability refresh and config broadcast."""
+    server = BridgeServer(mock_config)
+    server._broadcast_config = AsyncMock()
+    with patch.object(server, "_refresh_audio_inputs") as mock_refresh:
+        asyncio.run(
+            server._handle_message(
+                Mock(),
+                json.dumps({"type": "refresh_audio_inputs"}),
+            )
+        )
+
+    mock_refresh.assert_called_once_with(force=True)
+    server._broadcast_config.assert_awaited_once()
+
+
 def test_process_audio_auto_paste_reverts_clipboard_in_order(mock_config):
     """Auto-paste with auto-revert should snapshot, paste, and restore in order."""
     server = BridgeServer(mock_config)
@@ -338,12 +475,12 @@ def test_process_audio_auto_paste_reverts_clipboard_in_order(mock_config):
     async def fake_to_thread(func, *args, **kwargs):
         """
         Invoke a synchronous callable directly from async code.
-        
+
         Parameters:
             func (callable): The function or callable to invoke.
             *args: Positional arguments forwarded to `func`.
             **kwargs: Keyword arguments forwarded to `func`.
-        
+
         Returns:
             The value returned by calling `func(*args, **kwargs)`.
         """
@@ -407,12 +544,12 @@ def test_process_audio_auto_paste_without_revert_does_not_restore(mock_config):
     async def fake_to_thread(func, *args, **kwargs):
         """
         Invoke a synchronous callable directly from async code.
-        
+
         Parameters:
             func (callable): The function or callable to invoke.
             *args: Positional arguments forwarded to `func`.
             **kwargs: Keyword arguments forwarded to `func`.
-        
+
         Returns:
             The value returned by calling `func(*args, **kwargs)`.
         """
@@ -463,12 +600,12 @@ def test_process_audio_auto_paste_revert_attempted_when_paste_fails(mock_config)
     async def fake_to_thread(func, *args, **kwargs):
         """
         Invoke a synchronous callable directly from async code.
-        
+
         Parameters:
             func (callable): The function or callable to invoke.
             *args: Positional arguments forwarded to `func`.
             **kwargs: Keyword arguments forwarded to `func`.
-        
+
         Returns:
             The value returned by calling `func(*args, **kwargs)`.
         """
@@ -950,7 +1087,7 @@ def test_bridge_server_download_progress_payload_includes_backend(mock_config):
     def fake_download_model(name, runtime, progress_callback=None, cancel_check=None):
         """
         Simulates a model download in tests and reports a single fixed progress update.
-        
+
         Parameters:
             name (str): Expected model name; the function asserts it equals "tiny".
             runtime (str): Expected runtime identifier; the function asserts it equals "whisper.cpp".

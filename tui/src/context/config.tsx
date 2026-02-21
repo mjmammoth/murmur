@@ -21,6 +21,7 @@ export interface ConfigContextValue {
   toggleOutputClipboard: () => void;
   toggleOutputFileEnabled: () => void;
   toggleHotkeyMode: () => void;
+  setAudioInputDevice: (deviceKey: string | null) => void;
   setAudioSampleRate: (sampleRate: number) => void;
   setVadAggressiveness: (aggressiveness: number) => void;
   setOutputFilePath: (path: string) => void;
@@ -118,6 +119,10 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     backend.send({ type: "set_audio_sample_rate", sample_rate: sampleRate });
   }
 
+  function setAudioInputDevice(deviceKey: string | null) {
+    backend.send({ type: "set_audio_input_device", device_key: deviceKey });
+  }
+
   function setVadAggressiveness(aggressiveness: number) {
     backend.send({ type: "set_vad_aggressiveness", aggressiveness });
   }
@@ -148,6 +153,7 @@ export function ConfigContextProvider(props: { children: JSX.Element }): JSX.Ele
     toggleOutputClipboard,
     toggleOutputFileEnabled,
     toggleHotkeyMode,
+    setAudioInputDevice,
     setAudioSampleRate,
     setVadAggressiveness,
     setOutputFilePath,

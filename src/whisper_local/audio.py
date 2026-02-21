@@ -1,13 +1,132 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
 import sounddevice as sd
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AudioInputDeviceInfo:
+    key: str
+    index: int
+    name: str
+    hostapi: str
+    max_input_channels: int
+    default_samplerate: float | None
+    is_default: bool
+    sample_rate_supported: bool | None = None
+    sample_rate_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class AudioInputScanResult:
+    devices: list[AudioInputDeviceInfo]
+    default_device_key: str | None
+    error: str | None = None
+
+
+def scan_audio_input_devices(sample_rate: int | None = None) -> AudioInputScanResult:
+    """Return discovered audio input devices with stable keys and optional sample-rate checks."""
+    try:
+        raw_devices = sd.query_devices()
+        raw_hostapis = sd.query_hostapis()
+    except Exception as exc:
+        logger.warning("Failed to query audio devices: %s", exc)
+        return AudioInputScanResult(devices=[], default_device_key=None, error=str(exc))
+
+    default_index = _default_input_device_index()
+    devices: list[AudioInputDeviceInfo] = []
+    seen_counts: dict[str, int] = {}
+
+    for index, raw_device in enumerate(raw_devices):
+        max_input_channels = _to_int(raw_device.get("max_input_channels"), fallback=0)
+        if max_input_channels <= 0:
+            continue
+
+        hostapi_index = _to_int(raw_device.get("hostapi"), fallback=-1)
+        hostapi_name = _hostapi_name(raw_hostapis, hostapi_index)
+        device_name = _device_name(raw_device.get("name"), index=index)
+        base_key = f"{hostapi_name}:{device_name}"
+        next_count = seen_counts.get(base_key, 0) + 1
+        seen_counts[base_key] = next_count
+        key = base_key if next_count == 1 else f"{base_key}#{next_count}"
+
+        sample_rate_supported: bool | None = None
+        sample_rate_reason: str | None = None
+        if sample_rate is not None and sample_rate > 0:
+            try:
+                sd.check_input_settings(
+                    device=index,
+                    samplerate=sample_rate,
+                    channels=1,
+                    dtype="float32",
+                )
+                sample_rate_supported = True
+            except Exception as exc:
+                sample_rate_supported = False
+                sample_rate_reason = str(exc)
+
+        devices.append(
+            AudioInputDeviceInfo(
+                key=key,
+                index=index,
+                name=device_name,
+                hostapi=hostapi_name,
+                max_input_channels=max_input_channels,
+                default_samplerate=_to_float(raw_device.get("default_samplerate")),
+                is_default=index == default_index,
+                sample_rate_supported=sample_rate_supported,
+                sample_rate_reason=sample_rate_reason,
+            )
+        )
+
+    default_key = next((device.key for device in devices if device.is_default), None)
+    return AudioInputScanResult(devices=devices, default_device_key=default_key, error=None)
+
+
+def resolve_audio_input_device_index(
+    device_key: str | None,
+    devices: Iterable[AudioInputDeviceInfo],
+) -> int | None:
+    if device_key is None:
+        return None
+    normalized = str(device_key).strip()
+    if not normalized:
+        return None
+    for device in devices:
+        if device.key == normalized:
+            return device.index
+    return None
+
+
+def find_audio_input_device(
+    device_key: str | None,
+    devices: Iterable[AudioInputDeviceInfo],
+) -> AudioInputDeviceInfo | None:
+    if device_key is None:
+        return None
+    normalized = str(device_key).strip()
+    if not normalized:
+        return None
+    for device in devices:
+        if device.key == normalized:
+            return device
+    return None
+
+
+def default_audio_input_device(
+    devices: Iterable[AudioInputDeviceInfo],
+) -> AudioInputDeviceInfo | None:
+    for device in devices:
+        if device.is_default:
+            return device
+    return None
 
 
 class AudioRecorder:
@@ -64,3 +183,52 @@ def _flatten_frames(frames: Iterable[np.ndarray], channels: int) -> np.ndarray:
         else:
             audio = audio.reshape(-1)
     return audio.astype(np.float32, copy=False)
+
+
+def _default_input_device_index() -> int | None:
+    default_device = getattr(sd.default, "device", None)
+    if isinstance(default_device, (list, tuple)):
+        if not default_device:
+            return None
+        value = default_device[0]
+    else:
+        value = default_device
+
+    index = _to_int(value, fallback=-1)
+    if index < 0:
+        return None
+    return index
+
+
+def _hostapi_name(raw_hostapis: Iterable[dict], hostapi_index: int) -> str:
+    if hostapi_index < 0:
+        return "Unknown Host API"
+    for index, raw_hostapi in enumerate(raw_hostapis):
+        if index != hostapi_index:
+            continue
+        name = str(raw_hostapi.get("name", "")).strip()
+        return name or "Unknown Host API"
+    return "Unknown Host API"
+
+
+def _device_name(value: object, *, index: int) -> str:
+    name = str(value or "").strip()
+    if name:
+        return name
+    return f"Input {index}"
+
+
+def _to_int(value: object, fallback: int) -> int:
+    value_any: Any = value
+    try:
+        return int(value_any)
+    except Exception:
+        return fallback
+
+
+def _to_float(value: object) -> float | None:
+    value_any: Any = value
+    try:
+        return float(value_any)
+    except Exception:
+        return None

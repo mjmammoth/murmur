@@ -588,6 +588,9 @@ export function BackendContextProvider(props: {
       case "set_audio_sample_rate":
         patchAudioConfig((audio) => ({ ...audio, sample_rate: message.sample_rate }));
         return;
+      case "set_audio_input_device":
+        patchAudioConfig((audio) => ({ ...audio, input_device: message.device_key }));
+        return;
       case "set_vad_aggressiveness":
         patchVadConfig((vad) => ({ ...vad, aggressiveness: message.aggressiveness }));
         return;
