@@ -119,8 +119,11 @@ export function Home(): JSX.Element {
   }
 
   onMount(() => {
-    backend.onRuntimeSwitchRequired((payload) => {
+    const disposeRuntimeSwitchRequired = backend.onRuntimeSwitchRequired((payload) => {
       dialog.openDialog("runtime-switch-confirm", payload);
+    });
+    onCleanup(() => {
+      disposeRuntimeSwitchRequired?.();
     });
   });
 

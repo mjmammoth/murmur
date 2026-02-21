@@ -64,7 +64,7 @@ export interface BackendContextValue {
   cancelAllModelDownloads: () => void;
   hasPendingModelDownloads: () => boolean;
   removeModel: (name: string, runtime?: RuntimeName) => void;
-  send: (message: ClientMessage) => void;
+  send: (message: ClientMessage) => boolean;
   requestConfigFile: () => void;
   requestCapabilities: () => void;
   onTranscript: (handler: (entry: TranscriptEntry) => void) => void;
@@ -73,7 +73,7 @@ export interface BackendContextValue {
   onToast: (handler: (message: string, level: "info" | "error") => void) => void;
   onRuntimeSwitchRequired: (
     handler: (payload: { runtime: RuntimeName; model: string; format: string }) => void,
-  ) => void;
+  ) => () => void;
 }
 
 const [BackendProvider, useBackend] = createContextHelper<BackendContextValue>("Backend");
@@ -541,8 +541,8 @@ export function BackendContextProvider(props: {
     }
   }
 
-  function send(message: ClientMessage) {
-    sendInternal(message);
+  function send(message: ClientMessage): boolean {
+    return sendInternal(message);
   }
 
   function downloadModel(
@@ -612,13 +612,21 @@ export function BackendContextProvider(props: {
    */
   function cancelModelDownload(name: string, runtime?: RuntimeName) {
     const selectedRuntime = runtime ?? (config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
+    const sent = send({ type: "cancel_model_download", name, runtime: selectedRuntime });
+    if (!sent) {
+      emitToast("Unable to cancel model download while disconnected from runtime.", "error");
+      return;
+    }
     dequeueModelPull(name, selectedRuntime);
-    send({ type: "cancel_model_download", name, runtime: selectedRuntime });
   }
 
   function cancelAllModelDownloads() {
+    const sent = send({ type: "cancel_all_model_downloads" });
+    if (!sent) {
+      emitToast("Unable to cancel model downloads while disconnected from runtime.", "error");
+      return;
+    }
     setQueuedModelPullKeys([]);
-    send({ type: "cancel_all_model_downloads" });
   }
 
   function hasPendingModelDownloads() {
@@ -660,6 +668,12 @@ export function BackendContextProvider(props: {
     handler: (payload: { runtime: RuntimeName; model: string; format: string }) => void,
   ) {
     runtimeSwitchRequiredHandlers.push(handler);
+    return () => {
+      const index = runtimeSwitchRequiredHandlers.indexOf(handler);
+      if (index >= 0) {
+        runtimeSwitchRequiredHandlers.splice(index, 1);
+      }
+    };
   }
 
   onMount(() => {

@@ -64,7 +64,8 @@ def _clipboard_macos_snapshot() -> list[dict[str, bytes]] | None:
             except Exception:
                 continue
             type_data[str(item_type)] = data_bytes
-        snapshot.append(type_data)
+        if type_data:
+            snapshot.append(type_data)
     return snapshot
 
 
@@ -89,9 +90,10 @@ def _restore_macos_snapshot(items: list[dict[str, bytes]]) -> bool:
                 ns_data = NSData.dataWithBytes_length_(payload, len(payload))
                 pasteboard_item.setData_forType_(ns_data, item_type)
             pasteboard_items.append(pasteboard_item)
-        if pasteboard_items:
-            pasteboard.writeObjects_(pasteboard_items)
-        return True
+        if not pasteboard_items:
+            return False
+        success = bool(pasteboard.writeObjects_(pasteboard_items))
+        return success
     except Exception as exc:
         logger.warning("Clipboard macOS restore failed: %s", exc)
         return False
@@ -133,7 +135,7 @@ def copy_to_clipboard(text: str) -> bool:
 
 def paste_from_clipboard() -> bool:
     """Paste current clipboard contents into the focused macOS app.
-    
+
     Requires macOS Accessibility permission (System Settings → Privacy & Security → Accessibility)
     for the terminal or app running whisper.local to allow osascript to simulate Cmd+V.
     """

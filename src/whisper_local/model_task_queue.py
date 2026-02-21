@@ -123,6 +123,8 @@ class SerialModelTaskQueue(ModelTaskQueue):
             entry = self._entries.get(key)
             if entry is None:
                 return
+            if entry.task is not None and entry.task is not task:
+                return
             entry.task = task
 
     def cancel_event_for(self, key: str) -> threading.Event | None:
@@ -132,34 +134,48 @@ class SerialModelTaskQueue(ModelTaskQueue):
                 return None
             return entry.cancel_event
 
-    def mark_running(self, key: str) -> None:
+    @staticmethod
+    def _task_matches(entry: _DownloadTaskEntry, task: asyncio.Task | None) -> bool:
+        if task is None:
+            return True
+        return entry.task is task
+
+    def mark_running(self, key: str, task: asyncio.Task | None = None) -> None:
         with self._lock:
             entry = self._entries.get(key)
             if entry is None:
+                return
+            if not self._task_matches(entry, task):
                 return
             if entry.state == "queued":
                 entry.state = "running"
 
-    def mark_completed(self, key: str) -> None:
+    def mark_completed(self, key: str, task: asyncio.Task | None = None) -> None:
         with self._lock:
             entry = self._entries.get(key)
             if entry is None:
+                return
+            if not self._task_matches(entry, task):
                 return
             entry.state = "completed"
             self._prune_history()
 
-    def mark_failed(self, key: str) -> None:
+    def mark_failed(self, key: str, task: asyncio.Task | None = None) -> None:
         with self._lock:
             entry = self._entries.get(key)
             if entry is None:
                 return
+            if not self._task_matches(entry, task):
+                return
             entry.state = "failed"
             self._prune_history()
 
-    def mark_cancelled(self, key: str) -> None:
+    def mark_cancelled(self, key: str, task: asyncio.Task | None = None) -> None:
         with self._lock:
             entry = self._entries.get(key)
             if entry is None:
+                return
+            if not self._task_matches(entry, task):
                 return
             entry.state = "cancelled"
             entry.cancel_event.set()

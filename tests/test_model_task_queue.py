@@ -64,3 +64,24 @@ def test_queue_cancel_failed_task_reports_terminal_status():
     assert result.status == "already_failed"
     assert result.task is not None
     assert result.task.state == "failed"
+
+
+def test_queue_ignores_stale_task_mark_callbacks_after_reenqueue():
+    queue = SerialModelTaskQueue()
+    key = "faster-whisper:small"
+
+    stale_task = Mock()
+    stale_task.done.return_value = False
+    current_task = Mock()
+    current_task.done.return_value = False
+
+    queue.enqueue_download(key, model="small", runtime="faster-whisper", task=stale_task)
+    queue.enqueue_download(key, model="small", runtime="faster-whisper", task=current_task)
+
+    queue.mark_completed(key, task=stale_task)
+    stale_snapshot = next(entry for entry in queue.snapshot() if entry.key == key)
+    assert stale_snapshot.state == "queued"
+
+    queue.mark_completed(key, task=current_task)
+    current_snapshot = next(entry for entry in queue.snapshot() if entry.key == key)
+    assert current_snapshot.state == "completed"

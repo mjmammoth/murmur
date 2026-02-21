@@ -47,6 +47,7 @@ export function ModelManager(): JSX.Element {
   const [statusMessage, setStatusMessage] = createSignal("");
   const [mouseArmedIndex, setMouseArmedIndex] = createSignal<number | null>(null);
   const [pendingSwitchConfirmVisible, setPendingSwitchConfirmVisible] = createSignal(false);
+  const [acknowledgedPendingSwitchKey, setAcknowledgedPendingSwitchKey] = createSignal<string | null>(null);
   const spinnerFrame = useSpinnerFrame();
 
   const dialogData = createMemo<ModelManagerDialogData>(
@@ -57,6 +58,11 @@ export function ModelManager(): JSX.Element {
   const returnFilterQuery = createMemo(() => dialogData().returnFilterQuery ?? null);
   const firstRunSetup = createMemo(() => Boolean(dialogData().firstRunSetup));
   const pendingRuntimeSwitch = createMemo(() => dialogData().pendingRuntimeSwitch ?? null);
+  const pendingRuntimeSwitchKey = createMemo(() => {
+    const pending = pendingRuntimeSwitch();
+    if (!pending) return null;
+    return `${pending.runtime}:${pending.model}:${pending.format}`;
+  });
   const setupRequired = createMemo(() => Boolean(backend.config()?.first_run_setup_required));
   const setupLocked = createMemo(() => firstRunSetup() && setupRequired());
 
@@ -105,8 +111,13 @@ export function ModelManager(): JSX.Element {
 
   createEffect(() => {
     const pending = pendingRuntimeSwitch();
-    setPendingSwitchConfirmVisible(Boolean(pending));
-    if (!pending) return;
+    const pendingKey = pendingRuntimeSwitchKey();
+    if (!pending || !pendingKey) {
+      setPendingSwitchConfirmVisible(false);
+      setAcknowledgedPendingSwitchKey(null);
+      return;
+    }
+    setPendingSwitchConfirmVisible(acknowledgedPendingSwitchKey() !== pendingKey);
     const idx = backend.models().findIndex((model) => model.name === pending.model);
     if (idx >= 0) {
       setSelectedIndex(idx);
@@ -185,7 +196,9 @@ export function ModelManager(): JSX.Element {
 
   function confirmPendingSwitchDownload() {
     const pending = pendingRuntimeSwitch();
-    if (!pending) return;
+    const pendingKey = pendingRuntimeSwitchKey();
+    if (!pending || !pendingKey) return;
+    setAcknowledgedPendingSwitchKey(pendingKey);
     setPendingSwitchConfirmVisible(false);
     setStatusMessage("");
     backend.downloadModel(pending.model, pending.runtime, pending.runtime);

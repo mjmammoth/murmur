@@ -1022,12 +1022,16 @@ class BridgeServer:
                     else None
                 )
                 download_key = self._download_task_key(name, runtime)
-                self._download_queue.enqueue_download(download_key, model=name, runtime=runtime)
                 task = self._spawn_model_task(
                     download_key,
                     self._download_model(name, runtime=runtime, activate_runtime=activate_target),
                 )
-                self._download_queue.bind_task(download_key, task)
+                self._download_queue.enqueue_download(
+                    download_key,
+                    model=name,
+                    runtime=runtime,
+                    task=task,
+                )
             elif msg_type == "cancel_model_download":
                 await self._cancel_model_download(
                     data.get("name", ""),
@@ -1404,21 +1408,23 @@ class BridgeServer:
             else None
         )
         download_key = self._download_task_key(name, normalized_runtime)
+        queue_task = asyncio.current_task()
         cancel_event = self._download_queue.cancel_event_for(download_key)
         if cancel_event is None:
             cancel_event = self._download_queue.enqueue_download(
                 download_key,
                 model=name,
                 runtime=normalized_runtime,
+                task=queue_task,
             )
         if cancel_event.is_set():
-            self._download_queue.mark_cancelled(download_key)
+            self._download_queue.mark_cancelled(download_key, task=queue_task)
             return
 
         async with self._model_op_lock:
-            self._download_queue.mark_running(download_key)
+            self._download_queue.mark_running(download_key, task=queue_task)
             if cancel_event.is_set():
-                self._download_queue.mark_cancelled(download_key)
+                self._download_queue.mark_cancelled(download_key, task=queue_task)
                 return
             await self._broadcast(
                 {
@@ -1460,7 +1466,7 @@ class BridgeServer:
                         cancel_check=lambda: self._shutdown_requested.is_set() or cancel_event.is_set(),
                     ),
                 )
-                self._download_queue.mark_completed(download_key)
+                self._download_queue.mark_completed(download_key, task=queue_task)
                 # Send 100% to ensure TUI sees completion
                 await self._broadcast(
                     {
@@ -1503,7 +1509,7 @@ class BridgeServer:
                     await self._set_selected_model(name)
                 await self._broadcast_models()
             except DownloadCancelledError:
-                self._download_queue.mark_cancelled(download_key)
+                self._download_queue.mark_cancelled(download_key, task=queue_task)
                 if not self._shutdown_requested.is_set():
                     await self._broadcast(
                         {
@@ -1518,13 +1524,13 @@ class BridgeServer:
                     await self._broadcast_models()
             except asyncio.CancelledError:
                 cancel_event.set()
-                self._download_queue.mark_cancelled(download_key)
+                self._download_queue.mark_cancelled(download_key, task=queue_task)
                 raise
             except Exception as exc:
                 if cancel_event.is_set():
-                    self._download_queue.mark_cancelled(download_key)
+                    self._download_queue.mark_cancelled(download_key, task=queue_task)
                 else:
-                    self._download_queue.mark_failed(download_key)
+                    self._download_queue.mark_failed(download_key, task=queue_task)
                 if not self._shutdown_requested.is_set():
                     await self._broadcast(
                         {

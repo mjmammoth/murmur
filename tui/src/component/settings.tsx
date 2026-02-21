@@ -6,6 +6,7 @@ import { useDialog } from "../context/dialog";
 import { useConfig } from "../context/config";
 import { useBackend } from "../context/backend";
 import { formatDeviceLabel } from "../util/format";
+import type { RuntimeName } from "../types";
 
 type SettingSection = "Capture" | "Model" | "Output" | "Appearance" | "Advanced";
 type ControlKind = "toggle" | "select" | "open" | "edit" | "read-only";
@@ -111,11 +112,10 @@ export function Settings(): JSX.Element {
   const selectedInstalledModelName = createMemo(() => {
     const selected = config.config()?.model.name;
     if (!selected) return "none";
-    const activeRuntime = config.config()?.model.runtime ?? "faster-whisper";
+    const activeRuntime =
+      (config.config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
     const match = backend.models().find((model) => model.name === selected);
-    return match?.variants?.[activeRuntime as "faster-whisper" | "whisper.cpp"]?.installed
-      ? selected
-      : "none";
+    return match?.variants?.[activeRuntime]?.installed ? selected : "none";
   });
 
   function returnFilterQuery() {

@@ -609,9 +609,7 @@ export function SettingsSelectModal(): JSX.Element {
                               ? option.disabled
                                 ? colors().warning
                                 : colors().success
-                              : option.disabled
-                                ? colors().textDim
-                                : colors().textDim,
+                              : colors().textDim,
                           }}
                         >
                           {isCurrent() ? "current" : option.disabled ? "disabled" : ""}
