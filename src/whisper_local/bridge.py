@@ -1972,12 +1972,11 @@ class BridgeServer:
 
         current_device_state = runtime_devices.get(normalized_device, {"enabled": False})
         if not current_device_state.get("enabled", False):
-            for candidate in ("mps", "cpu", "cuda"):
+            for candidate in ("cuda", "mps", "cpu"):
                 candidate_state = runtime_devices.get(candidate, {"enabled": False})
                 if candidate_state.get("enabled", False):
                     normalized_device = candidate
                     break
-
         compute_map = runtime_model.get("compute_types_by_device", {})
         valid_compute_types = {
             str(item).strip().lower()
