@@ -2,10 +2,6 @@
 
 **Press a key. Speak. Text appears in your app.** Local, private voice transcription — nothing leaves your machine.
 
-> [!IMPORTANT]
-> This repo is 99.9999999% vibe-coded.
-> Literally only this disclaimer is human-written.
-
 <!-- tui-showcase:start -->
 ![whisper.local TUI home across themes](docs/assets/tui-home-themes.png)
 <!-- tui-showcase:end -->
@@ -17,6 +13,10 @@
 3. **Text appears** — transcription auto-pastes into your active app, or copies to clipboard
 
 Everything runs on your machine. No cloud API, no network calls, no data collection. Your voice stays on your machine, always.
+
+> [!IMPORTANT]
+> This repo is 99.9999999% vibe-coded.
+> Literally only this disclaimer is human-written.
 
 ## Features
 
