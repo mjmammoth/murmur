@@ -28,6 +28,12 @@ repos:
         entry: bunx tsc --noEmit -p tui/tsconfig.json
         language: system
         pass_filenames: false
+      - id: brew-formula-lint
+        name: Brew formula lint
+        entry: scripts/precommit_brew_formula.sh
+        language: system
+        pass_filenames: false
+        files: ^scripts/(templates/whisper-local\.rb\.tpl|update_tap_formula\.py)$
       - id: tui-showcase-refresh
         name: TUI showcase refresh
         entry: scripts/precommit_tui_showcase.sh

@@ -29,7 +29,6 @@ def template_file(tmp_path: Path) -> Path:
     template = tmp_path / "test.rb.tpl"
     template.write_text(
         'class WhisperLocal < Formula\n'
-        '  version "$VERSION"\n'
         '  url "$WHEEL_URL"\n'
         '  sha256 "$WHEEL_SHA256"\n'
         '  resource "tui" do\n'
@@ -199,13 +198,11 @@ def test_render_formula(module, template_file: Path):
 
     rendered = module.render_formula(args)
 
-    assert '1.2.3' in rendered
     assert 'https://example.com/wheel.whl' in rendered
     assert 'a' * 64 in rendered
     assert 'https://example.com/tui.tar.gz' in rendered
     assert 'b' * 64 in rendered
     assert 'test/repo' in rendered
-    assert '$VERSION' not in rendered
     assert '$WHEEL_URL' not in rendered
 
 
