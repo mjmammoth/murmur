@@ -73,23 +73,11 @@ const transcripts: DemoTranscript[] = [
   },
   {
     timestamp: "08:26:20",
-    text: "How do I deploy my static docs using a custom domain via App Engine in GCP.",
-  },
-  {
-    timestamp: "06:30:17",
-    text: "Which DNS records do I need to add?",
+    text: "How do I deploy my static docs using a custom domain via App Engine in GCP. Which DNS records do I need to add?",
   },
   {
     timestamp: "09:18:15",
     text: "Now the domains are certified, but both are pointing to the same App Engine service, how do I correctly route a custom domain to the non-default service?",
-  },
-  {
-    timestamp: "09:20:06",
-    text: "Check the current repo, what does it achieve?",
-  },
-  {
-    timestamp: "09:20:36",
-    text: "Generate a development how-to document that guides beginner developers.",
   },
   {
     timestamp: "09:25:14",
