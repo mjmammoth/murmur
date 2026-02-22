@@ -22,7 +22,7 @@ def parse_args() -> argparse.Namespace:
         args (argparse.Namespace): Parsed command-line arguments with attributes used to render and write the formula.
     """
     parser = argparse.ArgumentParser(description="Render Homebrew formula for whisper-local.")
-    parser.add_argument("--version", required=True, help="Release version without v prefix")
+    parser.add_argument("--version", default="", help="Release version without v prefix")
     parser.add_argument("--wheel-url", required=True, help="URL to Python wheel")
     parser.add_argument("--wheel-sha256", required=True, help="SHA256 for Python wheel")
     parser.add_argument("--tui-url", required=True, help="URL to TUI tarball")
@@ -68,7 +68,7 @@ def validate_args(args: argparse.Namespace) -> None:
         ValueError: If any argument fails its validation check (invalid version, repository,
         wheel/tui URL suffix, or SHA256 format).
     """
-    if not VERSION_PATTERN.match(args.version):
+    if args.version and not VERSION_PATTERN.match(args.version):
         raise ValueError(f"Invalid version: {args.version}")
     if not args.repository or "/" not in args.repository:
         raise ValueError(f"Invalid repository value: {args.repository!r}")
@@ -90,7 +90,6 @@ def render_formula(args: argparse.Namespace) -> str:
     
     Parameters:
         args (argparse.Namespace): Parsed arguments providing values used for substitution:
-            - version: value for `VERSION`
             - repository: value for `REPOSITORY`
             - wheel_url: value for `WHEEL_URL`
             - wheel_sha256: value for `WHEEL_SHA256`
@@ -104,7 +103,6 @@ def render_formula(args: argparse.Namespace) -> str:
     template_path = Path(args.template)
     template = Template(template_path.read_text(encoding="utf-8"))
     return template.substitute(
-        VERSION=args.version,
         REPOSITORY=args.repository,
         WHEEL_URL=args.wheel_url,
         WHEEL_SHA256=args.wheel_sha256,

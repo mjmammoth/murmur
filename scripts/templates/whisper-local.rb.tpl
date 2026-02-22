@@ -4,7 +4,6 @@ class WhisperLocal < Formula
   desc "Local real-time voice transcription TUI using Whisper"
   homepage "https://github.com/$REPOSITORY"
   url "$WHEEL_URL"
-  version "$VERSION"
   sha256 "$WHEEL_SHA256"
   license "MIT"
 
