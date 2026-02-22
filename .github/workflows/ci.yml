@@ -166,7 +166,7 @@ jobs:
 
       - name: Render formula and register local tap
         run: |
-          WHEEL_PATH="$(ls dist/*.whl | head -n 1)"
+          WHEEL_PATH="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
           TUI_PATH="dist/tui/whisper-local-tui-darwin-arm64.tar.gz"
 
           WHEEL_SHA="$(shasum -a 256 "$WHEEL_PATH" | awk '{print $1}')"

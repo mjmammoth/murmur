@@ -20,18 +20,21 @@ PYTHON="${PYTHON:-python3}"
 SKIP_BUILD=false
 NO_CLEANUP=false
 AUDIT_ONLY=false
+STRICT=false
 
 for arg in "$@"; do
   case "$arg" in
     --skip-build)  SKIP_BUILD=true ;;
     --no-cleanup)  NO_CLEANUP=true ;;
     --audit-only)  AUDIT_ONLY=true ;;
+    --strict)      STRICT=true ;;
     --help|-h)
-      echo "Usage: $0 [--skip-build] [--no-cleanup] [--audit-only]"
+      echo "Usage: $0 [--skip-build] [--no-cleanup] [--audit-only] [--strict]"
       echo ""
       echo "  --skip-build   Reuse existing artifacts in dist/"
       echo "  --no-cleanup   Leave the local tap and installed formula"
       echo "  --audit-only   Only run brew style + audit (no install)"
+      echo "  --strict       Fail on brew style/audit errors"
       exit 0
       ;;
     *)
@@ -91,7 +94,7 @@ fi
 # ---------------------------------------------------------------------------
 # 2. Locate artifacts and compute checksums
 # ---------------------------------------------------------------------------
-WHEEL_PATH="$(ls "$REPO_ROOT"/dist/*.whl 2>/dev/null | head -n 1)"
+WHEEL_PATH="$(find "$REPO_ROOT/dist" -maxdepth 1 -type f -name '*.whl' -print -quit 2>/dev/null)"
 TUI_PATH="$REPO_ROOT/dist/tui/whisper-local-tui-darwin-arm64.tar.gz"
 
 if [ -z "$WHEEL_PATH" ] || [ ! -f "$WHEEL_PATH" ]; then
@@ -149,10 +152,18 @@ brew tap "$TAP_NAME" "$TAP_DIR"
 # 4. Validate
 # ---------------------------------------------------------------------------
 echo "==> Running brew style..."
-brew style --formula "$TAP_NAME/$FORMULA_NAME" || true
+if [ "$STRICT" = true ]; then
+  brew style --formula "$TAP_NAME/$FORMULA_NAME"
+else
+  brew style --formula "$TAP_NAME/$FORMULA_NAME" || true
+fi
 
 echo "==> Running brew audit..."
-brew audit --formula "$TAP_NAME/$FORMULA_NAME" || true
+if [ "$STRICT" = true ]; then
+  brew audit --formula "$TAP_NAME/$FORMULA_NAME"
+else
+  brew audit --formula "$TAP_NAME/$FORMULA_NAME" || true
+fi
 
 if [ "$AUDIT_ONLY" = true ]; then
   echo "==> Done (--audit-only). Skipping install."
