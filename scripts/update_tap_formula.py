@@ -55,7 +55,7 @@ def validate_args(args: argparse.Namespace) -> None:
     Validate parsed CLI arguments for expected formats and required values.
     
     Checks that:
-    - `args.version` matches the module-level VERSION_PATTERN.
+    - `args.version`, if provided, matches the module-level VERSION_PATTERN.
     - `args.repository` is non-empty and contains a forward slash.
     - `args.wheel_url` ends with ".whl".
     - `args.tui_url` ends with ".tar.gz".

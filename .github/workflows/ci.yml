@@ -168,7 +168,16 @@ jobs:
       - name: Render formula and register local tap
         run: |
           WHEEL_PATH="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
-          TUI_PATH="dist/tui/whisper-local-tui-darwin-arm64.tar.gz"
+          TUI_PATH="$(find dist/tui -maxdepth 1 -type f -name '*whisper-local-tui*.tar.gz' -print -quit)"
+
+          if [ -z "$WHEEL_PATH" ] || [ ! -f "$WHEEL_PATH" ]; then
+            echo "Error: No wheel artifact found in dist/" >&2
+            exit 1
+          fi
+          if [ -z "$TUI_PATH" ] || [ ! -f "$TUI_PATH" ]; then
+            echo "Error: No TUI tarball found in dist/tui/" >&2
+            exit 1
+          fi
 
           WHEEL_SHA="$(shasum -a 256 "$WHEEL_PATH" | awk '{print $1}')"
           TUI_SHA="$(shasum -a 256 "$TUI_PATH" | awk '{print $1}')"
