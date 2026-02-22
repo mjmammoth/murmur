@@ -25,7 +25,7 @@ Everything runs on your machine. No cloud API, no network calls, no data collect
 - **Auto-copy** — transcription goes straight to clipboard
 - **Auto-paste** — transcribed text pastes directly into your active application
 - **Auto-revert clipboard** — after auto-paste, previous clipboard content is restored by default
-- **Terminal UI** built with OpenTUI + SolidJS — transcript history, click-to-copy, theme picker
+- **Terminal UI** built with OpenTUI + SolidJS — configure settings, transcript history
 - **Pluggable runtimes** — faster-whisper (CPU/CUDA) or whisper.cpp (CPU/Metal GPU on macOS)
 - **Model management** — download, remove, and select OpenAI Whisper models from tiny to large-v3-turbo
 - **macOS menu bar indicator** — status dot shows recording / transcribing / idle state
@@ -37,7 +37,7 @@ Everything runs on your machine. No cloud API, no network calls, no data collect
 ### Homebrew (v1 arm64)
 
 ```bash
-brew tap mjmammoth/homebrew-tap
+brew tap mjmammoth/tap
 brew install whisper-local
 ```
 
