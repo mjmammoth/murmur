@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=68", "setuptools-scm>=8", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "whisper-local"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Local real-time voice transcription TUI using Whisper"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -44,3 +44,5 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 whisper_local = ["default_config.toml"]
+
+[tool.setuptools_scm]

@@ -23,9 +23,6 @@ jobs:
       - name: Install project dependencies
         run: python -m pip install -e .
 
-      - name: Check version sync
-        run: python scripts/check_version_sync.py
-
       - name: Lint
         run: ruff check src tests scripts
 
@@ -181,11 +178,7 @@ jobs:
 
           WHEEL_SHA="$(shasum -a 256 "$WHEEL_PATH" | awk '{print $1}')"
           TUI_SHA="$(shasum -a 256 "$TUI_PATH" | awk '{print $1}')"
-          VERSION="$(python -c "
-          import tomllib, pathlib
-          data = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
-          print(data['project']['version'])
-          ")"
+          VERSION="$(basename "$WHEEL_PATH" | sed 's/^whisper_local-//;s/-py3.*//')"
 
           TAP_DIR="$(mktemp -d)"
           mkdir -p "$TAP_DIR/Formula"

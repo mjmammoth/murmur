@@ -480,6 +480,17 @@ export function Settings(): JSX.Element {
           }),
       },
       {
+        id: "system.version",
+        section: "Advanced",
+        title: "Version",
+        description: "whisper.local version",
+        keywords: ["version", "about"],
+        controlKind: "read-only",
+        affordance: "read-only",
+        interactive: false,
+        value: () => withFallback(cfg?.version),
+      },
+      {
         id: "audio.noise.level",
         section: "Advanced",
         title: "Noise Level",

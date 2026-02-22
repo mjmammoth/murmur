@@ -170,6 +170,7 @@ function WelcomeStep(): JSX.Element {
 
 function HelpScreen(): JSX.Element {
   const { colors } = useTheme();
+  const backend = useBackend();
   return (
     <box flexDirection="column" gap={1} paddingX={2} paddingY={1} flexShrink={0}>
       <BrandTitle />
@@ -267,6 +268,14 @@ function HelpScreen(): JSX.Element {
         <Paragraph>Buttons, labels, toggles, status indicators - click them</Paragraph>
         <Paragraph>to interact, or use the keyboard shortcuts above.</Paragraph>
       </box>
+
+      <Show when={backend.config()?.version}>
+        <box marginTop={1}>
+          <text>
+            <span style={{ fg: colors().textDim }}>{backend.config()?.version}</span>
+          </text>
+        </box>
+      </Show>
     </box>
   );
 }

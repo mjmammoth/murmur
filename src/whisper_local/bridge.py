@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import websockets
 from websockets.server import WebSocketServerProtocol
 
+from whisper_local import __version__
 from whisper_local.audio import (
     AudioInputDeviceInfo,
     AudioRecorder,
@@ -3236,6 +3237,7 @@ class BridgeServer:
         config_dict["first_run_setup_required"] = self._first_run_setup_required
         config_dict["runtime"] = self._runtime_capabilities
         config_dict["audio_inputs"] = self._audio_inputs_payload()
+        config_dict["version"] = __version__
         return config_dict
 
     def shutdown(self) -> None:

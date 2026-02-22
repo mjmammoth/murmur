@@ -108,6 +108,7 @@ export interface AppConfig {
   first_run_setup_required?: boolean;
   runtime?: RuntimeCapabilities;
   audio_inputs?: AudioInputsConfig;
+  version?: string;
 }
 
 // Transcript types
