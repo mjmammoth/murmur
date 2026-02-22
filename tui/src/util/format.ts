@@ -70,3 +70,25 @@ export function formatDeviceLabel(value: string | null | undefined, fallback = "
 
   return text;
 }
+
+interface AudioInputLabelDevice {
+  key: string;
+  name: string;
+  hostapi: string;
+}
+
+/**
+ * Format the Settings label for the configured audio input device.
+ */
+export function formatAudioInputLabel(
+  selectedKey: string | null | undefined,
+  devices: AudioInputLabelDevice[] | null | undefined,
+): string {
+  const normalizedKey = (selectedKey ?? "").trim();
+  if (!normalizedKey) return "System default";
+
+  const knownDevice = (devices ?? []).find((device) => device.key === normalizedKey);
+  if (!knownDevice) return "Unavailable (saved device)";
+
+  return `${knownDevice.name} (${knownDevice.hostapi})`;
+}

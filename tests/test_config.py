@@ -64,3 +64,44 @@ auto_paste = true
     config = load_config(config_path)
 
     assert config.auto_revert_clipboard is True
+
+
+def test_load_config_defaults_audio_input_device_none(tmp_path: Path) -> None:
+    """Missing audio.input_device should default to None."""
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[audio]
+sample_rate = 16000
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.audio.input_device is None
+
+
+def test_save_config_round_trip_audio_input_device(tmp_path: Path) -> None:
+    """Explicit audio.input_device should survive save/load round trips."""
+    config_path = tmp_path / "config.toml"
+    config = load_config(config_path)
+    config.audio.input_device = "CoreAudio:Built-in Microphone"
+
+    save_config(config, config_path)
+    reloaded = load_config(config_path)
+
+    assert reloaded.audio.input_device == "CoreAudio:Built-in Microphone"
+
+
+def test_save_config_omits_none_audio_input_device(tmp_path: Path) -> None:
+    """None audio.input_device should not be written to disk."""
+    config_path = tmp_path / "config.toml"
+    config = load_config(config_path)
+    config.audio.input_device = None
+
+    save_config(config, config_path)
+    written = config_path.read_text(encoding="utf-8")
+
+    assert "input_device" not in written

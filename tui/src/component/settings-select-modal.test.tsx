@@ -8,6 +8,22 @@ import { formatDeviceLabel } from "../util/format";
  */
 
 describe("SettingsSelectModal", () => {
+  describe("audio input payloads", () => {
+    test("should keep null device key when selecting system default", () => {
+      const selected = { value: null, label: "System default" };
+      const payload = { type: "set_audio_input_device", device_key: selected.value };
+
+      expect(payload.device_key).toBeNull();
+    });
+
+    test("should send explicit key when selecting an input device", () => {
+      const selected = { value: "CoreAudio:USB Mic", label: "USB Mic" };
+      const payload = { type: "set_audio_input_device", device_key: selected.value };
+
+      expect(payload.device_key).toBe("CoreAudio:USB Mic");
+    });
+  });
+
   describe("device label formatting", () => {
     test("should format mps label as Metal (mps)", () => {
       expect(formatDeviceLabel("mps")).toBe("Metal (mps)");

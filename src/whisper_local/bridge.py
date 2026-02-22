@@ -19,7 +19,14 @@ from urllib.parse import parse_qs, unquote, urlparse
 import websockets
 from websockets.server import WebSocketServerProtocol
 
-from whisper_local.audio import AudioRecorder
+from whisper_local.audio import (
+    AudioInputDeviceInfo,
+    AudioRecorder,
+    default_audio_input_device,
+    find_audio_input_device,
+    resolve_audio_input_device_index,
+    scan_audio_input_devices,
+)
 from whisper_local.audio_file import DEFAULT_DECODE_SAMPLE_RATE, load_audio_file
 from whisper_local.config import (
     AppConfig,
@@ -110,9 +117,9 @@ class BridgeServer:
     def __init__(self, config: AppConfig) -> None:
         """
         Initialize internal BridgeServer state and lazy component placeholders from the given configuration.
-        
+
         Initializes client sets, runtime/state flags, concurrency primitives, task registries, runtime capability cache, and placeholders for audio/transcription/hotkey components. If the config enables auto_paste while auto_copy is disabled, this initializer enables auto_copy, persists the config, and logs that change.
-        
+
         Parameters:
             config (AppConfig): Application configuration used to initialize server settings and defaults.
         """
@@ -144,6 +151,13 @@ class BridgeServer:
         self._runtime_capabilities: dict[str, Any] = {}
         self._runtime_capabilities_updated_at = 0.0
         self._runtime_capabilities_dirty = True
+        self._audio_inputs: list[AudioInputDeviceInfo] = []
+        self._audio_inputs_error: str | None = None
+        self._audio_inputs_updated_at = 0.0
+        self._audio_inputs_dirty = True
+        self._active_audio_input_key: str | None = None
+        self._startup_audio_notice: str | None = None
+        self._startup_audio_notice_level = "info"
         self._shutdown_requested = threading.Event()
 
         self._background_tasks: set[asyncio.Task] = set()
@@ -175,13 +189,13 @@ class BridgeServer:
     def _spawn_model_task(self, name: str, coro) -> asyncio.Task:
         """
         Start and track a named background task for model operations.
-        
+
         If a previous task with the same name is running, it is cancelled and replaced. The mapping for the name is removed when the created task completes.
-        
+
         Parameters:
             name (str): Identifier for the model task; used to ensure only one task per name is tracked.
             coro (Coroutine): The coroutine to schedule as the model task.
-        
+
         Returns:
             task (asyncio.Task): The created asyncio Task running the provided coroutine.
         """
@@ -208,7 +222,7 @@ class BridgeServer:
     def _download_task_key(name: str, runtime: str) -> str:
         """
         Return a unique identifier for a model download task scoped to a runtime.
-        
+
         Returns:
             task_key (str): A string in the format "<runtime>:<model_name>" suitable for use as a download/cancellation key.
         """
@@ -217,13 +231,13 @@ class BridgeServer:
     def _resolve_download_cancel_key(self, name: str, runtime: str | None) -> str | None:
         """
         Resolve the download cancellation key for a requested model download.
-        
+
         Given a model identifier and optional runtime, return the concrete download task key that should be used to cancel or target a download. The function accepts an explicit task key (contains ':'), a model name (which may match one queued key), or an empty name to target the single queued download.
-        
+
         Parameters:
         	name (str): Model name, explicit download key, or empty string to target the single queued download.
         	runtime (str | None): Optional runtime name to disambiguate per-runtime variants; may be None.
-        
+
         Returns:
         	str | None: The resolved download task key string, or `None` if no unique key could be determined.
         """
@@ -247,7 +261,7 @@ class BridgeServer:
     def _client_path(self, websocket: WebSocketServerProtocol) -> str:
         """
         Resolve the HTTP request path for a client WebSocket across different websockets library versions.
-        
+
         Returns:
             The connection path for the client, or an empty string if it cannot be determined.
         """
@@ -281,7 +295,7 @@ class BridgeServer:
     def _active_client_count(self) -> int:
         """
         Count connected clients that are not marked as passive.
-        
+
         Returns:
             int: Number of active (non-passive) connected clients.
         """
@@ -290,10 +304,10 @@ class BridgeServer:
     def _installed_model_names(self, runtime: str | None = None) -> list[str]:
         """
         Return the names of models that are installed for the specified runtime.
-        
+
         Parameters:
             runtime (str | None): Runtime name to filter installed models by. If None, the configured model runtime is used; the value will be normalized before checking per-runtime variants.
-        
+
         Returns:
             list[str]: List of installed model names for the resolved runtime.
         """
@@ -313,10 +327,10 @@ class BridgeServer:
     def _has_installed_models(self, runtime: str | None = None) -> bool:
         """
         Return whether there is at least one installed model for the given runtime.
-        
+
         Parameters:
             runtime (str | None): Runtime name to filter installed models by. If `None`, consider all runtimes.
-        
+
         Returns:
             bool: `True` if one or more installed models exist for the specified scope, `False` otherwise.
         """
@@ -368,7 +382,14 @@ class BridgeServer:
 
     def _init_components(self) -> None:
         """Initialize audio, preprocessing, and hotkey components."""
-        self.recorder = AudioRecorder(sample_rate=self.config.audio.sample_rate)
+        self._refresh_audio_inputs(force=True)
+        recorder_device, startup_notice = self._resolve_recorder_device()
+        self.recorder = AudioRecorder(
+            sample_rate=self.config.audio.sample_rate,
+            device=recorder_device,
+        )
+        if startup_notice:
+            self._startup_audio_notice = startup_notice
         self.noise = RNNoiseSuppressor(enabled=self.config.audio.noise_suppression.enabled)
         self.vad = VadProcessor(
             enabled=self.config.vad.enabled, aggressiveness=self.config.vad.aggressiveness
@@ -382,7 +403,7 @@ class BridgeServer:
     def _create_transcriber(self) -> Any:
         """
         Create a Transcriber using the bridge server's current model configuration.
-        
+
         Returns:
             transcriber: A Transcriber initialized with the configured model name, runtime, device, compute_type, and model path.
         """
@@ -399,7 +420,7 @@ class BridgeServer:
     def _ensure_whisper_cpp_installed(self) -> None:
         """
         Ensure that a whisper.cpp binary is available on the system PATH.
-        
+
         Raises:
             RuntimeError: If none of the expected whisper.cpp binaries are found; the error message suggests installing via Homebrew.
         """
@@ -413,10 +434,10 @@ class BridgeServer:
     def _detect_runtime_capabilities(self, selected_runtime: str | None = None) -> dict[str, Any]:
         """
         Detects the capabilities of a runtime and returns a capabilities mapping.
-        
+
         Parameters:
         	selected_runtime (str | None): Optional runtime name to probe. If omitted, uses the runtime configured in self.config.model.runtime.
-        
+
         Returns:
         	capabilities (dict[str, Any]): A mapping of capability keys to detected values for the probed runtime.
         """
@@ -443,10 +464,81 @@ class BridgeServer:
         self._runtime_capabilities_updated_at = monotonic()
         self._runtime_capabilities_dirty = False
 
+    _AUDIO_INPUTS_TTL = 5.0
+
+    def _refresh_audio_inputs(self, *, force: bool = False) -> None:
+        now = monotonic()
+        if not force and not self._audio_inputs_dirty:
+            if (now - self._audio_inputs_updated_at) < self._AUDIO_INPUTS_TTL:
+                return
+        result = scan_audio_input_devices(sample_rate=self.config.audio.sample_rate)
+        self._audio_inputs = result.devices
+        self._audio_inputs_error = result.error
+        self._audio_inputs_updated_at = now
+        self._audio_inputs_dirty = False
+
+    def _invalidate_audio_inputs(self) -> None:
+        self._audio_inputs_dirty = True
+
+    def _resolve_recorder_device(self) -> tuple[int | None, str | None]:
+        selected_key = self.config.audio.input_device
+        if selected_key is None:
+            self._active_audio_input_key = None
+            return None, None
+
+        selected = find_audio_input_device(selected_key, self._audio_inputs)
+        if selected is None:
+            logger.info(
+                "Configured input device '%s' unavailable. Falling back to system default.",
+                selected_key,
+            )
+            self.config.audio.input_device = None
+            self._active_audio_input_key = None
+            persist_error = self._persist_config("audio input device fallback")
+            notice = (
+                "Saved input device unavailable; using system default"
+                if persist_error is None
+                else (
+                    "Saved input device unavailable; using system default "
+                    f"(failed to save fallback: {persist_error})"
+                )
+            )
+            return None, notice
+
+        self._active_audio_input_key = selected.key
+        return selected.index, None
+
+    def _sample_rate_compatibility_issue(
+        self,
+        *,
+        sample_rate: int,
+        device_key: str | None,
+    ) -> str | None:
+        result = scan_audio_input_devices(sample_rate=sample_rate)
+        devices = result.devices
+        if result.error and not devices:
+            # Validation is best-effort: if probing fails entirely, do not block the setting change.
+            return None
+
+        if device_key is not None:
+            selected = find_audio_input_device(device_key, devices)
+            if selected is None:
+                return "Selected input device is unavailable"
+            if selected.sample_rate_supported is False:
+                return selected.sample_rate_reason or "Selected input does not support this sample rate"
+            return None
+
+        default_input = default_audio_input_device(devices)
+        if default_input is None:
+            return None
+        if default_input.sample_rate_supported is False:
+            return default_input.sample_rate_reason or "System default input does not support this sample rate"
+        return None
+
     async def _initialize_runtime_after_server_start(self) -> None:
         """
         Perform post-start initialization of runtime components, detect runtime capabilities, ensure a model is selected/available, and trigger model loading.
-        
+
         Initializes lazily-created components, prunes invalid model caches, detects and caches runtime capabilities, and broadcasts current configuration to clients. If no installed models are found this marks first-run setup as required and updates status; if the configured model is unavailable it selects a suitable installed fallback, persists that change, notifies clients, and then starts asynchronous model loading.
         """
         loop = asyncio.get_event_loop()
@@ -476,6 +568,15 @@ class BridgeServer:
             logger.warning("Failed to detect runtime capabilities", exc_info=True)
 
         await self._broadcast_config()
+        if self._startup_audio_notice:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": self._startup_audio_notice,
+                    "level": self._startup_audio_notice_level,
+                }
+            )
+            self._startup_audio_notice = None
 
         if self._first_run_setup_required:
             await self._set_status(
@@ -525,7 +626,7 @@ class BridgeServer:
     async def _load_model_async(self) -> None:
         """
         Load and initialize the configured transcription model and prepare the bridge for transcription.
-        
+
         Loads and initializes the transcriber for the current model/runtime, marks the model as loaded, starts the hotkey listener if applicable, logs runtime and model information, and updates the bridge status to "ready" on success. On failure, updates the bridge status to "error" with the failure details.
         """
         await self._set_status(
@@ -602,7 +703,21 @@ class BridgeServer:
         """Start audio recording."""
         if self._recording or not self.recorder:
             return
-        self.recorder.start()
+        try:
+            self.recorder.start()
+        except Exception as exc:
+            logger.exception("Failed to start audio recording")
+            self._invalidate_audio_inputs()
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Failed to start recording: {exc}",
+                    "level": "error",
+                }
+            )
+            await self._set_status("error", f"Recording failed: {exc}")
+            await self._broadcast_config()
+            return
         self._recording = True
         await self._set_status("recording", "Recording...")
 
@@ -658,17 +773,17 @@ class BridgeServer:
     ) -> tuple[str, str]:
         """
         Process a block of audio through optional noise suppression, optional VAD trimming, and transcription, then emit resulting UI events and outputs.
-        
+
         Parameters:
             audio (array-like): 1-D audio samples to transcribe.
             transcriber (optional): Transcriber instance to use instead of the server's current transcriber.
             language (optional str): Language override for transcription (use None for auto-detect).
             sample_rate (optional int): Sample rate of `audio`; if omitted uses configured sample rate.
             source_label (optional str): Human-readable source identifier included in error toasts.
-        
+
         Returns:
             tuple[str, str]: A (status, message) pair describing the final job outcome. `status` is `"ready"` on success or `"error"` on failure; `message` contains a short human-readable result or error description.
-        
+
         Notes:
             - Side effects include broadcasting transcript and toast messages to connected clients, copying/pasting/restoring the clipboard according to configuration, appending output to a file when enabled, and updating internal transcription job state.
         """
@@ -856,9 +971,9 @@ class BridgeServer:
     ) -> None:
         """
         Set the server status and broadcast a corresponding "status" message to connected clients.
-        
+
         Updates the internal status and status message, then sends a payload with keys "type", "status", and "message". If `elapsed` is provided it is included (converted to an integer); otherwise, when `status` is "transcribing" or "downloading" and a busy start time exists, an elapsed value is computed from that start time and included.
-        
+
         Parameters:
             status: A short status identifier to set.
             message: Human-readable status message to include in the broadcast.
@@ -876,7 +991,7 @@ class BridgeServer:
     def _mirror_toast_to_logger(self, message: dict[str, Any]) -> None:
         """
         Log toast-type messages to the module logger, including optional metadata.
-        
+
         Parameters:
             message (dict[str, Any]): A message payload; if its `"type"` is `"toast"` and it contains a non-empty `"message"` string, the function logs that text at the level given by `"level"` (defaults to `"info"`). If present, `"action"`, `"runtime"`, and `"model"` values are appended as `(<key>=<value>, ...)`.
         """
@@ -1094,6 +1209,12 @@ class BridgeServer:
                 await self._set_theme(data.get("theme", ""))
             elif msg_type == "set_audio_sample_rate":
                 await self._set_audio_sample_rate(data.get("sample_rate"))
+            elif msg_type == "set_audio_input_device":
+                await self._set_audio_input_device(data.get("device_key"))
+            elif msg_type == "refresh_audio_inputs":
+                self._invalidate_audio_inputs()
+                self._refresh_audio_inputs(force=True)
+                await self._broadcast_config()
             elif msg_type == "set_vad_aggressiveness":
                 await self._set_vad_aggressiveness(data.get("aggressiveness"))
             elif msg_type == "set_output_clipboard":
@@ -1495,9 +1616,9 @@ class BridgeServer:
     ) -> None:
         """
         Download the named model for a specified runtime, broadcast incremental progress and toasts to connected clients, and activate or select the model on success.
-        
+
         This operation is cooperatively cancellable (via per-model cancel events and the server shutdown signal). On success it broadcasts a final 100% progress event and a success toast, updates model lists, and either activates the model for a provided activation runtime or selects it for the current runtime. On cancellation or failure it broadcasts appropriate toasts and updates the download queue state.
-        
+
         Parameters:
             name (str): Model identifier to download.
             runtime (str | None): Runtime name to download the model for; if omitted, uses the server's configured model runtime.
@@ -1543,7 +1664,7 @@ class BridgeServer:
             def on_progress(percent: int) -> None:
                 """
                 Broadcast incremental download progress for a specific model/runtime, clamping values and avoiding redundant updates.
-                
+
                 Parameters:
                     percent (int): Reported progress value; will be clamped to the range 0–99 and only broadcast when it changes from the last sent value.
                 """
@@ -1657,9 +1778,9 @@ class BridgeServer:
     async def _cancel_model_download(self, name: str, runtime: Any = None) -> None:
         """
         Cancel a queued or in-progress model download.
-        
+
         Resolves the download key for the given model (or infers a single active/queued download when `name` is empty), signals cancellation to the download queue, and broadcasts a toast describing the outcome (e.g., cancelling, cancelled queued download, or no matching download).
-        
+
         Parameters:
             name (str): Model name to cancel; may be an empty string to target a single active/queued download.
             runtime (Any): Optional runtime identifier used to resolve per-runtime downloads; when omitted, resolution may infer or default the runtime.
@@ -1727,7 +1848,7 @@ class BridgeServer:
     async def _cancel_all_model_downloads(self) -> None:
         """
         Cancel all in-progress and queued model downloads and notify connected clients.
-        
+
         Calls the internal download queue to cancel every scheduled download. For each cancelled entry, broadcasts a toast to connected clients indicating whether a queued download was cancelled or an active download is being cancelled.
         """
         results = self._download_queue.cancel_all()
@@ -1761,9 +1882,9 @@ class BridgeServer:
     async def _remove_model(self, name: str, runtime: str | None = None) -> None:
         """
         Remove an installed model and broadcast the result to connected clients.
-        
+
         Removes the model identified by `name` for the given `runtime` (or the server's current model runtime if `runtime` is None). On success broadcasts a success toast, refreshes the installed model list, and then either enters first-run setup and notifies clients if no models remain, or selects a fallback model if the removed model was the current selection. On failure broadcasts an error toast containing the failure message.
-        
+
         Parameters:
             name (str): The name of the model to remove. If empty, the function returns without action.
             runtime (str | None): Optional runtime name to scope removal; when None the configured model runtime is used.
@@ -1832,7 +1953,7 @@ class BridgeServer:
     async def _set_selected_model(self, name: str) -> None:
         """
         Change the application's selected model, apply it by reloading the transcriber, and persist the configuration.
-        
+
         If the model name is unknown or not installed for the current runtime, a client-facing error toast is broadcast and no change is made. On success, the new selection is broadcast to clients with a success toast. If reloading the transcriber fails, the previous model selection is restored, clients are notified of the failure, and a rollback save is attempted. If persisting the new selection or the rollback fails, an error toast describing the save failure is broadcast.
         """
         if not name:
@@ -1925,7 +2046,7 @@ class BridgeServer:
     async def _reload_transcriber(self) -> None:
         """
         Load a new transcriber from the current model configuration and atomically replace the active transcriber.
-        
+
         This updates internal state to mark a model as loaded, clears first-run setup, refreshes cached runtime capabilities, and — if there are active clients — (re)starts the hotkey listener. Ongoing transcription jobs continue using the transcriber instance they captured before this swap; new recordings use the updated transcriber. If no recording or transcribing jobs remain, the server status is set to "ready".
         """
         async with self._model_reload_lock:
@@ -1950,9 +2071,9 @@ class BridgeServer:
     ) -> None:
         """
         Set the configured model runtime and attempt to apply it, broadcasting status and UI prompts as needed.
-        
+
         Validates the requested runtime, probes runtime capabilities, and ensures the currently selected model has a compatible variant for that runtime. If the runtime is unsupported or the required model variant is missing, broadcasts appropriate toast messages and (optionally) a UI prompt to download the variant. When a runtime change is applied, normalizes device and compute_type to supported values, persists the config, and attempts to reload the transcriber; on reload failure the previous model runtime/device/compute settings are restored and persisted. Broadcasts configuration and success or error toasts throughout the process.
-        
+
         Parameters:
             runtime_name (str): The name of the runtime to switch to (will be normalized and validated).
             allow_missing_variant_prompt (bool): If True, send a UI prompt requesting download of a missing per-runtime model variant; if False, only emit an error toast when the variant is absent.
@@ -2121,12 +2242,12 @@ class BridgeServer:
     ) -> tuple[str, str]:
         """
         Normalize and validate a requested device and compute type against a runtime's capabilities.
-        
+
         Parameters:
             capabilities (dict[str, Any]): Runtime capability info; expected to include a `"model"` mapping with `"devices"` and `"compute_types_by_device"`.
             device (str): Requested device name (e.g., "cpu", "cuda"); may be normalized and/or replaced with a supported fallback.
             compute_type (str): Requested compute type (e.g., "int8", "float32"); will be normalized and adjusted to a supported type for the selected device.
-        
+
         Returns:
             tuple[str, str]: A (device, compute_type) pair normalized to values supported by the runtime.
         """
@@ -2168,7 +2289,7 @@ class BridgeServer:
     async def _set_model_device(self, device: str) -> None:
         """
         Apply a new model device setting (one of "cpu", "cuda", or "mps"), persist the change, and reload the transcriber; broadcasts config and user-facing toasts and rolls back the setting if reload fails.
-        
+
         Parameters:
             device (str): Desired model execution device; accepted values are "cpu", "cuda", or "mps". If the device is invalid or unsupported by the current runtime, the change is rejected and an error toast is broadcast.
         """
@@ -2434,12 +2555,34 @@ class BridgeServer:
             await self._broadcast_config()
             return
 
+        compatibility_issue = self._sample_rate_compatibility_issue(
+            sample_rate=normalized,
+            device_key=self.config.audio.input_device,
+        )
+        if compatibility_issue is not None:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Sample rate {normalized} Hz unavailable: {compatibility_issue}",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
         if self.config.audio.sample_rate == normalized:
             return
 
         self.config.audio.sample_rate = normalized
         if self.recorder:
             self.recorder.sample_rate = normalized
+        self._invalidate_audio_inputs()
+        self._refresh_audio_inputs(force=True)
+        if self.recorder:
+            self.recorder.device = resolve_audio_input_device_index(
+                self.config.audio.input_device,
+                self._audio_inputs,
+            )
         persist_error = self._persist_config("audio sample rate")
 
         await self._broadcast_config()
@@ -2455,6 +2598,85 @@ class BridgeServer:
                 {
                     "type": "toast",
                     "message": f"Sample rate applied, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+
+    async def _set_audio_input_device(self, device_key: Any) -> None:
+        normalized: str | None
+        if device_key is None:
+            normalized = None
+        else:
+            trimmed = str(device_key).strip()
+            normalized = trimmed or None
+
+        if self._recording:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Cannot change input device while recording",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        self._invalidate_audio_inputs()
+        self._refresh_audio_inputs(force=True)
+
+        selected: AudioInputDeviceInfo | None = None
+        if normalized is not None:
+            selected = find_audio_input_device(normalized, self._audio_inputs)
+            if selected is None:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": "Selected input device is unavailable",
+                        "level": "error",
+                    }
+                )
+                await self._broadcast_config()
+                return
+            if selected.sample_rate_supported is False:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": (
+                            selected.sample_rate_reason
+                            or "Selected input does not support the current sample rate"
+                        ),
+                        "level": "error",
+                    }
+                )
+                await self._broadcast_config()
+                return
+
+        if self.config.audio.input_device == normalized:
+            return
+
+        self.config.audio.input_device = normalized
+        self._active_audio_input_key = normalized
+        if self.recorder:
+            self.recorder.device = resolve_audio_input_device_index(normalized, self._audio_inputs)
+        persist_error = self._persist_config("audio input device")
+
+        await self._broadcast_config()
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": (
+                    "Input device system default"
+                    if normalized is None
+                    else f"Input device {selected.name if selected else normalized}"
+                ),
+                "level": "success",
+            }
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Input device applied, but failed to save: {persist_error}",
                     "level": "error",
                 }
             )
@@ -2826,9 +3048,9 @@ class BridgeServer:
     async def _send_models(self, websocket: WebSocketServerProtocol) -> None:
         """
         Send the current installed models to the connected client.
-        
+
         Sends a JSON message with type "models" and a serialized list of installed models.
-        
+
         Parameters:
             websocket (WebSocketServerProtocol): The client's websocket to which the message will be sent.
         """
@@ -2851,10 +3073,10 @@ class BridgeServer:
     def _serialize_models(self, models: list[Any]) -> list[dict[str, Any]]:
         """
         Serialize model objects into a JSON-serializable list containing per-runtime variant metadata.
-        
+
         Parameters:
             models (list[Any]): Iterable of model objects. Each model is expected to have a `name` attribute and a `variants` mapping keyed by runtime name; each variant should expose `runtime`, `format`, `installed`, `path`, `size_bytes`, and `size_estimated`.
-        
+
         Returns:
             list[dict[str, Any]]: A list where each element is a dict with:
                 - "name" (str): model name
@@ -2887,7 +3109,7 @@ class BridgeServer:
     async def _set_welcome_shown(self) -> None:
         """
         Mark the welcome journey as shown in the app configuration and broadcast the updated config to connected clients.
-        
+
         Attempts to persist the change to disk; if persistence fails, the error is logged.
         """
         self.config.ui.welcome_shown = True
@@ -2900,7 +3122,7 @@ class BridgeServer:
     async def _send_capabilities(self, websocket: WebSocketServerProtocol) -> None:
         """
         Send current runtime capabilities and a recommended runtime/device to a connected client.
-        
+
         The recommendation prefers Apple Silicon MPS on macOS when available, otherwise prefers CUDA if present, and falls back to CPU with the "faster-whisper" runtime.
         """
         caps = self._runtime_capabilities or {}
@@ -2952,14 +3174,59 @@ class BridgeServer:
         """Broadcast config to all clients."""
         await self._broadcast({"type": "config", "config": self._config_payload()})
 
+    def _audio_inputs_payload(self) -> dict[str, Any]:
+        self._refresh_audio_inputs()
+        selected_key = self.config.audio.input_device
+        selected_device = find_audio_input_device(selected_key, self._audio_inputs)
+        selected_missing = selected_key is not None and selected_device is None
+        default_device = default_audio_input_device(self._audio_inputs)
+        active_key = self._active_audio_input_key
+        if active_key is None and selected_device is not None:
+            active_key = selected_device.key
+
+        devices: list[dict[str, Any]] = []
+        for device in self._audio_inputs:
+            devices.append(
+                {
+                    "key": device.key,
+                    "index": device.index,
+                    "name": device.name,
+                    "hostapi": device.hostapi,
+                    "max_input_channels": device.max_input_channels,
+                    "default_samplerate": device.default_samplerate,
+                    "is_default": device.is_default,
+                    "sample_rate_supported": device.sample_rate_supported,
+                    "sample_rate_reason": device.sample_rate_reason,
+                }
+            )
+
+        selected_missing_reason: str | None = None
+        if selected_missing:
+            selected_missing_reason = "Saved input device is unavailable"
+        elif selected_device and selected_device.sample_rate_supported is False:
+            selected_missing_reason = (
+                selected_device.sample_rate_reason
+                or "Saved input device is incompatible with the current sample rate"
+            )
+
+        return {
+            "devices": devices,
+            "default_key": default_device.key if default_device else None,
+            "selected_key": selected_key,
+            "active_key": active_key,
+            "selected_missing": selected_missing,
+            "selected_missing_reason": selected_missing_reason,
+            "scan_error": self._audio_inputs_error,
+            "sample_rate": self.config.audio.sample_rate,
+        }
+
     def _config_payload(self) -> dict[str, Any]:
         """
-        Construct the configuration payload sent to connected clients.
-        
-        The payload contains the serialized application config extended with bridge connection info and UI/runtime flags.
-        
+        Build the configuration payload used to synchronize state with connected clients.
+
+        Refreshes cached runtime/audio input diagnostics and returns a dictionary containing the serialized application config extended with bridge connection info and runtime/UI flags such as `auto_copy`, `auto_paste`, `first_run_setup_required`, `runtime` capabilities, and `audio_inputs` diagnostics.
         Returns:
-            dict[str, Any]: Serialized configuration payload including bridge info and flags such as `auto_copy`, `auto_paste`, `auto_revert_clipboard`, `first_run_setup_required`, and `runtime` capabilities.
+            dict[str, Any]: Serialized configuration payload including bridge info and flags such as `auto_copy`, `auto_paste`, `auto_revert_clipboard`, `first_run_setup_required`, `runtime` capabilities, and `audio_inputs` diagnostics.
         """
         config_dict = self.config.to_dict()
         config_dict["bridge"] = {"host": "localhost", "port": 7878}
@@ -2968,6 +3235,7 @@ class BridgeServer:
         config_dict["auto_revert_clipboard"] = self._auto_revert_clipboard
         config_dict["first_run_setup_required"] = self._first_run_setup_required
         config_dict["runtime"] = self._runtime_capabilities
+        config_dict["audio_inputs"] = self._audio_inputs_payload()
         return config_dict
 
     def shutdown(self) -> None:

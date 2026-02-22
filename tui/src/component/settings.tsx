@@ -5,7 +5,7 @@ import { useTheme } from "../context/theme";
 import { useDialog } from "../context/dialog";
 import { useConfig } from "../context/config";
 import { useBackend } from "../context/backend";
-import { formatDeviceLabel } from "../util/format";
+import { formatAudioInputLabel, formatDeviceLabel } from "../util/format";
 import type { RuntimeName } from "../types";
 
 type SettingSection = "Capture" | "Model" | "Output" | "Appearance" | "Advanced";
@@ -16,6 +16,7 @@ type SelectSettingId =
   | "model.device"
   | "model.compute"
   | "model.language"
+  | "audio.input_device"
   | "audio.sample_rate"
   | "vad.aggressiveness";
 
@@ -167,6 +168,11 @@ export function Settings(): JSX.Element {
   const items = createMemo<SettingItem[]>(() => {
     const cfg = config.config();
     const outputFileEnabled = Boolean(cfg?.output.file.enabled);
+    const inputDevices = cfg?.audio_inputs;
+    const selectedInputKey = cfg?.audio.input_device ?? null;
+    const inputDeviceValue = () => {
+      return formatAudioInputLabel(selectedInputKey, inputDevices?.devices);
+    };
 
     return [
       {
@@ -239,6 +245,18 @@ export function Settings(): JSX.Element {
             config.toggleVad();
           }
         },
+      },
+      {
+        id: "audio.input_device",
+        section: "Capture",
+        title: "Input Device",
+        description: "Choose microphone/input source",
+        keywords: ["audio", "input", "microphone", "device", "mic"],
+        controlKind: "select",
+        affordance: "select",
+        interactive: true,
+        value: inputDeviceValue,
+        activate: () => openSelector("audio.input_device"),
       },
       {
         id: "audio.sample_rate",

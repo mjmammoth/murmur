@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatDeviceLabel } from "../util/format";
+import { formatAudioInputLabel, formatDeviceLabel } from "../util/format";
 
 /**
  * Tests for Settings component
@@ -9,6 +9,25 @@ import { formatDeviceLabel } from "../util/format";
 
 describe("Settings", () => {
   const SECTION_ORDER = ["Capture", "Model", "Output", "Appearance", "Advanced"];
+
+  describe("audio input setting", () => {
+    test("should display system default when input key is empty", () => {
+      const label = formatAudioInputLabel(null, []);
+      expect(label).toBe("System default");
+    });
+
+    test("should display unavailable indicator when saved input is missing", () => {
+      const label = formatAudioInputLabel("CoreAudio:Missing", []);
+      expect(label).toBe("Unavailable (saved device)");
+    });
+
+    test("should display resolved input label for known device", () => {
+      const label = formatAudioInputLabel("CoreAudio:USB Mic", [
+        { key: "CoreAudio:USB Mic", name: "USB Mic", hostapi: "CoreAudio" },
+      ]);
+      expect(label).toBe("USB Mic (CoreAudio)");
+    });
+  });
 
   describe("device display labels", () => {
     test("should format mps as Metal (mps)", () => {

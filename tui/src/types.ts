@@ -40,7 +40,31 @@ export interface NoiseSuppressionConfig {
 
 export interface AudioConfig {
   sample_rate: number;
+  input_device: string | null;
   noise_suppression: NoiseSuppressionConfig;
+}
+
+export interface AudioInputDeviceOption {
+  key: string;
+  index: number;
+  name: string;
+  hostapi: string;
+  max_input_channels: number;
+  default_samplerate: number | null;
+  is_default: boolean;
+  sample_rate_supported: boolean | null;
+  sample_rate_reason: string | null;
+}
+
+export interface AudioInputsConfig {
+  devices: AudioInputDeviceOption[];
+  default_key: string | null;
+  selected_key: string | null;
+  active_key: string | null;
+  selected_missing: boolean;
+  selected_missing_reason: string | null;
+  scan_error: string | null;
+  sample_rate: number;
 }
 
 export interface VadConfig {
@@ -83,6 +107,7 @@ export interface AppConfig {
   auto_revert_clipboard?: boolean;
   first_run_setup_required?: boolean;
   runtime?: RuntimeCapabilities;
+  audio_inputs?: AudioInputsConfig;
 }
 
 // Transcript types
@@ -134,6 +159,8 @@ export type ClientMessage =
   | { type: "set_hotkey_mode"; mode: "ptt" | "toggle" }
   | { type: "set_hotkey"; hotkey: string }
   | { type: "set_audio_sample_rate"; sample_rate: number }
+  | { type: "set_audio_input_device"; device_key: string | null }
+  | { type: "refresh_audio_inputs" }
   | { type: "set_vad_aggressiveness"; aggressiveness: number }
   | { type: "set_output_clipboard"; enabled: boolean }
   | { type: "set_output_file_enabled"; enabled: boolean }
@@ -228,6 +255,7 @@ export type SelectSettingId =
   | "model.device"
   | "model.compute"
   | "model.language"
+  | "audio.input_device"
   | "audio.sample_rate"
   | "vad.aggressiveness";
 
