@@ -5,7 +5,7 @@ import { useTheme } from "../context/theme";
 import { useDialog } from "../context/dialog";
 import { useConfig } from "../context/config";
 import { useBackend } from "../context/backend";
-import { formatDeviceLabel } from "../util/format";
+import { formatAudioInputLabel, formatDeviceLabel } from "../util/format";
 import type { RuntimeName } from "../types";
 
 type SettingSection = "Capture" | "Model" | "Output" | "Appearance" | "Advanced";
@@ -170,11 +170,8 @@ export function Settings(): JSX.Element {
     const outputFileEnabled = Boolean(cfg?.output.file.enabled);
     const inputDevices = cfg?.audio_inputs;
     const selectedInputKey = cfg?.audio.input_device ?? null;
-    const selectedInputDevice = inputDevices?.devices.find((device) => device.key === selectedInputKey);
     const inputDeviceValue = () => {
-      if (!selectedInputKey) return "System default";
-      if (selectedInputDevice) return `${selectedInputDevice.name} (${selectedInputDevice.hostapi})`;
-      return "Unavailable (saved device)";
+      return formatAudioInputLabel(selectedInputKey, inputDevices?.devices);
     };
 
     return [

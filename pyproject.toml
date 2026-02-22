@@ -28,7 +28,6 @@ dev = [
   "ruff>=0.6",
   "termtosvg>=1.1.0",
   "pyte>=0.8",
-  "types-requests",
 ]
 rnnoise = ["pyrnnoise>=0.4.3"]
 vad = ["webrtcvad>=2.0.10"]

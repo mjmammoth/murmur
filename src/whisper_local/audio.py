@@ -201,14 +201,12 @@ def _default_input_device_index() -> int | None:
 
 
 def _hostapi_name(raw_hostapis: Iterable[dict], hostapi_index: int) -> str:
-    if hostapi_index < 0:
+    hostapis = list(raw_hostapis)
+    if hostapi_index < 0 or hostapi_index >= len(hostapis):
         return "Unknown Host API"
-    for index, raw_hostapi in enumerate(raw_hostapis):
-        if index != hostapi_index:
-            continue
-        name = str(raw_hostapi.get("name", "")).strip()
-        return name or "Unknown Host API"
-    return "Unknown Host API"
+    raw_hostapi = hostapis[hostapi_index]
+    name = str(raw_hostapi.get("name", "")).strip()
+    return name or "Unknown Host API"
 
 
 def _device_name(value: object, *, index: int) -> str:
