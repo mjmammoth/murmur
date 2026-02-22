@@ -14,6 +14,9 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TAP_NAME="local/whisper-local-dev"
 FORMULA_NAME="whisper-local"
 
+# Prefer python3 (pyenv may not expose bare "python").
+PYTHON="${PYTHON:-python3}"
+
 SKIP_BUILD=false
 NO_CLEANUP=false
 AUDIT_ONLY=false
@@ -46,8 +49,20 @@ cleanup() {
     return
   fi
   echo "Cleaning up..."
+  # Only uninstall if it was installed from our dev tap (check the tap prefix).
   if brew list "$FORMULA_NAME" &>/dev/null; then
-    brew uninstall "$FORMULA_NAME" 2>/dev/null || true
+    INSTALLED_TAP="$(brew info --json=v2 "$FORMULA_NAME" 2>/dev/null | "$PYTHON" -c "
+import sys, json
+data = json.load(sys.stdin)
+for f in data.get('formulae', []):
+    tap = f.get('tap', '')
+    if tap: print(tap)
+" 2>/dev/null || true)"
+    if [ "$INSTALLED_TAP" = "$TAP_NAME" ]; then
+      brew uninstall "$FORMULA_NAME" 2>/dev/null || true
+    else
+      echo "  Skipping uninstall — $FORMULA_NAME is from tap '$INSTALLED_TAP', not '$TAP_NAME'"
+    fi
   fi
   brew untap "$TAP_NAME" 2>/dev/null || true
   if [ -n "$TAP_DIR" ] && [ -d "$TAP_DIR" ]; then
@@ -61,7 +76,11 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 if [ "$SKIP_BUILD" = false ]; then
   echo "==> Building Python wheel..."
-  (cd "$REPO_ROOT" && python -m build --wheel)
+  BUILD_VENV="$REPO_ROOT/.brew-test-venv"
+  "$PYTHON" -m venv "$BUILD_VENV"
+  "$BUILD_VENV/bin/python" -m pip install --upgrade pip build -q
+  (cd "$REPO_ROOT" && "$BUILD_VENV/bin/python" -m build --wheel)
+  rm -rf "$BUILD_VENV"
 
   echo "==> Building TUI binary..."
   (cd "$REPO_ROOT/tui" && bun install --frozen-lockfile && bun run build:release)
@@ -86,7 +105,7 @@ fi
 
 WHEEL_SHA="$(shasum -a 256 "$WHEEL_PATH" | awk '{print $1}')"
 TUI_SHA="$(shasum -a 256 "$TUI_PATH" | awk '{print $1}')"
-VERSION="$(python -c "
+VERSION="$("$PYTHON" -c "
 import tomllib, pathlib
 data = tomllib.loads(pathlib.Path('$REPO_ROOT/pyproject.toml').read_text())
 print(data['project']['version'])
@@ -107,7 +126,7 @@ git -C "$TAP_DIR" init -q
 git -C "$TAP_DIR" config user.name "local-test"
 git -C "$TAP_DIR" config user.email "local-test@localhost"
 
-python "$REPO_ROOT/scripts/update_tap_formula.py" \
+"$PYTHON" "$REPO_ROOT/scripts/update_tap_formula.py" \
   --version "$VERSION" \
   --wheel-url "file://$WHEEL_PATH" \
   --wheel-sha256 "$WHEEL_SHA" \
