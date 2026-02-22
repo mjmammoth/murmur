@@ -164,7 +164,7 @@ jobs:
           name: ci-tui-dist
           path: dist/tui
 
-      - name: Render formula with local artifacts
+      - name: Render formula and register local tap
         run: |
           WHEEL_PATH="$(ls dist/*.whl | head -n 1)"
           TUI_PATH="dist/tui/whisper-local-tui-darwin-arm64.tar.gz"
@@ -189,14 +189,18 @@ jobs:
             --repository "local/whisper-local" \
             --tap-repo-path "$TAP_DIR"
 
-          echo "TAP_DIR=$TAP_DIR" >> "$GITHUB_ENV"
-          echo "FORMULA_FILE=$TAP_DIR/Formula/whisper-local.rb" >> "$GITHUB_ENV"
+          # brew style/audit require formulae to live in a tap
+          git -C "$TAP_DIR" init -q
+          git -C "$TAP_DIR" config user.name "ci"
+          git -C "$TAP_DIR" config user.email "ci@localhost"
+          git -C "$TAP_DIR" add -A && git -C "$TAP_DIR" commit -q -m "ci"
+          brew tap local/whisper-local-ci "$TAP_DIR"
 
       - name: Brew style check
-        run: brew style --formula "$FORMULA_FILE"
+        run: brew style --formula local/whisper-local-ci/whisper-local
 
       - name: Brew audit check
-        run: brew audit --formula "$FORMULA_FILE"
+        run: brew audit --formula local/whisper-local-ci/whisper-local
 
   tui_build_smoke:
     runs-on: macos-14
