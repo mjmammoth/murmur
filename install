@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO="${WHISPER_LOCAL_REPO:-mjmammoth/whisper.local}"
+REQUESTED_TAG="${1:-latest}"
+
+APP_HOME="${HOME}/.local/share/whisper.local"
+VENV_DIR="${APP_HOME}/venv"
+TUI_ROOT="${APP_HOME}/tui"
+BIN_DIR="${HOME}/.local/bin"
+LAUNCHER_PATH="${BIN_DIR}/whisper.local"
+ALT_LAUNCHER_PATH="${BIN_DIR}/whisper-local"
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "Error: curl is required" >&2
+  exit 1
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "Error: python3 is required" >&2
+  exit 1
+fi
+if ! command -v tar >/dev/null 2>&1; then
+  echo "Error: tar is required" >&2
+  exit 1
+fi
+
+os_name="$(uname -s)"
+arch_name="$(uname -m)"
+
+target=""
+case "${os_name}" in
+  Darwin)
+    case "${arch_name}" in
+      arm64|aarch64) target="darwin-arm64" ;;
+      x86_64|amd64) target="darwin-x64" ;;
+      *) ;;
+    esac
+    ;;
+  Linux)
+    case "${arch_name}" in
+      x86_64|amd64) target="linux-x64" ;;
+      aarch64|arm64) target="linux-arm64" ;;
+      *) ;;
+    esac
+    ;;
+  *) ;;
+esac
+
+if [ -z "${target}" ]; then
+  echo "Error: unsupported platform (${os_name}/${arch_name})" >&2
+  exit 1
+fi
+
+resolve_tag() {
+  local requested="$1"
+  if [ "${requested}" = "latest" ]; then
+    local latest_url
+    latest_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest")"
+    local tag
+    tag="${latest_url##*/}"
+    if [ -z "${tag}" ]; then
+      echo "Error: could not resolve latest release tag" >&2
+      exit 1
+    fi
+    printf '%s\n' "${tag}"
+    return
+  fi
+
+  if [[ "${requested}" == v* ]]; then
+    printf '%s\n' "${requested}"
+  else
+    printf 'v%s\n' "${requested}"
+  fi
+}
+
+release_tag="$(resolve_tag "${REQUESTED_TAG}")"
+
+tmp_dir="$(mktemp -d)"
+cleanup() {
+  rm -rf "${tmp_dir}"
+}
+trap cleanup EXIT
+
+release_json="${tmp_dir}/release.json"
+curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${release_tag}" -o "${release_json}"
+
+readarray -t asset_urls < <(
+  python3 - "${release_json}" "${target}" <<'PY'
+import json
+import sys
+
+release_path = sys.argv[1]
+target = sys.argv[2]
+
+with open(release_path, "r", encoding="utf-8") as handle:
+    data = json.load(handle)
+
+assets = data.get("assets", [])
+wheel = next((asset for asset in assets if str(asset.get("name", "")).endswith(".whl")), None)
+archive_name = f"whisper-local-tui-{target}.tar.gz"
+tui = next((asset for asset in assets if asset.get("name") == archive_name), None)
+
+if wheel is None:
+    raise SystemExit("Missing wheel asset in release")
+if tui is None:
+    raise SystemExit(f"Missing TUI archive for target {target}")
+
+print(wheel["browser_download_url"])
+print(tui["browser_download_url"])
+PY
+)
+
+if [ "${#asset_urls[@]}" -ne 2 ]; then
+  echo "Error: failed to resolve release assets for ${release_tag}" >&2
+  exit 1
+fi
+
+wheel_url="${asset_urls[0]}"
+tui_url="${asset_urls[1]}"
+
+echo "Installing whisper.local ${release_tag} (${target})"
+
+action_dir="${tmp_dir}/download"
+mkdir -p "${action_dir}"
+wheel_path="${action_dir}/whisper-local.whl"
+tui_archive_path="${action_dir}/whisper-local-tui.tar.gz"
+
+curl -fsSL "${wheel_url}" -o "${wheel_path}"
+curl -fsSL "${tui_url}" -o "${tui_archive_path}"
+
+mkdir -p "${APP_HOME}" "${BIN_DIR}" "${TUI_ROOT}/${target}"
+python3 -m venv "${VENV_DIR}"
+"${VENV_DIR}/bin/python" -m pip install --upgrade pip >/dev/null
+"${VENV_DIR}/bin/python" -m pip install --no-cache-dir "${wheel_path}" >/dev/null
+
+rm -f "${TUI_ROOT}/${target}/whisper-local-tui" "${TUI_ROOT}/${target}/whisper-local-tui.exe"
+tar -xzf "${tui_archive_path}" -C "${TUI_ROOT}/${target}"
+
+if [ -f "${TUI_ROOT}/${target}/whisper-local-tui" ]; then
+  chmod +x "${TUI_ROOT}/${target}/whisper-local-tui"
+  tui_bin="${TUI_ROOT}/${target}/whisper-local-tui"
+elif [ -f "${TUI_ROOT}/${target}/whisper-local-tui.exe" ]; then
+  chmod +x "${TUI_ROOT}/${target}/whisper-local-tui.exe"
+  tui_bin="${TUI_ROOT}/${target}/whisper-local-tui.exe"
+else
+  echo "Error: extracted TUI binary not found" >&2
+  exit 1
+fi
+
+cat > "${LAUNCHER_PATH}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export WHISPER_LOCAL_TUI_BIN="${tui_bin}"
+exec "${VENV_DIR}/bin/whisper.local" "\$@"
+EOF
+chmod +x "${LAUNCHER_PATH}"
+
+cat > "${ALT_LAUNCHER_PATH}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec "${LAUNCHER_PATH}" "\$@"
+EOF
+chmod +x "${ALT_LAUNCHER_PATH}"
+
+if [[ ":${PATH}:" != *":${BIN_DIR}:"* ]]; then
+  echo
+  echo "Add ${BIN_DIR} to your PATH to use whisper.local from any shell."
+fi
+
+echo "Installed launcher: ${LAUNCHER_PATH}"
+echo "Run: whisper.local"

@@ -6,6 +6,32 @@ on:
   pull_request:
 
 jobs:
+  python_smoke_matrix:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: CLI smoke
+        run: |
+          python -m whisper_local.cli --help
+          python -m whisper_local.cli service status
+          python -m whisper_local.cli trigger --help
+
   python_checks:
     runs-on: macos-14
     steps:
@@ -167,20 +193,32 @@ jobs:
       - name: Render formula and register local tap
         run: |
           WHEEL_PATH="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
-          TUI_PATH="$(find dist/tui -maxdepth 1 -type f -name '*whisper-local-tui*.tar.gz' -print -quit)"
+          TUI_DARWIN_ARM64="dist/tui/whisper-local-tui-darwin-arm64.tar.gz"
+          TUI_DARWIN_X64="dist/tui/whisper-local-tui-darwin-x64.tar.gz"
+          TUI_LINUX_X64="dist/tui/whisper-local-tui-linux-x64.tar.gz"
+          TUI_LINUX_ARM64="dist/tui/whisper-local-tui-linux-arm64.tar.gz"
 
           if [ -z "$WHEEL_PATH" ] || [ ! -f "$WHEEL_PATH" ]; then
             echo "Error: No wheel artifact found in dist/" >&2
             exit 1
           fi
-          if [ -z "$TUI_PATH" ] || [ ! -f "$TUI_PATH" ]; then
-            echo "Error: No TUI tarball found in dist/tui/" >&2
-            exit 1
-          fi
+          for file in "$TUI_DARWIN_ARM64" "$TUI_DARWIN_X64" "$TUI_LINUX_X64" "$TUI_LINUX_ARM64"; do
+            if [ ! -f "$file" ]; then
+              echo "Error: Missing TUI tarball $file" >&2
+              exit 1
+            fi
+          done
 
           WHEEL_SHA="$(shasum -a 256 "$WHEEL_PATH" | awk '{print $1}')"
-          TUI_SHA="$(shasum -a 256 "$TUI_PATH" | awk '{print $1}')"
-          VERSION="0.0.0"
+          TUI_DARWIN_ARM64_SHA="$(shasum -a 256 "$TUI_DARWIN_ARM64" | awk '{print $1}')"
+          TUI_DARWIN_X64_SHA="$(shasum -a 256 "$TUI_DARWIN_X64" | awk '{print $1}')"
+          TUI_LINUX_X64_SHA="$(shasum -a 256 "$TUI_LINUX_X64" | awk '{print $1}')"
+          TUI_LINUX_ARM64_SHA="$(shasum -a 256 "$TUI_LINUX_ARM64" | awk '{print $1}')"
+          VERSION="$(python -c "
+          import tomllib, pathlib
+          data = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
+          print(data['project']['version'])
+          ")"
 
           TAP_DIR="$(mktemp -d)"
           mkdir -p "$TAP_DIR/Formula"
@@ -189,8 +227,14 @@ jobs:
             --version "$VERSION" \
             --wheel-url "file://$PWD/$WHEEL_PATH" \
             --wheel-sha256 "$WHEEL_SHA" \
-            --tui-url "file://$PWD/$TUI_PATH" \
-            --tui-sha256 "$TUI_SHA" \
+            --tui-url-darwin-arm64 "file://$PWD/$TUI_DARWIN_ARM64" \
+            --tui-sha256-darwin-arm64 "$TUI_DARWIN_ARM64_SHA" \
+            --tui-url-darwin-x64 "file://$PWD/$TUI_DARWIN_X64" \
+            --tui-sha256-darwin-x64 "$TUI_DARWIN_X64_SHA" \
+            --tui-url-linux-x64 "file://$PWD/$TUI_LINUX_X64" \
+            --tui-sha256-linux-x64 "$TUI_LINUX_X64_SHA" \
+            --tui-url-linux-arm64 "file://$PWD/$TUI_LINUX_ARM64" \
+            --tui-sha256-linux-arm64 "$TUI_LINUX_ARM64_SHA" \
             --repository "local/whisper-local" \
             --tap-repo-path "$TAP_DIR"
 
@@ -229,10 +273,18 @@ jobs:
         run: bun run build:release
         working-directory: tui
 
-      - name: Assert TUI artifacts exist
+      - name: Assert TUI artifacts exist for all targets
         run: |
           test -f dist/tui/darwin-arm64/whisper-local-tui
+          test -f dist/tui/darwin-x64/whisper-local-tui
+          test -f dist/tui/linux-x64/whisper-local-tui
+          test -f dist/tui/linux-arm64/whisper-local-tui
+          test -f dist/tui/windows-x64/whisper-local-tui.exe
           test -f dist/tui/whisper-local-tui-darwin-arm64.tar.gz
+          test -f dist/tui/whisper-local-tui-darwin-x64.tar.gz
+          test -f dist/tui/whisper-local-tui-linux-x64.tar.gz
+          test -f dist/tui/whisper-local-tui-linux-arm64.tar.gz
+          test -f dist/tui/whisper-local-tui-windows-x64.tar.gz
           test -f dist/tui/manifest.json
 
       - name: Upload TUI artifacts

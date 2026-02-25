@@ -19,6 +19,14 @@ export interface RuntimeCapabilities {
   model: RuntimeModelCapabilities;
 }
 
+export interface PlatformCapabilities {
+  hotkey_capture: boolean;
+  hotkey_swallow: boolean;
+  status_indicator: boolean;
+  auto_paste: boolean;
+  hotkey_guidance: string | null;
+}
+
 export interface ModelConfig {
   name: string;
   runtime: string;
@@ -109,13 +117,16 @@ export interface AppConfig {
   runtime?: RuntimeCapabilities;
   audio_inputs?: AudioInputsConfig;
   version?: string;
+  platform_capabilities?: PlatformCapabilities;
 }
 
 // Transcript types
 
 export interface TranscriptEntry {
+  id?: number;
   timestamp: string;
   text: string;
+  created_at?: string;
 }
 
 // Model manager types
@@ -189,7 +200,8 @@ export type ClientMessage =
 // Server -> Client messages
 export type ServerMessage =
   | { type: "status"; status: AppStatus; message: string; elapsed?: number }
-  | { type: "transcript"; timestamp: string; text: string }
+  | { type: "transcript"; id?: number; timestamp: string; text: string; created_at?: string }
+  | { type: "transcript_history"; entries: TranscriptEntry[] }
   | { type: "models"; models: ModelInfo[] }
   | { type: "config"; config: AppConfig }
   | { type: "hotkey_press" }

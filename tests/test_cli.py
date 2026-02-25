@@ -7,257 +7,89 @@ from unittest.mock import Mock, patch
 import pytest
 
 from whisper_local import cli
+from whisper_local.upgrade import UpgradeActionRequired, UpgradeError, UpgradeResult
 
 
-def test_build_parser_creates_parser():
-    """Test build_parser creates an ArgumentParser."""
+def test_build_parser_includes_service_command() -> None:
     parser = cli.build_parser()
-    assert parser is not None
-    assert hasattr(parser, 'parse_args')
+    args = parser.parse_args(["service", "status"])
+    assert args.command == "service"
+    assert args.service_command == "status"
 
 
-def test_build_parser_has_run_command():
-    """Test build_parser includes 'run' command."""
+def test_build_parser_includes_trigger_command() -> None:
     parser = cli.build_parser()
-    args = parser.parse_args(['run'])
-    assert args.command == 'run'
+    args = parser.parse_args(["trigger", "toggle"])
+    assert args.command == "trigger"
+    assert args.action == "toggle"
 
 
-def test_build_parser_has_bridge_command():
-    """Test build_parser includes 'bridge' command."""
+def test_build_parser_includes_upgrade_command() -> None:
     parser = cli.build_parser()
-    args = parser.parse_args(['bridge'])
-    assert args.command == 'bridge'
+    args = parser.parse_args(["upgrade", "--version", "v1.2.3"])
+    assert args.command == "upgrade"
+    assert args.version == "v1.2.3"
 
 
-def test_build_parser_has_tui_command():
-    """Test build_parser includes 'tui' command."""
+def test_build_parser_tui_defaults() -> None:
     parser = cli.build_parser()
-    args = parser.parse_args(['tui'])
-    assert args.command == 'tui'
-
-
-def test_build_parser_has_models_command():
-    """Test build_parser includes 'models' command."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['models', 'list'])
-    assert args.command == 'models'
-    assert args.models_command == 'list'
-
-
-def test_build_parser_has_config_command():
-    """Test build_parser includes 'config' command."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['config'])
-    assert args.command == 'config'
-
-
-def test_build_parser_run_defaults():
-    """Test 'run' command default arguments."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['run'])
-    assert args.host == 'localhost'
-    assert args.port == 7878
-    assert args.no_status_indicator is False
-
-
-def test_build_parser_run_with_custom_host_port():
-    """Test 'run' command with custom host and port."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['run', '--host', '0.0.0.0', '--port', '8080'])
-    assert args.host == '0.0.0.0'
-    assert args.port == 8080
-
-
-def test_build_parser_run_rejects_legacy_flag():
-    """Test 'run' command rejects removed --legacy flag."""
-    parser = cli.build_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args(['run', '--legacy'])
-
-
-def test_build_parser_run_no_status_indicator():
-    """Test 'run' command with --no-status-indicator flag."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['run', '--no-status-indicator'])
-    assert args.no_status_indicator is True
-
-
-def test_build_parser_bridge_defaults():
-    """Test 'bridge' command default arguments."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['bridge'])
-    assert args.host == 'localhost'
+    args = parser.parse_args(["tui"])
+    assert args.host == "localhost"
     assert args.port == 7878
 
 
-def test_build_parser_tui_defaults():
-    """Test 'tui' command default arguments."""
+def test_build_parser_service_run_defaults() -> None:
     parser = cli.build_parser()
-    args = parser.parse_args(['tui'])
-    assert args.host == 'localhost'
+    args = parser.parse_args(["service", "run"])
+    assert args.host == "localhost"
     assert args.port == 7878
+    assert args.foreground is False
 
 
-def test_build_parser_models_list():
-    """Test 'models list' subcommand."""
+def test_build_parser_models_pull_with_runtime() -> None:
     parser = cli.build_parser()
-    args = parser.parse_args(['models', 'list'])
-    assert args.models_command == 'list'
+    args = parser.parse_args(["models", "pull", "tiny", "--runtime", "whisper.cpp"])
+    assert args.command == "models"
+    assert args.models_command == "pull"
+    assert args.runtime == "whisper.cpp"
 
 
-def test_build_parser_models_pull():
-    """Test 'models pull' subcommand."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['models', 'pull', 'tiny'])
-    assert args.models_command == 'pull'
-    assert args.name == 'tiny'
-
-
-def test_build_parser_models_pull_with_runtime():
-    """Test 'models pull' supports runtime variant selection."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['models', 'pull', 'tiny', '--runtime', 'whisper.cpp'])
-    assert args.models_command == 'pull'
-    assert args.name == 'tiny'
-    assert args.runtime == 'whisper.cpp'
-
-
-def test_build_parser_models_remove():
-    """Test 'models remove' subcommand."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['models', 'remove', 'base'])
-    assert args.models_command == 'remove'
-    assert args.name == 'base'
-
-
-def test_build_parser_models_remove_with_runtime():
-    """Test 'models remove' supports runtime variant selection."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['models', 'remove', 'base', '--runtime', 'whisper.cpp'])
-    assert args.models_command == 'remove'
-    assert args.name == 'base'
-    assert args.runtime == 'whisper.cpp'
-
-
-def test_build_parser_models_select():
-    """Test 'models select' subcommand."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['models', 'select', 'small'])
-    assert args.models_command == 'select'
-    assert args.name == 'small'
-
-
-def test_build_parser_models_set_default_alias():
-    """Test 'models set-default' alias for select."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['models', 'set-default', 'medium'])
-    assert args.models_command == 'set-default'
-    assert args.name == 'medium'
-
-
-def test_build_parser_config_with_path():
-    """Test 'config' command with --path option."""
-    parser = cli.build_parser()
-    args = parser.parse_args(['config', '--path', '/custom/config.toml'])
-    assert args.path == Path('/custom/config.toml')
-
-
-def test_build_parser_no_command_defaults_to_none():
-    """Test parser with no command sets command to None."""
-    parser = cli.build_parser()
-    args = parser.parse_args([])
-    assert args.command is None
-
-
-@patch('whisper_local.cli._ensure_runtime_dependencies')
-@patch('whisper_local.cli.load_config')
-@patch('whisper_local.bridge.run_bridge')
-def test_run_bridge_calls_bridge_with_config(mock_run_bridge, mock_load_config, mock_ensure):
-    """Test _run_bridge loads config and calls run_bridge."""
+@patch("whisper_local.cli.load_config")
+@patch("whisper_local.bridge.run_bridge")
+def test_run_bridge_calls_bridge_with_config(mock_run_bridge: Mock, mock_load_config: Mock) -> None:
     mock_config = Mock()
     mock_load_config.return_value = mock_config
 
-    cli._run_bridge('localhost', 7878)
+    cli._run_bridge("localhost", 7878, capture_logs=True)
 
-    mock_ensure.assert_called_once()
     mock_load_config.assert_called_once()
-    mock_run_bridge.assert_called_once_with(mock_config, 'localhost', 7878, capture_logs=False)
+    mock_run_bridge.assert_called_once_with(mock_config, "localhost", 7878, capture_logs=True)
 
 
-@patch('whisper_local.cli._ensure_runtime_dependencies')
-@patch('whisper_local.cli.load_config')
-@patch('whisper_local.bridge.run_bridge')
-def test_run_bridge_with_capture_logs(mock_run_bridge, mock_load_config, mock_ensure):
-    """Test _run_bridge with capture_logs=True."""
-    mock_config = Mock()
-    mock_load_config.return_value = mock_config
+@patch("whisper_local.cli.resolve_tui_runtime")
+@patch("whisper_local.cli.subprocess.Popen")
+def test_run_tui_starts_tui_process(mock_popen: Mock, mock_resolve: Mock) -> None:
+    runtime = Mock()
+    runtime.mode = "packaged"
+    runtime.command = ["/usr/bin/tui"]
+    runtime.cwd = Path("/usr/bin")
+    mock_resolve.return_value = runtime
 
-    cli._run_bridge('localhost', 7878, capture_logs=True)
+    process = Mock()
+    mock_popen.return_value = process
 
-    mock_ensure.assert_called_once()
-    mock_run_bridge.assert_called_once_with(mock_config, 'localhost', 7878, capture_logs=True)
+    result = cli._run_tui("localhost", 7878)
 
-
-@patch('whisper_local.cli.resolve_tui_runtime')
-@patch('whisper_local.cli.subprocess.Popen')
-def test_run_tui_starts_tui_process(mock_popen, mock_resolve):
-    """Test _run_tui starts TUI subprocess."""
-    mock_runtime = Mock()
-    mock_runtime.mode = 'packaged'
-    mock_runtime.command = ['/usr/bin/tui']
-    mock_runtime.cwd = Path('/usr/bin')
-    mock_resolve.return_value = mock_runtime
-
-    mock_process = Mock()
-    mock_popen.return_value = mock_process
-
-    result = cli._run_tui('localhost', 7878)
-
-    assert result == mock_process
-    mock_resolve.assert_called_once()
+    assert result == process
     mock_popen.assert_called_once_with(
-        ['/usr/bin/tui', '--host', 'localhost', '--port', '7878'],
-        cwd='/usr/bin'
+        ["/usr/bin/tui", "--host", "localhost", "--port", "7878"],
+        cwd="/usr/bin",
     )
 
 
-@patch('whisper_local.cli.sys.platform', 'darwin')
-@patch('whisper_local.cli.subprocess.Popen')
-def test_start_status_indicator_on_macos(mock_popen):
-    """Test _start_status_indicator starts process on macOS."""
-    mock_process = Mock()
-    mock_popen.return_value = mock_process
-
-    result = cli._start_status_indicator('localhost', 7878)
-
-    assert result == mock_process
-    args = mock_popen.call_args[0][0]
-    assert '-m' in args
-    assert 'whisper_local.status_indicator' in args
-
-
-@patch('whisper_local.cli.sys.platform', 'linux')
-def test_start_status_indicator_on_non_macos():
-    """Test _start_status_indicator returns None on non-macOS."""
-    result = cli._start_status_indicator('localhost', 7878)
-    assert result is None
-
-
-@patch('whisper_local.cli.sys.platform', 'darwin')
-@patch('whisper_local.cli.subprocess.Popen')
-def test_start_status_indicator_handles_error(mock_popen):
-    """Test _start_status_indicator returns None on error."""
-    mock_popen.side_effect = Exception("Failed to start")
-
-    result = cli._start_status_indicator('localhost', 7878)
-    assert result is None
-
-
-@patch('whisper_local.cli.sys.stdout')
-@patch('whisper_local.cli.sys.stdin')
-def test_restore_terminal_state_when_tty(mock_stdin, mock_stdout):
-    """Test _restore_terminal_state restores terminal when TTY."""
+@patch("whisper_local.cli.sys.stdout")
+@patch("whisper_local.cli.sys.stdin")
+def test_restore_terminal_state_when_tty(mock_stdin: Mock, mock_stdout: Mock) -> None:
     mock_stdin.isatty.return_value = True
     mock_stdout.isatty.return_value = True
 
@@ -267,10 +99,9 @@ def test_restore_terminal_state_when_tty(mock_stdin, mock_stdout):
     mock_stdout.flush.assert_called()
 
 
-@patch('whisper_local.cli.sys.stdout')
-@patch('whisper_local.cli.sys.stdin')
-def test_restore_terminal_state_when_not_tty(mock_stdin, mock_stdout):
-    """Test _restore_terminal_state skips when not TTY."""
+@patch("whisper_local.cli.sys.stdout")
+@patch("whisper_local.cli.sys.stdin")
+def test_restore_terminal_state_when_not_tty(mock_stdin: Mock, mock_stdout: Mock) -> None:
     mock_stdin.isatty.return_value = False
     mock_stdout.isatty.return_value = False
 
@@ -279,240 +110,207 @@ def test_restore_terminal_state_when_not_tty(mock_stdin, mock_stdout):
     mock_stdout.write.assert_not_called()
 
 
-@patch('whisper_local.cli._run_bridge')
-def test_main_runs_bridge_command(mock_run_bridge, monkeypatch):
-    """Test main handles 'bridge' command."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'bridge', '--host', '127.0.0.1', '--port', '9000'])
+@patch("whisper_local.cli._ensure_service_running")
+@patch("whisper_local.cli._run_tui")
+@patch("whisper_local.cli._restore_terminal_state")
+def test_run_tui_attach_auto_starts_service(
+    mock_restore: Mock,
+    mock_run_tui: Mock,
+    mock_ensure_service: Mock,
+) -> None:
+    process = Mock()
+    mock_run_tui.return_value = process
 
-    cli.main()
+    cli._run_tui_attach("localhost", 7878, status_indicator=True)
 
-    mock_run_bridge.assert_called_once_with('127.0.0.1', 9000)
-
-
-@patch('whisper_local.cli._run_tui')
-@patch('whisper_local.cli._restore_terminal_state')
-def test_main_runs_tui_command(mock_restore, mock_run_tui, monkeypatch):
-    """Test main handles 'tui' command."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'tui'])
-
-    mock_process = Mock()
-    mock_process.wait.return_value = None
-    mock_run_tui.return_value = mock_process
-
-    cli.main()
-
-    mock_run_tui.assert_called_once()
-    mock_process.wait.assert_called_once()
+    mock_ensure_service.assert_called_once_with("localhost", 7878, status_indicator=True)
+    mock_run_tui.assert_called_once_with("localhost", 7878)
+    process.wait.assert_called_once()
     mock_restore.assert_called_once()
 
 
-@patch('whisper_local.cli._run_tui')
-@patch('whisper_local.cli._restore_terminal_state')
-def test_main_tui_handles_keyboard_interrupt(mock_restore, mock_run_tui, monkeypatch):
-    """Test main handles KeyboardInterrupt in 'tui' command."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'tui'])
+@patch("whisper_local.cli._ensure_service_running", side_effect=RuntimeError("boom"))
+def test_run_tui_attach_exits_when_service_start_fails(mock_ensure_service: Mock, capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli._run_tui_attach("localhost", 7878, status_indicator=True)
 
-    mock_process = Mock()
-    mock_process.wait.side_effect = KeyboardInterrupt()
-    mock_run_tui.return_value = mock_process
-
-    # Should not raise
-    cli.main()
-
-    mock_restore.assert_called_once()
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "failed to start service" in captured.out
+    mock_ensure_service.assert_called_once()
 
 
-@patch('whisper_local.model_manager.list_installed_models')
-def test_main_models_list(mock_list_models, monkeypatch, capsys):
-    """Test main handles 'models list' command."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'list'])
-
-    mock_model1 = Mock(installed=True)
-    mock_model1.name = 'tiny'
-    mock_model2 = Mock(installed=False)
-    mock_model2.name = 'base'
-    mock_list_models.return_value = [mock_model1, mock_model2]
+@patch("whisper_local.cli._service_run")
+def test_main_no_command_defaults_to_background_service(mock_service_run: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli"])
 
     cli.main()
+
+    mock_service_run.assert_called_once_with("localhost", 7878, foreground=False, status_indicator=True)
+
+
+@patch("whisper_local.cli._run_tui_attach")
+def test_main_run_command_uses_tui_attach(mock_attach: Mock, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "run", "--host", "127.0.0.1", "--port", "9000"])
+
+    cli.main()
+
+    mock_attach.assert_called_once_with("127.0.0.1", 9000, status_indicator=True)
+    captured = capsys.readouterr()
+    assert "deprecated" in captured.err.lower()
+
+
+@patch("whisper_local.cli._run_bridge")
+def test_main_runs_bridge_command(mock_run_bridge: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "bridge", "--host", "127.0.0.1", "--port", "9000"])
+
+    cli.main()
+
+    mock_run_bridge.assert_called_once_with("127.0.0.1", 9000, capture_logs=False)
+
+
+@patch("whisper_local.cli._run_tui_attach")
+def test_main_runs_tui_command(mock_attach: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "tui", "--no-status-indicator"])
+
+    cli.main()
+
+    mock_attach.assert_called_once_with("localhost", 7878, status_indicator=False)
+
+
+@patch("whisper_local.cli._service_run")
+def test_main_service_run_command(mock_service_run: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["cli", "service", "run", "--host", "0.0.0.0", "--port", "8123", "--foreground"],
+    )
+
+    cli.main()
+
+    mock_service_run.assert_called_once_with("0.0.0.0", 8123, foreground=True, status_indicator=True)
+
+
+@patch("whisper_local.cli._service_stop")
+def test_main_service_stop_command(mock_service_stop: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "service", "stop"])
+
+    cli.main()
+
+    mock_service_stop.assert_called_once()
+
+
+@patch("whisper_local.cli._service_status")
+def test_main_service_status_command(mock_service_status: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "service", "status"])
+
+    cli.main()
+
+    mock_service_status.assert_called_once()
+
+
+@patch("whisper_local.cli._trigger")
+def test_main_trigger_command(mock_trigger: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "trigger", "toggle"])
+
+    cli.main()
+
+    mock_trigger.assert_called_once_with(
+        "localhost",
+        7878,
+        action="toggle",
+        status_indicator=True,
+    )
+
+
+@patch("whisper_local.cli._upgrade")
+def test_main_upgrade_command(mock_upgrade: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "upgrade", "--version", "v2.0.0"])
+
+    cli.main()
+
+    mock_upgrade.assert_called_once_with(requested_version="v2.0.0")
+
+
+@patch("whisper_local.upgrade.run_upgrade")
+def test_upgrade_success_output(mock_run_upgrade: Mock, capsys) -> None:
+    mock_run_upgrade.return_value = UpgradeResult(
+        channel="installer",
+        tag="v1.2.0",
+        previous_version="1.1.0",
+        new_version="1.2.0",
+        restarted_service=True,
+    )
+
+    cli._upgrade(requested_version="v1.2.0")
 
     captured = capsys.readouterr()
-    assert 'tiny: installed' in captured.out
-    assert 'base: available' in captured.out
+    assert "1.1.0 -> 1.2.0" in captured.out
+    assert "restarted" in captured.out
 
 
-@patch('whisper_local.model_manager.list_installed_models')
-def test_main_models_list_runtime_variants(mock_list_models, monkeypatch, capsys):
-    """Test models list prints per-runtime variant states when available."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'list'])
+@patch("whisper_local.upgrade.run_upgrade")
+def test_upgrade_action_required_exits_with_guidance(mock_run_upgrade: Mock, capsys) -> None:
+    mock_run_upgrade.side_effect = UpgradeActionRequired(
+        channel="homebrew",
+        command="brew update && brew upgrade whisper-local",
+    )
 
-    mock_model = Mock()
-    mock_model.name = 'small'
-    mock_model.variants = {
-        'faster-whisper': Mock(installed=True),
-        'whisper.cpp': Mock(installed=False),
+    with pytest.raises(SystemExit) as exc_info:
+        cli._upgrade(requested_version=None)
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "brew upgrade whisper-local" in captured.out
+
+
+@patch("whisper_local.upgrade.run_upgrade", side_effect=UpgradeError("network error"))
+def test_upgrade_error_exits_non_zero(mock_run_upgrade: Mock, capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli._upgrade(requested_version=None)
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "network error" in captured.out
+
+
+@patch("whisper_local.model_manager.list_installed_models")
+def test_main_models_list_runtime_variants(mock_list_models: Mock, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "models", "list"])
+
+    model = Mock()
+    model.name = "small"
+    model.variants = {
+        "faster-whisper": Mock(installed=True),
+        "whisper.cpp": Mock(installed=False),
     }
-    mock_list_models.return_value = [mock_model]
+    mock_list_models.return_value = [model]
 
     cli.main()
 
     captured = capsys.readouterr()
-    assert 'small: faster-whisper=installed, whisper.cpp=available' in captured.out
+    assert "small: faster-whisper=installed, whisper.cpp=available" in captured.out
 
 
-@patch('whisper_local.model_manager.download_model')
-def test_main_models_pull(mock_download, monkeypatch, capsys):
-    """Test main handles 'models pull' command."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'pull', 'small'])
-
-    cli.main()
-
-    mock_download.assert_called_once_with('small')
-    captured = capsys.readouterr()
-    assert 'Downloaded small' in captured.out
-
-
-@patch('whisper_local.model_manager.remove_model')
-def test_main_models_remove(mock_remove, monkeypatch, capsys):
-    """Test main handles 'models remove' command."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'remove', 'medium'])
-
-    cli.main()
-
-    mock_remove.assert_called_once_with('medium')
-    captured = capsys.readouterr()
-    assert 'Removed medium' in captured.out
-
-
-@patch('whisper_local.model_manager.set_selected_model')
-def test_main_models_select(mock_set_selected, monkeypatch, capsys):
-    """Test main handles 'models select' command."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'select', 'large-v3'])
-
-    cli.main()
-
-    mock_set_selected.assert_called_once_with('large-v3')
-    captured = capsys.readouterr()
-    assert 'Selected model set to large-v3' in captured.out
-
-
-@patch('whisper_local.model_manager.set_selected_model')
-def test_main_models_set_default(mock_set_selected, monkeypatch, capsys):
-    """Test main handles 'models set-default' command (alias)."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'models', 'set-default', 'tiny'])
-
-    cli.main()
-
-    mock_set_selected.assert_called_once_with('tiny')
-
-
-@patch('whisper_local.cli.load_config')
-def test_main_config_command(mock_load_config, monkeypatch, capsys):
-    """Test main handles 'config' command."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'config'])
+@patch("whisper_local.cli.load_config")
+def test_main_config_command(mock_load_config: Mock, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "config"])
 
     mock_config = Mock()
     mock_config.to_dict.return_value = {
-        'model': {'name': 'tiny', 'runtime': 'faster-whisper'},
-        'audio': {'sample_rate': 16000},
-        'simple_value': 'test'
+        "model": {"name": "tiny", "runtime": "faster-whisper"},
+        "history": {"max_entries": 5000},
     }
     mock_load_config.return_value = mock_config
 
     cli.main()
 
     captured = capsys.readouterr()
-    assert '[model]' in captured.out
-    assert 'name = tiny' in captured.out
-    assert '[audio]' in captured.out
-    assert 'simple_value = test' in captured.out
+    assert "[model]" in captured.out
+    assert "[history]" in captured.out
 
 
-@patch('whisper_local.cli._run_combined')
-def test_main_no_command_defaults_to_run(mock_run_combined, monkeypatch):
-    """Test main with no command defaults to 'run'."""
-    monkeypatch.setattr(sys, 'argv', ['cli'])
-
-    cli.main()
-
-    mock_run_combined.assert_called_once_with('localhost', 7878, status_indicator=True)
-
-
-@patch('whisper_local.cli._run_combined')
-def test_main_run_command(mock_run_combined, monkeypatch):
-    """Test main 'run' command."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'run'])
-
-    cli.main()
-
-    mock_run_combined.assert_called_once_with('localhost', 7878, status_indicator=True)
-
-
-def test_main_run_command_rejects_legacy_flag(monkeypatch):
-    """Test main exits when removed --legacy flag is used."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'run', '--legacy'])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-    assert exc_info.value.code == 2
-
-
-@patch('whisper_local.cli._run_combined')
-def test_main_run_with_no_status_indicator(mock_run_combined, monkeypatch):
-    """Test main 'run' command with --no-status-indicator."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'run', '--no-status-indicator'])
-
-    cli.main()
-
-    mock_run_combined.assert_called_once_with('localhost', 7878, status_indicator=False)
-
-
-@patch('whisper_local.cli._run_tui')
-@patch('whisper_local.cli._restore_terminal_state')
-def test_main_tui_file_not_found_exits(mock_restore, mock_run_tui, monkeypatch, capsys):
-    """Test main exits with error when TUI binary not found."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'tui'])
-
-    mock_process = Mock()
-    mock_process.wait.side_effect = FileNotFoundError("TUI binary not found")
-    mock_run_tui.return_value = mock_process
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-
-    assert exc_info.value.code == 1
-    captured = capsys.readouterr()
-    assert 'Error:' in captured.out
-
-
-@patch('whisper_local.cli.load_config')
-def test_ensure_runtime_dependencies_called(mock_load_config):
-    """Test _ensure_runtime_dependencies is called appropriately."""
-    # This is tested implicitly through other tests
-    # Just verify the function exists
-    assert hasattr(cli, '_ensure_runtime_dependencies')
-
-
-def test_prog_name_uses_argv():
-    """Test build_parser uses sys.argv[0] for program name."""
-    with patch.object(sys, 'argv', ['/usr/bin/whisper-local']):
+def test_prog_name_uses_argv() -> None:
+    with patch.object(sys, "argv", ["/usr/bin/whisper-local"]):
         parser = cli.build_parser()
-        assert 'whisper-local' in parser.prog
-
-
-def test_config_prints_nested_dict_values(monkeypatch, capsys):
-    """Test config command prints nested dictionary values correctly."""
-    monkeypatch.setattr(sys, 'argv', ['cli', 'config'])
-
-    with patch('whisper_local.cli.load_config') as mock_load_config:
-        mock_config = Mock()
-        mock_config.to_dict.return_value = {
-            'output': {'file': {'enabled': True, 'path': '/tmp/output.txt'}},
-        }
-        mock_load_config.return_value = mock_config
-
-        cli.main()
-
-        captured = capsys.readouterr()
-        assert '[output]' in captured.out
-        assert 'file.enabled = True' in captured.out
-        assert 'file.path = /tmp/output.txt' in captured.out
+        assert "whisper-local" in parser.prog

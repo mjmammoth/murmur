@@ -46,6 +46,12 @@ export function TranscriberContextProvider(props: {
 
   // Listen for transcripts from backend
   onMount(() => {
+    backend.onTranscriptHistory((entries) => {
+      const next = [...entries];
+      setTranscripts(next);
+      setSelectedIndex(next.length > 0 ? next.length - 1 : -1);
+    });
+
     backend.onTranscript((entry) => {
       setTranscripts((prev) => {
         const next = [...prev, entry];

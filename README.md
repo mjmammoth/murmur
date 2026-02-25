@@ -34,7 +34,13 @@ Everything runs on your machine. No cloud API, no network calls, no data collect
 
 ## Get Started
 
-### Homebrew (v1 arm64)
+### Install via `curl | bash` (macOS + Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | bash
+```
+
+### Homebrew (macOS Intel/Apple Silicon + Linux x64/arm64)
 
 ```bash
 brew tap mjmammoth/tap
@@ -47,10 +53,15 @@ brew install whisper-local
 brew install --cask rnnoise
 ```
 
-### Run
+### Service-first commands
 
 ```bash
-whisper.local
+whisper.local                 # start/ensure background service
+whisper.local service status  # check service state
+whisper.local tui             # attach TUI to running service
+whisper.local trigger toggle  # hotkey fallback trigger command
+whisper.local upgrade         # upgrade installer-managed install to latest
+whisper.local service stop    # stop background service
 ```
 
 ### Hotkey
@@ -58,11 +69,59 @@ whisper.local
 Default hotkey is `f3`. Configure it through the TUI (by pressing 'h') or in the config file:
 `~/.config/whisper.local/config.toml`
 Supported keys: letters, digits, space, return, tab, escape, and function keys `f1`-`f12`.
+Transcript history retention is configured with `[history] max_entries` (default `5000`).
 
 ### macOS permissions
 
 Global hotkeys require **Input Monitoring** permission for your terminal or app host.
 Auto-paste uses System Events and requires the **Accessibility** permission for the terminal or app running whisper.local.
+
+### Wayland guidance
+
+Global key swallow is not guaranteed on Wayland. Use a desktop shortcut that runs:
+
+```bash
+whisper.local trigger toggle
+```
+
+### Native hotkey support
+
+- macOS: native capture + swallow
+- Linux X11: native capture + swallow (best-effort), requires `python-xlib`
+- Linux Wayland: no guaranteed swallow; use `whisper.local trigger toggle` fallback
+- Windows: native capture + swallow (best-effort), requires `pywin32`
+
+### Windows
+
+Windows builds are published as release artifacts (`whisper-local-tui-windows-x64.tar.gz`) with a documented manual install path.
+
+### Upgrade
+
+Installer-managed installs support in-place upgrades:
+
+```bash
+whisper.local upgrade
+whisper.local upgrade --version v0.2.0
+```
+
+Behavior:
+- If the background service is running, upgrade stops it and restarts it automatically on success.
+- Homebrew installs receive: `brew update && brew upgrade whisper-local`.
+- pip installs receive: `python -m pip install -U whisper-local`.
+
+### Troubleshooting hotkey deps
+
+If Linux X11 hotkey support is unavailable:
+
+```bash
+python -m pip install python-xlib
+```
+
+If Windows hotkey support is unavailable:
+
+```bash
+python -m pip install pywin32
+```
 
 
 ### Model downloading

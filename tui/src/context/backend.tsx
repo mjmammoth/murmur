@@ -67,6 +67,7 @@ export interface BackendContextValue {
   send: (message: ClientMessage) => boolean;
   requestConfigFile: () => void;
   requestCapabilities: () => void;
+  onTranscriptHistory: (handler: (entries: TranscriptEntry[]) => void) => void;
   onTranscript: (handler: (entry: TranscriptEntry) => void) => void;
   onHotkeyPress: (handler: () => void) => void;
   onHotkeyRelease: (handler: () => void) => void;
@@ -128,6 +129,7 @@ export function BackendContextProvider(props: {
 
   // Event handlers
   const transcriptHandlers: ((entry: TranscriptEntry) => void)[] = [];
+  const transcriptHistoryHandlers: ((entries: TranscriptEntry[]) => void)[] = [];
   const hotkeyPressHandlers: (() => void)[] = [];
   const hotkeyReleaseHandlers: (() => void)[] = [];
   const toastHandlers: ((message: string, level: "info" | "error") => void)[] = [];
@@ -346,7 +348,17 @@ export function BackendContextProvider(props: {
 
       case "transcript":
         for (const handler of transcriptHandlers) {
-          handler({ timestamp: message.timestamp, text: message.text });
+          handler({
+            id: message.id,
+            timestamp: message.timestamp,
+            text: message.text,
+            created_at: message.created_at,
+          });
+        }
+        break;
+      case "transcript_history":
+        for (const handler of transcriptHistoryHandlers) {
+          handler(message.entries);
         }
         break;
 
@@ -769,6 +781,10 @@ export function BackendContextProvider(props: {
     transcriptHandlers.push(handler);
   }
 
+  function onTranscriptHistory(handler: (entries: TranscriptEntry[]) => void) {
+    transcriptHistoryHandlers.push(handler);
+  }
+
   function onHotkeyPress(handler: () => void) {
     hotkeyPressHandlers.push(handler);
   }
@@ -843,6 +859,7 @@ export function BackendContextProvider(props: {
     send,
     requestConfigFile,
     requestCapabilities,
+    onTranscriptHistory,
     onTranscript,
     onHotkeyPress,
     onHotkeyRelease,
