@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from whisper_local.config import SUPPORTED_RUNTIMES, load_config
@@ -76,6 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
     trigger_parser.add_argument("action", choices=("start", "stop", "toggle"))
     trigger_parser.add_argument("--host", default="localhost", help="Bridge host")
     trigger_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    trigger_parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=3.0,
+        help="Max time to wait for trigger status acknowledgement",
+    )
     trigger_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
@@ -234,34 +241,95 @@ def _service_status() -> None:
     print("stopped")
 
 
-async def _trigger_async(host: str, port: int, action: str) -> None:
+async def _wait_for_status(
+    websocket,
+    *,
+    timeout_seconds: float,
+    expected_statuses: set[str] | None = None,
+) -> tuple[str | None, str | None]:
+    deadline = time.monotonic() + max(0.1, timeout_seconds)
+    last_status: str | None = None
+    last_message: str | None = None
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return last_status, last_message
+        try:
+            raw = await asyncio.wait_for(websocket.recv(), timeout=remaining)
+        except TimeoutError:
+            return last_status, last_message
+
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+
+        if payload.get("type") != "status":
+            continue
+        status = str(payload.get("status", ""))
+        last_status = status or None
+        status_message = payload.get("message")
+        if isinstance(status_message, str):
+            last_message = status_message
+        else:
+            last_message = None
+        if expected_statuses is None:
+            return last_status, last_message
+        if last_status in expected_statuses:
+            return last_status, last_message
+
+
+async def _trigger_async(host: str, port: int, action: str, timeout_seconds: float) -> str:
     import websockets
 
     uri = f"ws://{host}:{port}"
     async with websockets.connect(uri, ping_interval=10, ping_timeout=10) as websocket:
-        current_status = ""
-        for _ in range(4):
-            try:
-                raw = await asyncio.wait_for(websocket.recv(), timeout=0.75)
-            except TimeoutError:
-                break
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if payload.get("type") == "status":
-                current_status = str(payload.get("status", ""))
-                break
+        initial_status, _ = await _wait_for_status(
+            websocket,
+            timeout_seconds=min(max(timeout_seconds, 0.1), 0.75),
+        )
+        current_status = initial_status or ""
 
         effective = action
         if action == "toggle":
             effective = "stop" if current_status == "recording" else "start"
 
+        expected_statuses = (
+            {"recording"}
+            if effective == "start"
+            else {"transcribing", "ready", "error"}
+        )
+        if current_status in expected_statuses:
+            return current_status
+
         message_type = "start_recording" if effective == "start" else "stop_recording"
         await websocket.send(json.dumps({"type": message_type}))
 
+        ack_status, ack_message = await _wait_for_status(
+            websocket,
+            timeout_seconds=timeout_seconds,
+            expected_statuses=expected_statuses,
+        )
+        if ack_status in expected_statuses:
+            return str(ack_status)
 
-def _trigger(host: str, port: int, *, action: str, status_indicator: bool) -> None:
+        last_status = ack_status or current_status or "unknown"
+        last_message = ack_message or "no status message"
+        raise TimeoutError(
+            f"Timed out waiting for trigger acknowledgement ({effective}); "
+            f"last_status={last_status}; last_message={last_message}"
+        )
+
+
+def _trigger(
+    host: str,
+    port: int,
+    *,
+    action: str,
+    status_indicator: bool,
+    timeout_seconds: float,
+) -> None:
     try:
         _ensure_service_running(host, port, status_indicator=status_indicator)
     except Exception as exc:
@@ -269,7 +337,11 @@ def _trigger(host: str, port: int, *, action: str, status_indicator: bool) -> No
         raise SystemExit(1)
 
     try:
-        asyncio.run(_trigger_async(host, port, action))
+        ack_status = asyncio.run(_trigger_async(host, port, action, timeout_seconds))
+        print(f"Trigger acknowledged: status={ack_status}")
+    except TimeoutError as exc:
+        print(f"Error: trigger command timed out: {exc}")
+        raise SystemExit(2)
     except Exception as exc:
         print(f"Error: trigger command failed: {exc}")
         raise SystemExit(1)
@@ -403,6 +475,7 @@ def main() -> None:
             args.port,
             action=args.action,
             status_indicator=not args.no_status_indicator,
+            timeout_seconds=float(args.timeout_seconds),
         )
         return
 

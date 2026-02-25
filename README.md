@@ -60,6 +60,7 @@ whisper.local                 # start/ensure background service
 whisper.local service status  # check service state
 whisper.local tui             # attach TUI to running service
 whisper.local trigger toggle  # hotkey fallback trigger command
+whisper.local trigger start --timeout-seconds 5
 whisper.local upgrade         # upgrade installer-managed install to latest
 whisper.local service stop    # stop background service
 ```

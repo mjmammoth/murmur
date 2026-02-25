@@ -22,6 +22,7 @@ def test_build_parser_includes_trigger_command() -> None:
     args = parser.parse_args(["trigger", "toggle"])
     assert args.command == "trigger"
     assert args.action == "toggle"
+    assert args.timeout_seconds == 3.0
 
 
 def test_build_parser_includes_upgrade_command() -> None:
@@ -220,7 +221,108 @@ def test_main_trigger_command(mock_trigger: Mock, monkeypatch: pytest.MonkeyPatc
         7878,
         action="toggle",
         status_indicator=True,
+        timeout_seconds=3.0,
     )
+
+
+@patch("whisper_local.cli._trigger")
+def test_main_trigger_command_with_custom_timeout(
+    mock_trigger: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "trigger", "start", "--timeout-seconds", "5.5"])
+
+    cli.main()
+
+    mock_trigger.assert_called_once_with(
+        "localhost",
+        7878,
+        action="start",
+        status_indicator=True,
+        timeout_seconds=5.5,
+    )
+
+
+@patch("whisper_local.cli._ensure_service_running")
+@patch("whisper_local.cli.asyncio.run")
+def test_trigger_success_prints_ack(
+    mock_asyncio_run: Mock,
+    mock_ensure_service: Mock,
+    capsys,
+) -> None:
+    def _runner(coro):
+        coro.close()
+        return "recording"
+
+    mock_asyncio_run.side_effect = _runner
+
+    cli._trigger(
+        "localhost",
+        7878,
+        action="start",
+        status_indicator=True,
+        timeout_seconds=3.0,
+    )
+
+    mock_ensure_service.assert_called_once_with("localhost", 7878, status_indicator=True)
+    captured = capsys.readouterr()
+    assert "Trigger acknowledged: status=recording" in captured.out
+
+
+@patch("whisper_local.cli._ensure_service_running")
+@patch("whisper_local.cli.asyncio.run")
+def test_trigger_timeout_exits_non_zero(
+    mock_asyncio_run: Mock,
+    mock_ensure_service: Mock,
+    capsys,
+) -> None:
+    def _runner(coro):
+        coro.close()
+        raise TimeoutError("ack timeout")
+
+    mock_asyncio_run.side_effect = _runner
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli._trigger(
+            "localhost",
+            7878,
+            action="stop",
+            status_indicator=True,
+            timeout_seconds=1.0,
+        )
+
+    assert exc_info.value.code == 2
+    mock_ensure_service.assert_called_once_with("localhost", 7878, status_indicator=True)
+    captured = capsys.readouterr()
+    assert "timed out" in captured.out
+
+
+@patch("whisper_local.cli._ensure_service_running")
+@patch("whisper_local.cli.asyncio.run")
+def test_trigger_error_exits_non_zero(
+    mock_asyncio_run: Mock,
+    mock_ensure_service: Mock,
+    capsys,
+) -> None:
+    def _runner(coro):
+        coro.close()
+        raise RuntimeError("ws error")
+
+    mock_asyncio_run.side_effect = _runner
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli._trigger(
+            "localhost",
+            7878,
+            action="start",
+            status_indicator=True,
+            timeout_seconds=1.0,
+        )
+
+    assert exc_info.value.code == 1
+    mock_ensure_service.assert_called_once_with("localhost", 7878, status_indicator=True)
+    captured = capsys.readouterr()
+    assert "trigger command failed" in captured.out
 
 
 @patch("whisper_local.cli._upgrade")
