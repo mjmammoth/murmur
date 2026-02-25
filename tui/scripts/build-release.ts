@@ -6,6 +6,7 @@ import solidTransformPlugin from "@opentui/solid/bun-plugin";
 
 type PackageJson = {
   version: string;
+  dependencies?: Record<string, string>;
 };
 
 type BuildTarget = {
@@ -22,6 +23,12 @@ const DEFAULT_TARGET_IDS = [
   "linux-arm64",
   "windows-x64",
 ] as const;
+
+type OpenTuiTargetPackage = {
+  name: string;
+  os: string;
+  cpu: string;
+};
 
 function run(command: string, args: string[], cwd: string): string {
   const result = spawnSync(command, args, {
@@ -81,6 +88,74 @@ function resolveTargets(requested: readonly string[]): BuildTarget[] {
   return targets;
 }
 
+function normalizeVersionRange(versionRange: string): string {
+  const match = versionRange.match(/\d+\.\d+\.\d+/);
+  if (!match) {
+    throw new Error(
+      `Unsupported @opentui/core version range '${versionRange}'. Expected semver-like value.`,
+    );
+  }
+  return match[0];
+}
+
+function mapOpenTuiTargetPackage(target: BuildTarget): OpenTuiTargetPackage {
+  const [rawOs, rawCpu] = target.id.split("-");
+  if (!rawOs || !rawCpu) {
+    throw new Error(`Invalid build target id '${target.id}'`);
+  }
+
+  const os = rawOs === "windows" ? "win32" : rawOs;
+  return {
+    name: `@opentui/core-${os}-${rawCpu}`,
+    os,
+    cpu: rawCpu,
+  };
+}
+
+function ensureOpenTuiTargetPackages(
+  {
+    packageJson,
+    targets,
+    cwd,
+  }: {
+    packageJson: PackageJson;
+    targets: BuildTarget[];
+    cwd: string;
+  },
+): void {
+  const coreVersionRange = packageJson.dependencies?.["@opentui/core"];
+  if (!coreVersionRange) {
+    throw new Error("package.json is missing dependency '@opentui/core'");
+  }
+  const coreVersion = normalizeVersionRange(coreVersionRange);
+
+  const seen = new Set<string>();
+  for (const target of targets) {
+    const targetPackage = mapOpenTuiTargetPackage(target);
+    if (seen.has(targetPackage.name)) {
+      continue;
+    }
+    seen.add(targetPackage.name);
+
+    run(
+      "bun",
+      [
+        "install",
+        "--frozen-lockfile",
+        "--no-save",
+        "--silent",
+        "--no-progress",
+        "--os",
+        targetPackage.os,
+        "--cpu",
+        targetPackage.cpu,
+        `${targetPackage.name}@${coreVersion}`,
+      ],
+      cwd,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const scriptDir = dirname(fileURLToPath(import.meta.url));
   const tuiRoot = resolve(scriptDir, "..");
@@ -101,6 +176,15 @@ async function main(): Promise<void> {
   const targets = resolveTargets(parseRequestedTargets());
   const distRoot = resolve(repoRoot, "dist", "tui");
   mkdirSync(distRoot, { recursive: true });
+
+  // `@opentui/core` dynamically imports target-specific optional packages.
+  // Ensure each target package is installed before compile, even when building
+  // cross-platform on a single CI runner.
+  ensureOpenTuiTargetPackages({
+    packageJson,
+    targets,
+    cwd: tuiRoot,
+  });
 
   const bundlePath = resolve(tuiRoot, ".build-tmp.js");
   const buildResult = await Bun.build({
