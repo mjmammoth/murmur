@@ -1084,12 +1084,20 @@ class BridgeServer:
             self._start_hotkey()
 
         # Send current state
-        await websocket.send(
-            json.dumps({"type": "status", "status": self._status, "message": self._status_message})
-        )
-        await self._send_config(websocket)
-        await self._send_transcript_history(websocket)
-
+        try:
+            # Send current state
+            await websocket.send(
+                json.dumps({"type": "status", "status": self._status, "message": self._status_message})
+            )
+            await self._send_config(websocket)
+            await self._send_transcript_history(websocket)
+            async for message in websocket:
+                await self._handle_message(websocket, message)
+        except websockets.ConnectionClosed:
+            pass
+        finally:
+            self.clients.discard(websocket)
+            self._passive_clients.discard(websocket)
         try:
             async for message in websocket:
                 await self._handle_message(websocket, message)
