@@ -227,14 +227,20 @@ class ServiceManager:
                 self.clear_state()
                 raise
 
-        self.save_state(
-            ServiceState.new(
-                pid=process.pid,
-                host=host,
-                port=port,
-                status_indicator_pid=indicator_pid,
+        try:
+            self.save_state(
+                ServiceState.new(
+                    pid=process.pid,
+                    host=host,
+                    port=port,
+                    status_indicator_pid=indicator_pid,
+                )
             )
-        )
+        except Exception:
+            _terminate_pid(process.pid, timeout=1.0)
+            _terminate_pid(indicator_pid, timeout=1.0)
+            self.clear_state()
+            raise
         return self.status()
 
     def stop(self) -> ServiceStatus:
