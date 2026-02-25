@@ -78,7 +78,11 @@ class TranscriptStore:
         query = "SELECT id, text, timestamp, created_at FROM transcripts ORDER BY id ASC"
         params: tuple[int, ...] = ()
         if limit is not None:
-            capped = max(1, int(limit))
+            capped = int(limit)
+            if capped < 0:
+                raise ValueError("limit must be >= 0")
+            if capped == 0:
+                return []
             query = (
                 "SELECT id, text, timestamp, created_at "
                 "FROM transcripts ORDER BY id DESC LIMIT ?"
