@@ -40,28 +40,38 @@ class WhisperLocal < Formula
       end
     end
 
-    tui_url = nil
-    tui_sha = nil
+    tui_assets = {
+      darwin: {
+        arm:   [
+          "$TUI_URL_DARWIN_ARM64",
+          "$TUI_SHA256_DARWIN_ARM64",
+        ],
+        intel: [
+          "$TUI_URL_DARWIN_X64",
+          "$TUI_SHA256_DARWIN_X64",
+        ],
+      },
+      linux:  {
+        arm:   [
+          "$TUI_URL_LINUX_ARM64",
+          "$TUI_SHA256_LINUX_ARM64",
+        ],
+        intel: [
+          "$TUI_URL_LINUX_X64",
+          "$TUI_SHA256_LINUX_X64",
+        ],
+      },
+    }
 
-    if OS.mac?
-      if Hardware::CPU.arm?
-        tui_url = "$TUI_URL_DARWIN_ARM64"
-        tui_sha = "$TUI_SHA256_DARWIN_ARM64"
-      else
-        tui_url = "$TUI_URL_DARWIN_X64"
-        tui_sha = "$TUI_SHA256_DARWIN_X64"
-      end
+    platform_key = if OS.mac?
+      :darwin
     elsif OS.linux?
-      if Hardware::CPU.arm?
-        tui_url = "$TUI_URL_LINUX_ARM64"
-        tui_sha = "$TUI_SHA256_LINUX_ARM64"
-      else
-        tui_url = "$TUI_URL_LINUX_X64"
-        tui_sha = "$TUI_SHA256_LINUX_X64"
-      end
+      :linux
     else
       odie "Unsupported platform for whisper-local formula"
     end
+    arch_key = Hardware::CPU.arm? ? :arm : :intel
+    tui_url, tui_sha = tui_assets.fetch(platform_key).fetch(arch_key)
 
     tui_archive = buildpath/"whisper-local-tui.tar.gz"
     system "curl", "-fsSL", "-o", tui_archive, tui_url
