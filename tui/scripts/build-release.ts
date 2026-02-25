@@ -254,7 +254,10 @@ async function main(): Promise<void> {
           cwd: tuiRoot,
           stdio: ["ignore", "pipe", "pipe"],
           encoding: "utf-8",
-          env: { ...process.env, BUN_CONFIG_FILE: "/dev/null" },
+import { spawnSync } from "node:child_process";
+import { devNull } from "node:os";
+
+          env: { ...process.env, BUN_CONFIG_FILE: devNull },
         },
       );
       if (compileResult.status !== 0) {
