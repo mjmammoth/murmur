@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSy
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { devNull } from "node:os";
 import solidTransformPlugin from "@opentui/solid/bun-plugin";
 
 type PackageJson = {
@@ -258,9 +259,6 @@ async function main(): Promise<void> {
           cwd: tuiRoot,
           stdio: ["ignore", "pipe", "pipe"],
           encoding: "utf-8",
-import { spawnSync } from "node:child_process";
-import { devNull } from "node:os";
-
           env: { ...process.env, BUN_CONFIG_FILE: devNull },
         },
       );
