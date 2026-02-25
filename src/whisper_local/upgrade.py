@@ -241,8 +241,11 @@ def _replace_tui_binary(*, app_home: Path, target: str, archive_path: Path) -> N
             raise UpgradeError("Upgraded TUI archive did not contain an executable")
 
         destination = target_dir / extracted_binary.name
-        os.replace(extracted_binary, destination)
+        staged_destination = destination.with_suffix(destination.suffix + ".tmp")
+        shutil.copy2(extracted_binary, staged_destination)
+        os.replace(staged_destination, destination)
         if not destination.name.endswith(".exe"):
+            destination.chmod(0o755)
             destination.chmod(0o755)
 
 
