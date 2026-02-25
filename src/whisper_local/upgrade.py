@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -17,9 +19,11 @@ from whisper_local.service_manager import ServiceManager
 
 
 DEFAULT_REPOSITORY = os.environ.get("WHISPER_LOCAL_REPO", "mjmammoth/whisper.local")
+DEFAULT_EXPECTED_SIGNING_FINGERPRINT = "031A071DD2F8736D5AB270EF239D1750F8F92826"
 INSTALLER_HOME = Path("~/.local/share/whisper.local").expanduser()
 INSTALLER_MANIFEST_NAME = "install-manifest.json"
 INSTALLER_MANIFEST = INSTALLER_HOME / INSTALLER_MANIFEST_NAME
+CHECKSUM_MANIFEST_NAMES = {"checksums.txt", "checksums.sha256", "checksums.sha256sum"}
 
 
 class UpgradeError(RuntimeError):
@@ -43,6 +47,10 @@ class ReleaseAssetBundle:
     wheel_url: str
     tui_name: str
     tui_url: str
+    checksums_name: str
+    checksums_url: str
+    signature_name: str
+    signature_url: str
     target: str
 
 
@@ -85,10 +93,6 @@ def detect_install_channel(
     installer_home: Path = INSTALLER_HOME,
 ) -> str:
     current_executable = Path(executable or sys.executable).expanduser().resolve()
-    manifest = read_install_manifest(installer_home / INSTALLER_MANIFEST_NAME)
-    if _manifest_indicates_installer(manifest, installer_home):
-        return "installer"
-
     venv_root = installer_home / "venv"
     tui_root = installer_home / "tui"
 
@@ -117,33 +121,6 @@ def read_install_manifest(
     if not isinstance(payload, dict):
         return None
     return payload
-
-
-def _manifest_indicates_installer(
-    manifest: dict[str, object] | None,
-    installer_home: Path,
-) -> bool:
-    if manifest is None:
-        return False
-
-    channel = str(manifest.get("channel") or "").strip().lower()
-    if channel != "installer":
-        return False
-
-    manifest_home_raw = str(manifest.get("installer_home") or "").strip()
-    if not manifest_home_raw:
-        return False
-
-    try:
-        manifest_home = Path(manifest_home_raw).expanduser().resolve()
-        expected_home = installer_home.expanduser().resolve()
-    except Exception:
-        return False
-
-    if manifest_home != expected_home:
-        return False
-
-    return (expected_home / "venv").exists() and (expected_home / "tui").exists()
 
 
 def _looks_like_homebrew_install(executable: Path) -> bool:
@@ -202,6 +179,37 @@ def normalize_version_tag(requested_version: str | None) -> str | None:
     return f"v{normalized}"
 
 
+def _normalize_fingerprint(value: str) -> str:
+    return "".join(value.split()).upper()
+
+
+def _expected_signing_fingerprint() -> str:
+    configured = os.environ.get(
+        "WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT",
+        DEFAULT_EXPECTED_SIGNING_FINGERPRINT,
+    )
+    fingerprint = _normalize_fingerprint(configured)
+    if not fingerprint:
+        raise UpgradeError(
+            "Upgrade verification failed: signing key fingerprint is empty "
+            "(set WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT)."
+        )
+    return fingerprint
+
+
+def _signing_key_url_for_repository(repository: str) -> str:
+    override = os.environ.get("WHISPER_LOCAL_SIGNING_KEY_URL")
+    if override and override.strip():
+        return override.strip()
+
+    owner = repository.split("/", 1)[0].strip()
+    if not owner:
+        raise UpgradeError(
+            f"Upgrade verification failed: invalid repository '{repository}' for signing-key lookup."
+        )
+    return f"https://github.com/{owner}.gpg"
+
+
 def _github_get_json(url: str) -> dict[str, object]:
     request = urllib.request.Request(
         url,
@@ -244,7 +252,9 @@ def resolve_release_assets(
         raise UpgradeError("Release metadata has invalid assets payload")
 
     wheel_assets: list[dict[str, object]] = []
-    tui_asset = None
+    tui_asset: dict[str, object] | None = None
+    checksums_asset: dict[str, object] | None = None
+    signature_asset: dict[str, object] | None = None
     expected_tui = f"whisper-local-tui-{target_name}.tar.gz"
     for asset in assets:
         if not isinstance(asset, dict):
@@ -254,6 +264,8 @@ def resolve_release_assets(
             wheel_assets.append(asset)
         if asset_name == expected_tui:
             tui_asset = asset
+        if asset_name in CHECKSUM_MANIFEST_NAMES:
+            checksums_asset = asset
 
     if not wheel_assets:
         raise UpgradeError("Release is missing wheel artifact")
@@ -264,14 +276,48 @@ def resolve_release_assets(
         )
     if tui_asset is None:
         raise UpgradeError(f"Release is missing TUI artifact for target {target_name}")
+    if checksums_asset is None:
+        raise UpgradeError(
+            "Release is missing checksum manifest (checksums.txt/.sha256/.sha256sum)"
+        )
+
+    checksums_name = str(checksums_asset.get("name") or "")
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        asset_name = str(asset.get("name") or "")
+        if asset_name in {f"{checksums_name}.asc", f"{checksums_name}.sig"}:
+            signature_asset = asset
+            break
+    if signature_asset is None:
+        for asset in assets:
+            if not isinstance(asset, dict):
+                continue
+            asset_name = str(asset.get("name") or "").lower()
+            if asset_name in {"release.asc", "release.sig"}:
+                signature_asset = asset
+                break
+    if signature_asset is None:
+        for asset in assets:
+            if not isinstance(asset, dict):
+                continue
+            asset_name = str(asset.get("name") or "").lower()
+            if asset_name.endswith(".asc") and "checksum" in asset_name:
+                signature_asset = asset
+                break
+    if signature_asset is None:
+        raise UpgradeError("Release is missing checksum signature (.asc/.sig)")
 
     wheel_asset = wheel_assets[0]
     wheel_name = str(wheel_asset.get("name") or "")
     wheel_url = str(wheel_asset.get("browser_download_url") or "")
     tui_name = str(tui_asset.get("name") or "")
     tui_url = str(tui_asset.get("browser_download_url") or "")
+    checksums_url = str(checksums_asset.get("browser_download_url") or "")
+    signature_name = str(signature_asset.get("name") or "")
+    signature_url = str(signature_asset.get("browser_download_url") or "")
 
-    if not wheel_url or not tui_url:
+    if not wheel_url or not tui_url or not checksums_url or not signature_url:
         raise UpgradeError("Release assets are missing download URLs")
 
     return ReleaseAssetBundle(
@@ -281,6 +327,10 @@ def resolve_release_assets(
         wheel_url=wheel_url,
         tui_name=tui_name,
         tui_url=tui_url,
+        checksums_name=checksums_name,
+        checksums_url=checksums_url,
+        signature_name=signature_name,
+        signature_url=signature_url,
         target=target_name,
     )
 
@@ -294,7 +344,171 @@ def _download_to_file(url: str, destination: Path) -> None:
         },
     )
     with urllib.request.urlopen(request, timeout=60) as response:
-        destination.write_bytes(response.read())
+        with destination.open("wb") as handle:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                handle.write(chunk)
+
+
+def _run_command_or_error(command: list[str], *, env: dict[str, str] | None = None) -> str:
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+    except Exception as exc:
+        joined = " ".join(command)
+        raise UpgradeError(f"Upgrade verification failed while running '{joined}': {exc}") from exc
+
+    if result.returncode != 0:
+        joined = " ".join(command)
+        stderr = result.stderr.strip() or result.stdout.strip()
+        suffix = f": {stderr}" if stderr else ""
+        raise UpgradeError(f"Upgrade verification failed while running '{joined}'{suffix}")
+    return result.stdout
+
+
+def _parse_checksums_manifest(manifest_path: Path) -> dict[str, str]:
+    entries: dict[str, str] = {}
+    pattern = re.compile(r"^([0-9A-Fa-f]{64})\s+\*?(.+)$")
+    for raw_line in manifest_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = pattern.match(line)
+        if not match:
+            continue
+        digest = match.group(1).lower()
+        name = match.group(2).strip()
+        if name:
+            entries[name] = digest
+    if not entries:
+        raise UpgradeError(
+            f"Upgrade verification failed: checksum manifest is empty or invalid ({manifest_path.name})."
+        )
+    return entries
+
+
+def _checksum_for_asset(asset_name: str, checksums: dict[str, str]) -> str:
+    if asset_name in checksums:
+        return checksums[asset_name]
+
+    basename_matches = [
+        digest for entry_name, digest in checksums.items() if Path(entry_name).name == asset_name
+    ]
+    if len(basename_matches) == 1:
+        return basename_matches[0]
+    if len(basename_matches) > 1:
+        raise UpgradeError(
+            f"Upgrade verification failed: multiple checksum entries matched asset '{asset_name}'."
+        )
+    raise UpgradeError(
+        f"Upgrade verification failed: checksum entry missing for asset '{asset_name}'."
+    )
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_release_signature(
+    *,
+    repository: str,
+    checksums_path: Path,
+    signature_path: Path,
+) -> None:
+    gpg = shutil.which("gpg")
+    if not gpg:
+        raise UpgradeError(
+            "Upgrade verification failed: 'gpg' is required. Install gpg and re-run upgrade."
+        )
+
+    expected_fingerprint = _expected_signing_fingerprint()
+    signing_key_url = _signing_key_url_for_repository(repository)
+
+    with tempfile.TemporaryDirectory(prefix="whisper-local-upgrade-gpg-") as tmp_dir:
+        tmp_root = Path(tmp_dir)
+        gpg_home = tmp_root / "gnupg"
+        gpg_home.mkdir(parents=True, exist_ok=True)
+        gpg_home.chmod(0o700)
+        key_path = tmp_root / "release-signing-key.asc"
+        try:
+            _download_to_file(signing_key_url, key_path)
+        except Exception as exc:
+            raise UpgradeError(
+                f"Upgrade verification failed: could not download signing key from {signing_key_url}: {exc}"
+            ) from exc
+
+        env = os.environ.copy()
+        env["GNUPGHOME"] = str(gpg_home)
+
+        _run_command_or_error(
+            [gpg, "--batch", "--quiet", "--import", str(key_path)],
+            env=env,
+        )
+        fingerprint_output = _run_command_or_error(
+            [gpg, "--batch", "--with-colons", "--fingerprint"],
+            env=env,
+        )
+        imported_fingerprints = {
+            parts[9].strip().upper()
+            for line in fingerprint_output.splitlines()
+            if line.startswith("fpr:")
+            for parts in [line.split(":")]
+            if len(parts) > 9 and parts[9].strip()
+        }
+        if expected_fingerprint not in imported_fingerprints:
+            raise UpgradeError(
+                "Upgrade verification failed: expected signing key fingerprint was not found "
+                "in imported keyring."
+            )
+        _run_command_or_error(
+            [gpg, "--batch", "--quiet", "--verify", str(signature_path), str(checksums_path)],
+            env=env,
+        )
+
+
+def _verify_downloaded_release_assets(
+    *,
+    bundle: ReleaseAssetBundle,
+    checksums_path: Path,
+    signature_path: Path,
+    wheel_path: Path,
+    tui_path: Path,
+) -> None:
+    _verify_release_signature(
+        repository=bundle.repository,
+        checksums_path=checksums_path,
+        signature_path=signature_path,
+    )
+    checksums = _parse_checksums_manifest(checksums_path)
+
+    expected_wheel_digest = _checksum_for_asset(bundle.wheel_name, checksums)
+    expected_tui_digest = _checksum_for_asset(bundle.tui_name, checksums)
+    actual_wheel_digest = _sha256_file(wheel_path)
+    actual_tui_digest = _sha256_file(tui_path)
+
+    if actual_wheel_digest.lower() != expected_wheel_digest.lower():
+        raise UpgradeError(
+            f"Upgrade verification failed: wheel checksum mismatch for {bundle.wheel_name}."
+        )
+    if actual_tui_digest.lower() != expected_tui_digest.lower():
+        raise UpgradeError(
+            f"Upgrade verification failed: TUI checksum mismatch for {bundle.tui_name}."
+        )
 
 
 def _replace_tui_binary(*, app_home: Path, target: str, archive_path: Path) -> None:
@@ -379,9 +593,21 @@ def run_upgrade(
             tmp_root = Path(tmp_dir)
             wheel_path = tmp_root / assets.wheel_name
             tui_path = tmp_root / assets.tui_name
+            checksums_path = tmp_root / assets.checksums_name
+            signature_path = tmp_root / assets.signature_name
 
             _download_to_file(assets.wheel_url, wheel_path)
             _download_to_file(assets.tui_url, tui_path)
+            _download_to_file(assets.checksums_url, checksums_path)
+            _download_to_file(assets.signature_url, signature_path)
+
+            _verify_downloaded_release_assets(
+                bundle=assets,
+                checksums_path=checksums_path,
+                signature_path=signature_path,
+                wheel_path=wheel_path,
+                tui_path=tui_path,
+            )
 
             subprocess.run(
                 [sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir", str(wheel_path)],

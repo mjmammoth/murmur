@@ -30,7 +30,9 @@ def test_read_install_manifest_invalid_payload_returns_none(tmp_path: Path) -> N
     assert upgrade.read_install_manifest(manifest_path) is None
 
 
-def test_detect_install_channel_prefers_valid_manifest(tmp_path: Path) -> None:
+def test_detect_install_channel_manifest_does_not_override_non_installer_executable(
+    tmp_path: Path,
+) -> None:
     installer_home = tmp_path / "whisper-local"
     (installer_home / "venv").mkdir(parents=True, exist_ok=True)
     (installer_home / "tui").mkdir(parents=True, exist_ok=True)
@@ -50,7 +52,29 @@ def test_detect_install_channel_prefers_valid_manifest(tmp_path: Path) -> None:
             installer_home=installer_home,
         )
 
-    assert channel == "installer"
+    assert channel == "pip"
+
+
+def test_detect_install_channel_manifest_does_not_override_homebrew_executable(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper-local"
+    (installer_home / "venv").mkdir(parents=True, exist_ok=True)
+    (installer_home / "tui").mkdir(parents=True, exist_ok=True)
+    (installer_home / upgrade.INSTALLER_MANIFEST_NAME).write_text(
+        (
+            "{"
+            '"channel":"installer",'
+            f'"installer_home":"{installer_home}"'
+            "}"
+        ),
+        encoding="utf-8",
+    )
+
+    channel = upgrade.detect_install_channel(
+        executable="/opt/homebrew/Cellar/whisper-local/1.0.0/bin/python3",
+        installer_home=installer_home,
+    )
+
+    assert channel == "homebrew"
 
 
 def test_detect_install_channel_installer(tmp_path: Path) -> None:
@@ -161,6 +185,14 @@ def test_resolve_release_assets_uses_target_bundle() -> None:
                 "name": "whisper-local-tui-linux-x64.tar.gz",
                 "browser_download_url": "https://example.invalid/tui",
             },
+            {
+                "name": "checksums.txt",
+                "browser_download_url": "https://example.invalid/checksums",
+            },
+            {
+                "name": "checksums.txt.asc",
+                "browser_download_url": "https://example.invalid/checksums.sig",
+            },
         ],
     }
 
@@ -176,6 +208,10 @@ def test_resolve_release_assets_uses_target_bundle() -> None:
     assert result.target == "linux-x64"
     assert result.wheel_url == "https://example.invalid/whl"
     assert result.tui_url == "https://example.invalid/tui"
+    assert result.checksums_name == "checksums.txt"
+    assert result.checksums_url == "https://example.invalid/checksums"
+    assert result.signature_name == "checksums.txt.asc"
+    assert result.signature_url == "https://example.invalid/checksums.sig"
 
 
 def test_resolve_release_assets_missing_target_tui_raises() -> None:
@@ -212,12 +248,79 @@ def test_resolve_release_assets_multiple_wheels_raises() -> None:
                 "name": "whisper-local-tui-linux-x64.tar.gz",
                 "browser_download_url": "https://example.invalid/tui",
             },
+            {
+                "name": "checksums.txt",
+                "browser_download_url": "https://example.invalid/checksums",
+            },
+            {
+                "name": "checksums.txt.asc",
+                "browser_download_url": "https://example.invalid/checksums.sig",
+            },
         ],
     }
 
     with patch("whisper_local.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="multiple wheel artifacts"):
             upgrade.resolve_release_assets(target="linux-x64")
+
+
+def test_resolve_release_assets_missing_checksums_raises() -> None:
+    payload = {
+        "tag_name": "v0.2.0",
+        "assets": [
+            {
+                "name": "whisper_local-0.2.0-py3-none-any.whl",
+                "browser_download_url": "https://example.invalid/whl",
+            },
+            {
+                "name": "whisper-local-tui-linux-x64.tar.gz",
+                "browser_download_url": "https://example.invalid/tui",
+            },
+        ],
+    }
+
+    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+        with pytest.raises(UpgradeError, match="missing checksum manifest"):
+            upgrade.resolve_release_assets(target="linux-x64")
+
+
+def test_resolve_release_assets_missing_signature_raises() -> None:
+    payload = {
+        "tag_name": "v0.2.0",
+        "assets": [
+            {
+                "name": "whisper_local-0.2.0-py3-none-any.whl",
+                "browser_download_url": "https://example.invalid/whl",
+            },
+            {
+                "name": "whisper-local-tui-linux-x64.tar.gz",
+                "browser_download_url": "https://example.invalid/tui",
+            },
+            {
+                "name": "checksums.txt",
+                "browser_download_url": "https://example.invalid/checksums",
+            },
+        ],
+    }
+
+    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+        with pytest.raises(UpgradeError, match="missing checksum signature"):
+            upgrade.resolve_release_assets(target="linux-x64")
+
+
+def test_verify_release_signature_requires_gpg(tmp_path: Path) -> None:
+    checksums = tmp_path / "checksums.txt"
+    signature = tmp_path / "checksums.txt.asc"
+    checksums.write_text("", encoding="utf-8")
+    signature.write_text("", encoding="utf-8")
+
+    with patch("whisper_local.upgrade.shutil.which", return_value=None):
+        with pytest.raises(UpgradeError, match="'gpg' is required"):
+            upgrade._verify_release_signature(
+                repository="owner/repo",
+                checksums_path=checksums,
+                signature_path=signature,
+            )
 
 
 def test_replace_tui_binary_uses_tar_data_filter(tmp_path: Path) -> None:
@@ -261,6 +364,10 @@ def test_run_upgrade_installer_running_service_restarts(tmp_path: Path, monkeypa
         wheel_url="https://example.invalid/whl",
         tui_name="whisper-local-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
+        checksums_name="checksums.txt",
+        checksums_url="https://example.invalid/checksums",
+        signature_name="checksums.txt.asc",
+        signature_url="https://example.invalid/checksums.sig",
         target="linux-x64",
     )
 
@@ -268,9 +375,11 @@ def test_run_upgrade_installer_running_service_restarts(tmp_path: Path, monkeypa
         "whisper_local.upgrade.resolve_release_assets", return_value=assets
     ), patch("whisper_local.upgrade._download_to_file"), patch(
         "whisper_local.upgrade._replace_tui_binary"
-    ), patch("whisper_local.upgrade._installed_version", side_effect=["0.1.0", "0.2.0"]), patch(
-        "whisper_local.upgrade.subprocess.run"
-    ):
+    ), patch(
+        "whisper_local.upgrade._verify_downloaded_release_assets"
+    ) as mock_verify_assets, patch(
+        "whisper_local.upgrade._installed_version", side_effect=["0.1.0", "0.2.0"]
+    ), patch("whisper_local.upgrade.subprocess.run"):
         result = upgrade.run_upgrade(
             requested_version="v0.2.0",
             installer_home=tmp_path,
@@ -288,6 +397,7 @@ def test_run_upgrade_installer_running_service_restarts(tmp_path: Path, monkeypa
         port=8999,
         status_indicator=False,
     )
+    mock_verify_assets.assert_called_once()
 
 
 def test_run_upgrade_installer_when_service_stopped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -307,6 +417,10 @@ def test_run_upgrade_installer_when_service_stopped(tmp_path: Path, monkeypatch:
         wheel_url="https://example.invalid/whl",
         tui_name="whisper-local-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
+        checksums_name="checksums.txt",
+        checksums_url="https://example.invalid/checksums",
+        signature_name="checksums.txt.asc",
+        signature_url="https://example.invalid/checksums.sig",
         target="linux-x64",
     )
 
@@ -314,6 +428,8 @@ def test_run_upgrade_installer_when_service_stopped(tmp_path: Path, monkeypatch:
         "whisper_local.upgrade.resolve_release_assets", return_value=assets
     ), patch("whisper_local.upgrade._download_to_file"), patch(
         "whisper_local.upgrade._replace_tui_binary"
+    ), patch(
+        "whisper_local.upgrade._verify_downloaded_release_assets"
     ), patch("whisper_local.upgrade._installed_version", side_effect=["0.1.0", "0.2.0"]), patch(
         "whisper_local.upgrade.subprocess.run"
     ):
@@ -357,6 +473,10 @@ def test_run_upgrade_failure_attempts_service_recovery(
         wheel_url="https://example.invalid/whl",
         tui_name="whisper-local-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
+        checksums_name="checksums.txt",
+        checksums_url="https://example.invalid/checksums",
+        signature_name="checksums.txt.asc",
+        signature_url="https://example.invalid/checksums.sig",
         target="linux-x64",
     )
 

@@ -128,6 +128,7 @@ whisper.local upgrade --version v0.2.0
 
 Behavior:
 - If the background service is running, upgrade stops it and restarts it automatically on success.
+- Upgrade verifies release signatures and checksums before install/extract; verification failures abort without mutating installed bits.
 - Homebrew installs receive: `brew update && brew upgrade whisper-local`.
 - pip installs receive: `python -m pip install -U whisper-local`.
 
