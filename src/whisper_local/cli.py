@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, TypeAlias
 
 from whisper_local import __version__
 from whisper_local.config import SUPPORTED_RUNTIMES, load_config
@@ -17,7 +17,12 @@ from whisper_local.service_manager import ServiceManager
 from whisper_local.tui_runtime import resolve_tui_runtime
 
 if TYPE_CHECKING:
+    from websockets.asyncio.client import ClientConnection
     from websockets.legacy.client import WebSocketClientProtocol
+
+    WebSocketClientType: TypeAlias = ClientConnection | WebSocketClientProtocol
+else:
+    WebSocketClientType = Any
 
 
 logging.basicConfig(level=logging.INFO)
@@ -258,7 +263,7 @@ def _service_status() -> None:
 
 
 async def _wait_for_status(
-    websocket: WebSocketClientProtocol,
+    websocket: WebSocketClientType,
     *,
     timeout_seconds: float,
     expected_statuses: set[str] | None = None,
