@@ -106,6 +106,62 @@ function normalizeVersionRange(versionRange: string): string {
   return match[0];
 }
 
+function runtimePackagePath(tuiRoot: string, packageName: string): string {
+  return resolve(tuiRoot, "node_modules", ...packageName.split("/"));
+}
+
+function runtimePackageIsPresent(tuiRoot: string, packageName: string): boolean {
+  const packagePath = runtimePackagePath(tuiRoot, packageName);
+  return (
+    existsSync(packagePath) &&
+    existsSync(resolve(packagePath, "package.json")) &&
+    existsSync(resolve(packagePath, "index.ts"))
+  );
+}
+
+async function fetchRuntimePackageTarball(
+  {
+    packageName,
+    version,
+    tuiRoot,
+  }: {
+    packageName: string;
+    version: string;
+    tuiRoot: string;
+  },
+): Promise<void> {
+  const packageSlug = packageName.includes("/") ? packageName.split("/")[1] : packageName;
+  const tarballFile = `${packageSlug}-${version}.tgz`;
+  const packageUrl = `https://registry.npmjs.org/${encodeURIComponent(packageName)}/-/${tarballFile}`;
+  const response = await fetch(packageUrl, {
+    headers: { "User-Agent": "whisper-local-build-release" },
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to download ${packageName}@${version} tarball: ${response.status} ${response.statusText}`,
+    );
+  }
+  const tarballBuffer = Buffer.from(await response.arrayBuffer());
+  const tempDir = resolve(tuiRoot, ".build-release-tmp");
+  mkdirSync(tempDir, { recursive: true });
+  const tarballPath = resolve(tempDir, tarballFile);
+  writeFileSync(tarballPath, tarballBuffer);
+
+  const packagePath = runtimePackagePath(tuiRoot, packageName);
+  mkdirSync(packagePath, { recursive: true });
+  try {
+    run(
+      "tar",
+      ["-xzf", tarballPath, "-C", packagePath, "--strip-components=1"],
+      tuiRoot,
+    );
+  } finally {
+    if (existsSync(tarballPath)) {
+      unlinkSync(tarballPath);
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const scriptDir = dirname(fileURLToPath(import.meta.url));
   const tuiRoot = resolve(scriptDir, "..");
@@ -170,10 +226,16 @@ async function main(): Promise<void> {
         ],
         tuiRoot,
       );
-      const runtimePackagePath = resolve(tuiRoot, "node_modules", ...runtimePackageName.split("/"));
-      if (!existsSync(runtimePackagePath)) {
+      if (!runtimePackageIsPresent(tuiRoot, runtimePackageName)) {
+        await fetchRuntimePackageTarball({
+          packageName: runtimePackageName,
+          version: coreVersion,
+          tuiRoot,
+        });
+      }
+      if (!runtimePackageIsPresent(tuiRoot, runtimePackageName)) {
         throw new Error(
-          `Missing required runtime package after install for target ${target.id}: ${runtimePackageName}`,
+          `Missing required runtime package after install/fallback for target ${target.id}: ${runtimePackageName}`,
         );
       }
 
