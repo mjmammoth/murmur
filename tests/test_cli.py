@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -127,11 +128,15 @@ def test_run_tui_attach_auto_starts_service(
 ) -> None:
     process = Mock()
     mock_run_tui.return_value = process
+    service_status = Mock()
+    service_status.host = "127.0.0.1"
+    service_status.port = 9000
+    mock_ensure_service.return_value = service_status
 
     cli._run_tui_attach("localhost", 7878, status_indicator=True)
 
     mock_ensure_service.assert_called_once_with("localhost", 7878, status_indicator=True)
-    mock_run_tui.assert_called_once_with("localhost", 7878)
+    mock_run_tui.assert_called_once_with("127.0.0.1", 9000)
     process.wait.assert_called_once()
     mock_restore.assert_called_once()
 
@@ -314,6 +319,11 @@ def test_trigger_success_prints_ack(
     mock_ensure_service: Mock,
     capsys,
 ) -> None:
+    service_status = Mock()
+    service_status.host = "127.0.0.1"
+    service_status.port = 9000
+    mock_ensure_service.return_value = service_status
+
     def _runner(coro):
         coro.close()
         return "recording"
@@ -334,12 +344,43 @@ def test_trigger_success_prints_ack(
 
 
 @patch("whisper_local.cli._ensure_service_running")
+@patch("whisper_local.cli._trigger_async")
+def test_trigger_uses_resolved_service_endpoint(
+    mock_trigger_async: Mock,
+    mock_ensure_service: Mock,
+    capsys,
+) -> None:
+    service_status = Mock()
+    service_status.host = "127.0.0.1"
+    service_status.port = 9000
+    mock_ensure_service.return_value = service_status
+    mock_trigger_async.return_value = "ready"
+
+    cli._trigger(
+        "localhost",
+        7878,
+        action="start",
+        status_indicator=True,
+        timeout_seconds=3.0,
+    )
+
+    mock_trigger_async.assert_called_once_with("127.0.0.1", 9000, "start", 3.0)
+    captured = capsys.readouterr()
+    assert "Trigger acknowledged: status=ready" in captured.out
+
+
+@patch("whisper_local.cli._ensure_service_running")
 @patch("whisper_local.cli.asyncio.run")
 def test_trigger_timeout_exits_non_zero(
     mock_asyncio_run: Mock,
     mock_ensure_service: Mock,
     capsys,
 ) -> None:
+    service_status = Mock()
+    service_status.host = "127.0.0.1"
+    service_status.port = 9000
+    mock_ensure_service.return_value = service_status
+
     def _runner(coro):
         coro.close()
         raise TimeoutError("ack timeout")
@@ -368,6 +409,11 @@ def test_trigger_error_exits_non_zero(
     mock_ensure_service: Mock,
     capsys,
 ) -> None:
+    service_status = Mock()
+    service_status.host = "127.0.0.1"
+    service_status.port = 9000
+    mock_ensure_service.return_value = service_status
+
     def _runner(coro):
         coro.close()
         raise RuntimeError("ws error")
@@ -525,3 +571,44 @@ def test_prog_name_uses_argv() -> None:
     with patch.object(sys, "argv", ["/usr/bin/whisper-local"]):
         parser = cli.build_parser()
         assert "whisper-local" in parser.prog
+
+
+@patch("whisper_local.cli.ServiceManager")
+def test_ensure_service_running_returns_service_status(mock_service_manager: Mock) -> None:
+    expected_status = Mock()
+    manager_instance = mock_service_manager.return_value
+    manager_instance.ensure_running.return_value = expected_status
+
+    result = cli._ensure_service_running("localhost", 7878, status_indicator=True)
+
+    assert result is expected_status
+    manager_instance.ensure_running.assert_called_once_with(
+        host="localhost",
+        port=7878,
+        status_indicator=True,
+    )
+
+
+def test_wait_for_status_ignores_non_object_json_payloads() -> None:
+    class DummyWebSocket:
+        def __init__(self) -> None:
+            self._messages = [
+                "[]",
+                '"string-payload"',
+                '{"type":"status","status":"ready","message":"Ready"}',
+            ]
+
+        async def recv(self) -> str:
+            if not self._messages:
+                raise TimeoutError
+            return self._messages.pop(0)
+
+    status, message = asyncio.run(
+        cli._wait_for_status(
+            DummyWebSocket(),
+            timeout_seconds=1.0,
+        )
+    )
+
+    assert status == "ready"
+    assert message == "Ready"

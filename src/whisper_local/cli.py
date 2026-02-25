@@ -17,6 +17,7 @@ from whisper_local.service_manager import ServiceManager
 from whisper_local.tui_runtime import resolve_tui_runtime
 
 if TYPE_CHECKING:
+    from whisper_local.service_state import ServiceStatus
     from websockets.asyncio.client import ClientConnection
     from websockets.legacy.client import WebSocketClientProtocol
 
@@ -180,20 +181,23 @@ def _restore_terminal_state() -> None:
         pass
 
 
-def _ensure_service_running(host: str, port: int, *, status_indicator: bool) -> None:
+def _ensure_service_running(host: str, port: int, *, status_indicator: bool) -> ServiceStatus:
     manager = ServiceManager()
-    manager.ensure_running(host=host, port=port, status_indicator=status_indicator)
+    return manager.ensure_running(host=host, port=port, status_indicator=status_indicator)
 
 
 def _run_tui_attach(host: str, port: int, *, status_indicator: bool) -> None:
     try:
-        _ensure_service_running(host, port, status_indicator=status_indicator)
+        service_status = _ensure_service_running(host, port, status_indicator=status_indicator)
     except Exception as exc:
         print(f"Error: failed to start service: {exc}")
         raise SystemExit(1)
 
+    resolved_host = service_status.host or host
+    resolved_port = service_status.port if service_status.port is not None else port
+
     try:
-        tui_process = _run_tui(host, port)
+        tui_process = _run_tui(resolved_host, resolved_port)
         tui_process.wait()
     except KeyboardInterrupt:
         pass
@@ -285,6 +289,8 @@ async def _wait_for_status(
             payload = json.loads(raw)
         except json.JSONDecodeError:
             continue
+        if not isinstance(payload, dict):
+            continue
 
         if payload.get("type") != "status":
             continue
@@ -352,13 +358,16 @@ def _trigger(
     timeout_seconds: float,
 ) -> None:
     try:
-        _ensure_service_running(host, port, status_indicator=status_indicator)
+        service_status = _ensure_service_running(host, port, status_indicator=status_indicator)
     except Exception as exc:
         print(f"Error: failed to start service: {exc}")
         raise SystemExit(1)
 
+    resolved_host = service_status.host or host
+    resolved_port = service_status.port if service_status.port is not None else port
+
     try:
-        ack_status = asyncio.run(_trigger_async(host, port, action, timeout_seconds))
+        ack_status = asyncio.run(_trigger_async(resolved_host, resolved_port, action, timeout_seconds))
         print(f"Trigger acknowledged: status={ack_status}")
     except TimeoutError as exc:
         print(f"Error: trigger command timed out: {exc}")
