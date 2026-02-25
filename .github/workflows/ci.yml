@@ -214,11 +214,37 @@ jobs:
           TUI_DARWIN_X64_SHA="$(shasum -a 256 "$TUI_DARWIN_X64" | awk '{print $1}')"
           TUI_LINUX_X64_SHA="$(shasum -a 256 "$TUI_LINUX_X64" | awk '{print $1}')"
           TUI_LINUX_ARM64_SHA="$(shasum -a 256 "$TUI_LINUX_ARM64" | awk '{print $1}')"
-          VERSION="$(python -c "
-          import tomllib, pathlib
-          data = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
-          print(data['project']['version'])
-          ")"
+          VERSION="$(python - "$WHEEL_PATH" <<'PY'
+          import sys
+          import zipfile
+
+          wheel_path = sys.argv[1]
+          with zipfile.ZipFile(wheel_path) as wheel:
+              metadata_path = next(
+                  (
+                      member
+                      for member in wheel.namelist()
+                      if member.endswith(".dist-info/METADATA")
+                  ),
+                  None,
+              )
+              if metadata_path is None:
+                  raise SystemExit("Missing wheel METADATA file")
+
+              version_line = next(
+                  (
+                      line
+                      for line in wheel.read(metadata_path).decode("utf-8").splitlines()
+                      if line.startswith("Version: ")
+                  ),
+                  None,
+              )
+              if version_line is None:
+                  raise SystemExit("Missing Version field in wheel METADATA")
+
+              print(version_line.split(": ", 1)[1].strip())
+          PY
+          )"
 
           TAP_DIR="$(mktemp -d)"
           mkdir -p "$TAP_DIR/Formula"
