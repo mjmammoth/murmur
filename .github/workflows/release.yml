@@ -41,7 +41,12 @@ jobs:
           bun-version: "1.2.21"
 
       - name: Install TUI dependencies
-        run: bun install --frozen-lockfile --os='*' --cpu='*'
+        run: |
+          bun install --frozen-lockfile
+          for target in "darwin arm64" "darwin x64" "linux arm64" "linux x64" "win32 x64"; do
+            set -- $target
+            bun install --frozen-lockfile --os="$1" --cpu="$2"
+          done
         working-directory: tui
 
       - name: Build multi-target TUI artifacts
