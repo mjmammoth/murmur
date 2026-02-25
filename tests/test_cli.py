@@ -136,6 +136,58 @@ def test_run_tui_attach_auto_starts_service(
     mock_restore.assert_called_once()
 
 
+@patch("whisper_local.cli._run_bridge")
+@patch("whisper_local.cli.create_status_indicator_provider")
+def test_service_run_foreground_without_status_indicator_skips_indicator_provider(
+    mock_create_indicator_provider: Mock,
+    mock_run_bridge: Mock,
+) -> None:
+    cli._service_run("localhost", 7878, foreground=True, status_indicator=False)
+
+    mock_create_indicator_provider.assert_not_called()
+    mock_run_bridge.assert_called_once_with("localhost", 7878, capture_logs=True)
+
+
+@patch("whisper_local.cli.logger")
+@patch("whisper_local.cli._run_bridge")
+@patch("whisper_local.cli.create_status_indicator_provider")
+def test_service_run_foreground_stops_indicator_after_successful_start(
+    mock_create_indicator_provider: Mock,
+    mock_run_bridge: Mock,
+    mock_logger: Mock,
+) -> None:
+    indicator_provider = Mock()
+    mock_create_indicator_provider.return_value = indicator_provider
+
+    cli._service_run("localhost", 7878, foreground=True, status_indicator=True)
+
+    mock_create_indicator_provider.assert_called_once_with(host="localhost", port=7878)
+    indicator_provider.start.assert_called_once()
+    indicator_provider.stop.assert_called_once()
+    mock_logger.warning.assert_not_called()
+    mock_run_bridge.assert_called_once_with("localhost", 7878, capture_logs=True)
+
+
+@patch("whisper_local.cli.logger")
+@patch("whisper_local.cli._run_bridge")
+@patch("whisper_local.cli.create_status_indicator_provider")
+def test_service_run_foreground_does_not_stop_indicator_when_start_fails(
+    mock_create_indicator_provider: Mock,
+    mock_run_bridge: Mock,
+    mock_logger: Mock,
+) -> None:
+    indicator_provider = Mock()
+    indicator_provider.start.side_effect = RuntimeError("indicator start failed")
+    mock_create_indicator_provider.return_value = indicator_provider
+
+    cli._service_run("localhost", 7878, foreground=True, status_indicator=True)
+
+    indicator_provider.start.assert_called_once()
+    indicator_provider.stop.assert_not_called()
+    mock_logger.warning.assert_called_once()
+    mock_run_bridge.assert_called_once_with("localhost", 7878, capture_logs=True)
+
+
 @patch("whisper_local.cli._ensure_service_running", side_effect=RuntimeError("boom"))
 def test_run_tui_attach_exits_when_service_start_fails(mock_ensure_service: Mock, capsys) -> None:
     with pytest.raises(SystemExit) as exc_info:
@@ -148,12 +200,18 @@ def test_run_tui_attach_exits_when_service_start_fails(mock_ensure_service: Mock
 
 
 @patch("whisper_local.cli._service_run")
-def test_main_no_command_defaults_to_background_service(mock_service_run: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_no_command_defaults_to_background_service(
+    mock_service_run: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
     monkeypatch.setattr(sys, "argv", ["cli"])
 
     cli.main()
 
     mock_service_run.assert_called_once_with("localhost", 7878, foreground=False, status_indicator=True)
+    captured = capsys.readouterr()
+    assert "No command provided - starting background service on localhost:7878" in captured.out
 
 
 @patch("whisper_local.cli._run_tui_attach")

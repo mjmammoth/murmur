@@ -1,15 +1,71 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+DEFAULT_EXPECTED_SIGNING_FINGERPRINT="031A071DD2F8736D5AB270EF239D1750F8F92826"
 REPO="${WHISPER_LOCAL_REPO:-mjmammoth/whisper.local}"
-REQUESTED_TAG="${1:-latest}"
+CLI_NO_VERIFY=false
+REQUESTED_TAG="latest"
 REPO_OWNER="${REPO%%/*}"
 SIGNING_KEY_URL="${WHISPER_LOCAL_SIGNING_KEY_URL:-https://github.com/${REPO_OWNER}.gpg}"
 EXPECTED_SIGNING_FINGERPRINT="$(
-  printf '%s' "${WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT:-}" |
+  printf '%s' "${WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT:-${DEFAULT_EXPECTED_SIGNING_FINGERPRINT}}" |
     tr -d '[:space:]' |
     tr '[:lower:]' '[:upper:]'
 )"
+
+usage() {
+  cat <<'EOF'
+Usage: install [--no-verify] [tag]
+
+Options:
+  --no-verify   Skip checksum signature verification
+  -h, --help    Show this help message
+EOF
+}
+
+is_truthy() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+POSITIONAL_ARGS=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --no-verify)
+      CLI_NO_VERIFY=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --*)
+      echo "Error: unknown option '$1'" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      POSITIONAL_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [ "${#POSITIONAL_ARGS[@]}" -gt 1 ]; then
+  echo "Error: expected at most one tag/version argument" >&2
+  usage >&2
+  exit 1
+fi
+if [ "${#POSITIONAL_ARGS[@]}" -eq 1 ]; then
+  REQUESTED_TAG="${POSITIONAL_ARGS[0]}"
+fi
+
+VERIFY_RELEASE=true
+if [ "${CLI_NO_VERIFY}" = "true" ] || is_truthy "${NO_VERIFY:-}" || is_truthy "${WHISPER_LOCAL_NO_VERIFY:-}"; then
+  VERIFY_RELEASE=false
+fi
 
 APP_HOME="${HOME}/.local/share/whisper.local"
 VENV_DIR="${APP_HOME}/venv"
@@ -30,10 +86,6 @@ if ! command -v tar >/dev/null 2>&1; then
   echo "Error: tar is required" >&2
   exit 1
 fi
-if ! command -v gpg >/dev/null 2>&1; then
-  echo "Error: gpg is required" >&2
-  exit 1
-fi
 if command -v sha256sum >/dev/null 2>&1; then
   sha256_check_cmd=(sha256sum -c)
 elif command -v shasum >/dev/null 2>&1; then
@@ -42,9 +94,17 @@ else
   echo "Error: sha256sum (or shasum) is required" >&2
   exit 1
 fi
-if [ -z "${EXPECTED_SIGNING_FINGERPRINT}" ]; then
-  echo "Error: WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT must be set for release signature verification" >&2
-  exit 1
+if [ "${VERIFY_RELEASE}" = "true" ]; then
+  if ! command -v gpg >/dev/null 2>&1; then
+    echo "Error: gpg is required for release verification (use --no-verify to bypass)" >&2
+    exit 1
+  fi
+  if [ -z "${EXPECTED_SIGNING_FINGERPRINT}" ]; then
+    echo "Error: release signing fingerprint is empty" >&2
+    exit 1
+  fi
+else
+  echo "Warning: release verification disabled via --no-verify/NO_VERIFY/WHISPER_LOCAL_NO_VERIFY" >&2
 fi
 
 os_name="$(uname -s)"
@@ -78,6 +138,14 @@ esac
 if [ -z "${target}" ]; then
   echo "Error: unsupported platform (${os_name}/${arch_name})" >&2
   exit 1
+fi
+
+if [[ "${target}" == windows-* ]]; then
+  VENV_PYTHON="${VENV_DIR}/Scripts/python.exe"
+  VENV_PIP="${VENV_DIR}/Scripts/pip.exe"
+else
+  VENV_PYTHON="${VENV_DIR}/bin/python"
+  VENV_PIP="${VENV_DIR}/bin/pip"
 fi
 
 resolve_tag() {
@@ -184,75 +252,124 @@ asset_urls=()
 while IFS= read -r line; do
   asset_urls+=("${line}")
 done < <(
-  python3 - "${release_json}" "${target}" <<'PY'
+  python3 - "${release_json}" "${target}" "${VERIFY_RELEASE}" <<'PY'
 import json
 import sys
 
 release_path = sys.argv[1]
 target = sys.argv[2]
+verify_release = str(sys.argv[3]).strip().lower() == "true"
 
 with open(release_path, "r", encoding="utf-8") as handle:
     data = json.load(handle)
 
 assets = data.get("assets", [])
-wheel = next((asset for asset in assets if str(asset.get("name", "")).endswith(".whl")), None)
+wheel_assets = [asset for asset in assets if str(asset.get("name", "")).endswith(".whl")]
 archive_name = f"whisper-local-tui-{target}.tar.gz"
 tui = next((asset for asset in assets if asset.get("name") == archive_name), None)
-checksums = next(
-    (
-        asset
-        for asset in assets
-        if str(asset.get("name", "")) in {"checksums.txt", "checksums.sha256", "checksums.sha256sum"}
-    ),
-    None,
-)
 
-signature = None
-if checksums is not None:
-    checksums_name = str(checksums.get("name", ""))
-    signature = next(
+wheel = None
+if wheel_assets:
+    try:
+        from packaging.tags import sys_tags
+        from packaging.utils import parse_wheel_filename
+
+        ordered_tags = list(sys_tags())
+        tag_rank = {tag: index for index, tag in enumerate(ordered_tags)}
+        best_rank = None
+        best_asset = None
+        for asset in wheel_assets:
+            wheel_name = str(asset.get("name", ""))
+            try:
+                _, _, _, wheel_tags = parse_wheel_filename(wheel_name)
+            except Exception:
+                continue
+            matches = [tag_rank[tag] for tag in wheel_tags if tag in tag_rank]
+            if not matches:
+                continue
+            rank = min(matches)
+            if best_rank is None or rank < best_rank:
+                best_rank = rank
+                best_asset = asset
+        if best_asset is not None:
+            wheel = best_asset
+    except Exception:
+        wheel = None
+
+if wheel is None:
+    wheel = next(
         (
             asset
-            for asset in assets
-            if str(asset.get("name", "")) in {f"{checksums_name}.asc", f"{checksums_name}.sig"}
-        ),
-        None,
-    )
-if signature is None:
-    signature = next(
-        (
-            asset
-            for asset in assets
-            if str(asset.get("name", "")).lower() in {"release.asc", "release.sig"}
-        ),
-        None,
-    )
-if signature is None:
-    signature = next(
-        (
-            asset
-            for asset in assets
-            if str(asset.get("name", "")).lower().endswith(".asc")
-            and "checksum" in str(asset.get("name", "")).lower()
+            for asset in wheel_assets
+            if str(asset.get("name", "")).endswith("py3-none-any.whl")
         ),
         None,
     )
 
 if wheel is None:
+    wheel_names = ", ".join(sorted(str(asset.get("name", "")) for asset in wheel_assets))
+    raise SystemExit(
+        "No compatible wheel artifact found for current interpreter/platform. "
+        f"Candidates: {wheel_names or 'none'}"
+    )
+
+checksums = None
+signature = None
+if verify_release:
+    checksums = next(
+        (
+            asset
+            for asset in assets
+            if str(asset.get("name", "")) in {"checksums.txt", "checksums.sha256", "checksums.sha256sum"}
+        ),
+        None,
+    )
+    if checksums is not None:
+        checksums_name = str(checksums.get("name", ""))
+        signature = next(
+            (
+                asset
+                for asset in assets
+                if str(asset.get("name", "")) in {f"{checksums_name}.asc", f"{checksums_name}.sig"}
+            ),
+            None,
+        )
+    if signature is None:
+        signature = next(
+            (
+                asset
+                for asset in assets
+                if str(asset.get("name", "")).lower() in {"release.asc", "release.sig"}
+            ),
+            None,
+        )
+    if signature is None:
+        signature = next(
+            (
+                asset
+                for asset in assets
+                if str(asset.get("name", "")).lower().endswith(".asc")
+                and "checksum" in str(asset.get("name", "")).lower()
+            ),
+            None,
+        )
+
+if wheel is None:
     raise SystemExit("Missing wheel asset in release")
 if tui is None:
     raise SystemExit(f"Missing TUI archive for target {target}")
-if checksums is None:
-    raise SystemExit("Missing release checksum manifest (checksums.txt/.sha256/.sha256sum)")
-if signature is None:
-    raise SystemExit("Missing release checksum signature (.asc/.sig)")
+if verify_release:
+    if checksums is None:
+        raise SystemExit("Missing release checksum manifest (checksums.txt/.sha256/.sha256sum)")
+    if signature is None:
+        raise SystemExit("Missing release checksum signature (.asc/.sig)")
 
 print(wheel["browser_download_url"])
 print(wheel["name"])
 print(tui["browser_download_url"])
 print(tui["name"])
-print(checksums["browser_download_url"])
-print(signature["browser_download_url"])
+print(checksums["browser_download_url"] if checksums is not None else "")
+print(signature["browser_download_url"] if signature is not None else "")
 PY
 )
 
@@ -281,49 +398,131 @@ gpg_key_path="${tmp_dir}/release-signing-key.asc"
 
 curl -fsSL "${wheel_url}" -o "${wheel_path}"
 curl -fsSL "${tui_url}" -o "${tui_archive_path}"
-curl -fsSL "${checksums_url}" -o "${checksums_path}"
-curl -fsSL "${signature_url}" -o "${signature_path}"
+if [ "${VERIFY_RELEASE}" = "true" ]; then
+  if [ -z "${checksums_url}" ] || [ -z "${signature_url}" ]; then
+    echo "Error: release checksum URLs are missing" >&2
+    exit 1
+  fi
+  curl -fsSL "${checksums_url}" -o "${checksums_path}"
+  curl -fsSL "${signature_url}" -o "${signature_path}"
 
-verify_release_signature "${checksums_path}" "${signature_path}" "${gpg_home}" "${gpg_key_path}"
+  verify_release_signature "${checksums_path}" "${signature_path}" "${gpg_home}" "${gpg_key_path}"
 
-wheel_checksum_entry="${action_dir}/${wheel_name}.sha256"
-tui_checksum_entry="${action_dir}/${tui_name}.sha256"
-write_checksum_entry "${checksums_path}" "${wheel_name}" "${wheel_checksum_entry}"
-write_checksum_entry "${checksums_path}" "${tui_name}" "${tui_checksum_entry}"
-verify_checksum_entry "${wheel_checksum_entry}" "${action_dir}"
-verify_checksum_entry "${tui_checksum_entry}" "${action_dir}"
+  wheel_checksum_entry="${action_dir}/${wheel_name}.sha256"
+  tui_checksum_entry="${action_dir}/${tui_name}.sha256"
+  write_checksum_entry "${checksums_path}" "${wheel_name}" "${wheel_checksum_entry}"
+  write_checksum_entry "${checksums_path}" "${tui_name}" "${tui_checksum_entry}"
+  verify_checksum_entry "${wheel_checksum_entry}" "${action_dir}"
+  verify_checksum_entry "${tui_checksum_entry}" "${action_dir}"
+fi
 
 mkdir -p "${APP_HOME}" "${BIN_DIR}" "${TUI_ROOT}/${target}"
 python3 -m venv "${VENV_DIR}"
-"${VENV_DIR}/bin/python" -m pip install --upgrade pip >/dev/null
-"${VENV_DIR}/bin/python" -m pip install --no-cache-dir "${wheel_path}" >/dev/null
+if [ ! -x "${VENV_PYTHON}" ]; then
+  echo "Error: virtualenv python executable not found at ${VENV_PYTHON}" >&2
+  exit 1
+fi
+if [ -x "${VENV_PIP}" ]; then
+  "${VENV_PIP}" install --upgrade pip >/dev/null
+  "${VENV_PIP}" install --no-cache-dir "${wheel_path}" >/dev/null
+else
+  "${VENV_PYTHON}" -m pip install --upgrade pip >/dev/null
+  "${VENV_PYTHON}" -m pip install --no-cache-dir "${wheel_path}" >/dev/null
+fi
 
 rm -f "${TUI_ROOT}/${target}/whisper-local-tui" "${TUI_ROOT}/${target}/whisper-local-tui.exe"
 tar -xzf "${tui_archive_path}" -C "${TUI_ROOT}/${target}"
 
 if [ -f "${TUI_ROOT}/${target}/whisper-local-tui" ]; then
   chmod +x "${TUI_ROOT}/${target}/whisper-local-tui"
-  tui_bin="${TUI_ROOT}/${target}/whisper-local-tui"
 elif [ -f "${TUI_ROOT}/${target}/whisper-local-tui.exe" ]; then
   chmod +x "${TUI_ROOT}/${target}/whisper-local-tui.exe"
-  tui_bin="${TUI_ROOT}/${target}/whisper-local-tui.exe"
 else
   echo "Error: extracted TUI binary not found" >&2
   exit 1
 fi
 
-cat > "${LAUNCHER_PATH}" <<EOF
+cat > "${LAUNCHER_PATH}" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-export WHISPER_LOCAL_TUI_BIN="${tui_bin}"
-exec "${VENV_DIR}/bin/whisper.local" "\$@"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+APP_HOME="${WHISPER_LOCAL_HOME:-${LOCAL_ROOT}/share/whisper.local}"
+VENV_DIR="${WHISPER_VENV_DIR:-${APP_HOME}/venv}"
+
+resolve_target() {
+  local os_name arch_name
+  os_name="$(uname -s)"
+  arch_name="$(uname -m)"
+  case "${os_name}" in
+    Darwin)
+      case "${arch_name}" in
+        arm64|aarch64) printf '%s\n' "darwin-arm64" ;;
+        x86_64|amd64) printf '%s\n' "darwin-x64" ;;
+        *) return 1 ;;
+      esac
+      ;;
+    Linux)
+      case "${arch_name}" in
+        x86_64|amd64) printf '%s\n' "linux-x64" ;;
+        aarch64|arm64) printf '%s\n' "linux-arm64" ;;
+        *) return 1 ;;
+      esac
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      case "${arch_name}" in
+        x86_64|amd64) printf '%s\n' "windows-x64" ;;
+        *) return 1 ;;
+      esac
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+TARGET="${WHISPER_LOCAL_TARGET:-}"
+if [ -z "${TARGET}" ]; then
+  if ! TARGET="$(resolve_target)"; then
+    echo "Error: unable to resolve runtime target for this platform" >&2
+    exit 1
+  fi
+fi
+
+if [ -n "${WHISPER_LOCAL_TUI_BIN:-}" ]; then
+  TUI_BIN="${WHISPER_LOCAL_TUI_BIN}"
+elif [[ "${TARGET}" == windows-* ]]; then
+  TUI_BIN="${APP_HOME}/tui/${TARGET}/whisper-local-tui.exe"
+else
+  TUI_BIN="${APP_HOME}/tui/${TARGET}/whisper-local-tui"
+fi
+
+if [ ! -f "${TUI_BIN}" ]; then
+  echo "Error: TUI binary not found at ${TUI_BIN}" >&2
+  exit 1
+fi
+if [ ! -x "${TUI_BIN}" ]; then
+  chmod +x "${TUI_BIN}" 2>/dev/null || true
+fi
+
+if [ -x "${VENV_DIR}/bin/python" ]; then
+  PYTHON_BIN="${VENV_DIR}/bin/python"
+elif [ -x "${VENV_DIR}/Scripts/python.exe" ]; then
+  PYTHON_BIN="${VENV_DIR}/Scripts/python.exe"
+else
+  echo "Error: Python executable not found in ${VENV_DIR}" >&2
+  exit 1
+fi
+
+export WHISPER_LOCAL_TUI_BIN="${TUI_BIN}"
+exec "${PYTHON_BIN}" -m whisper_local.cli "$@"
 EOF
 chmod +x "${LAUNCHER_PATH}"
 
-cat > "${ALT_LAUNCHER_PATH}" <<EOF
+cat > "${ALT_LAUNCHER_PATH}" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-exec "${LAUNCHER_PATH}" "\$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "${SCRIPT_DIR}/whisper.local" "$@"
 EOF
 chmod +x "${ALT_LAUNCHER_PATH}"
 

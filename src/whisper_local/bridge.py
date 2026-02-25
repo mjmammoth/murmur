@@ -866,18 +866,23 @@ class BridgeServer:
                 return final_status, final_message
 
             timestamp = datetime.now().strftime("%H:%M:%S")
-            stored = await asyncio.to_thread(
-                self._transcript_store.append,
-                result.text,
-                timestamp=timestamp,
-            )
+            stored: TranscriptRecord | None = None
+            try:
+                stored = await asyncio.to_thread(
+                    self._transcript_store.append,
+                    result.text,
+                    timestamp=timestamp,
+                )
+            except Exception as exc:
+                logger.exception("Failed to persist transcript history entry: %s", exc)
             transcript_payload: dict[str, Any] = {
                 "type": "transcript",
                 "timestamp": timestamp,
                 "text": result.text,
-                "id": stored.id,
-                "created_at": stored.created_at,
             }
+            if stored is not None:
+                transcript_payload["id"] = stored.id
+                transcript_payload["created_at"] = stored.created_at
             await self._broadcast(transcript_payload)
 
             # Handle output
@@ -1083,22 +1088,12 @@ class BridgeServer:
         if self._model_loaded:
             self._start_hotkey()
 
-        # Send current state
         try:
-            # Send current state
             await websocket.send(
                 json.dumps({"type": "status", "status": self._status, "message": self._status_message})
             )
             await self._send_config(websocket)
             await self._send_transcript_history(websocket)
-            async for message in websocket:
-                await self._handle_message(websocket, message)
-        except websockets.ConnectionClosed:
-            pass
-        finally:
-            self.clients.discard(websocket)
-            self._passive_clients.discard(websocket)
-        try:
             async for message in websocket:
                 await self._handle_message(websocket, message)
         except websockets.ConnectionClosed:

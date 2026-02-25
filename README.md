@@ -40,6 +40,24 @@ Everything runs on your machine. No cloud API, no network calls, no data collect
 curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | bash
 ```
 
+Installer verification and overrides:
+- By default, the installer verifies release checksums and GPG signatures before install/extract.
+- Disable verification only when necessary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | bash -s -- --no-verify
+curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | NO_VERIFY=true bash
+curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | WHISPER_LOCAL_NO_VERIFY=1 bash
+```
+
+- Override signing verification inputs when needed:
+  - `WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT` (defaults to release signing fingerprint)
+  - `WHISPER_LOCAL_SIGNING_KEY_URL` (defaults to `https://github.com/<repo-owner>.gpg`)
+- Override runtime launcher paths if your install layout is custom:
+  - `WHISPER_LOCAL_HOME`
+  - `WHISPER_VENV_DIR`
+  - `WHISPER_LOCAL_TUI_BIN`
+
 ### Homebrew (macOS Intel/Apple Silicon + Linux x64/arm64)
 
 ```bash

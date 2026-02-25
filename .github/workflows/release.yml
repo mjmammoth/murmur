@@ -118,6 +118,51 @@ jobs:
           name: checksums
           path: release-assets
 
+      - name: Sign checksums manifest
+        env:
+          RELEASE_GPG_PRIVATE_KEY_B64: ${{ secrets.RELEASE_GPG_PRIVATE_KEY_B64 }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+        run: |
+          if [ -z "${RELEASE_GPG_PRIVATE_KEY_B64}" ] || [ -z "${RELEASE_GPG_PASSPHRASE}" ] || [ -z "${RELEASE_GPG_FINGERPRINT}" ]; then
+            echo "Missing release signing secrets"
+            exit 1
+          fi
+
+          export GNUPGHOME="$(mktemp -d)"
+          chmod 700 "${GNUPGHOME}"
+          trap 'rm -rf "${GNUPGHOME}" release-signing-private.asc' EXIT
+
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          raw = os.environ["RELEASE_GPG_PRIVATE_KEY_B64"]
+          Path("release-signing-private.asc").write_bytes(base64.b64decode(raw))
+          PY
+
+          gpg --batch --import release-signing-private.asc
+
+          EXPECTED_FPR="$(printf '%s' "${RELEASE_GPG_FINGERPRINT}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+          IMPORTED_FPRS="$(gpg --batch --with-colons --fingerprint | awk -F: '$1 == "fpr" { print toupper($10) }')"
+          if ! printf '%s\n' "${IMPORTED_FPRS}" | grep -Fxq "${EXPECTED_FPR}"; then
+            echo "Imported GPG key fingerprint does not match RELEASE_GPG_FINGERPRINT"
+            exit 1
+          fi
+
+          gpg \
+            --batch \
+            --yes \
+            --pinentry-mode loopback \
+            --passphrase "${RELEASE_GPG_PASSPHRASE}" \
+            --armor \
+            --detach-sign \
+            --output release-assets/checksums.txt.asc \
+            release-assets/checksums.txt
+
+          gpg --batch --verify release-assets/checksums.txt.asc release-assets/checksums.txt
+
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v2
         with:
@@ -127,6 +172,7 @@ jobs:
             release-assets/tui-dist/whisper-local-tui-*.tar.gz
             release-assets/tui-dist/manifest.json
             release-assets/checksums.txt
+            release-assets/checksums.txt.asc
 
   update_tap_formula:
     needs: [publish_release]

@@ -8,12 +8,16 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from whisper_local import __version__
 from whisper_local.config import SUPPORTED_RUNTIMES, load_config
 from whisper_local.platform import create_status_indicator_provider
 from whisper_local.service_manager import ServiceManager
 from whisper_local.tui_runtime import resolve_tui_runtime
+
+if TYPE_CHECKING:
+    from websockets.legacy.client import WebSocketClientProtocol
 
 
 logging.basicConfig(level=logging.INFO)
@@ -197,19 +201,23 @@ def _run_tui_attach(host: str, port: int, *, status_indicator: bool) -> None:
 
 def _service_run(host: str, port: int, *, foreground: bool, status_indicator: bool) -> None:
     if foreground:
-        indicator_provider = create_status_indicator_provider(host=host, port=port)
+        indicator_provider = None
+        indicator_started = False
         if status_indicator:
+            indicator_provider = create_status_indicator_provider(host=host, port=port)
             try:
                 indicator_provider.start()
+                indicator_started = True
             except Exception:
                 logger.warning("Failed to start status indicator", exc_info=True)
         try:
             _run_bridge(host, port, capture_logs=True)
         finally:
-            try:
-                indicator_provider.stop()
-            except Exception:
-                pass
+            if indicator_provider is not None and indicator_started:
+                try:
+                    indicator_provider.stop()
+                except Exception:
+                    pass
         return
 
     manager = ServiceManager()
@@ -250,7 +258,7 @@ def _service_status() -> None:
 
 
 async def _wait_for_status(
-    websocket,
+    websocket: WebSocketClientProtocol,
     *,
     timeout_seconds: float,
     expected_statuses: set[str] | None = None,
@@ -452,6 +460,10 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command is None:
+        print(
+            "No command provided - starting background service on localhost:7878 "
+            "(use --help for options)"
+        )
         _service_run("localhost", 7878, foreground=False, status_indicator=True)
         return
 
