@@ -273,7 +273,6 @@ def _replace_tui_binary(*, app_home: Path, target: str, archive_path: Path) -> N
         os.replace(staged_destination, destination)
         if not destination.name.endswith(".exe"):
             destination.chmod(0o755)
-            destination.chmod(0o755)
 
 
 def _installed_version(python_executable: str) -> str:
