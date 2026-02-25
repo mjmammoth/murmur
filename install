@@ -90,7 +90,10 @@ trap cleanup EXIT
 release_json="${tmp_dir}/release.json"
 curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${release_tag}" -o "${release_json}"
 
-readarray -t asset_urls < <(
+asset_urls=()
+while IFS= read -r line; do
+  asset_urls+=("${line}")
+done < <(
   python3 - "${release_json}" "${target}" <<'PY'
 import json
 import sys
