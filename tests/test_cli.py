@@ -32,6 +32,12 @@ def test_build_parser_includes_upgrade_command() -> None:
     assert args.version == "v1.2.3"
 
 
+def test_build_parser_includes_version_command() -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["version"])
+    assert args.command == "version"
+
+
 def test_build_parser_tui_defaults() -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["tui"])
@@ -332,6 +338,37 @@ def test_main_upgrade_command(mock_upgrade: Mock, monkeypatch: pytest.MonkeyPatc
     cli.main()
 
     mock_upgrade.assert_called_once_with(requested_version="v2.0.0")
+
+
+def test_main_version_flag_prints_and_exits(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(cli, "__version__", "9.9.9")
+    monkeypatch.setattr(sys, "argv", ["cli", "--version"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert "9.9.9" in captured.out
+
+
+@patch("whisper_local.cli._print_version")
+def test_main_version_command(mock_print_version: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "version"])
+
+    cli.main()
+
+    mock_print_version.assert_called_once()
+
+
+def test_print_version_outputs_installed_version(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(cli, "__version__", "1.2.3")
+    cli._print_version()
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "1.2.3"
 
 
 @patch("whisper_local.upgrade.run_upgrade")

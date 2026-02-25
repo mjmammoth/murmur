@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 
+from whisper_local import __version__
 from whisper_local.config import SUPPORTED_RUNTIMES, load_config
 from whisper_local.platform import create_status_indicator_provider
 from whisper_local.service_manager import ServiceManager
@@ -21,6 +22,11 @@ logger = logging.getLogger(__name__)
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     # Deprecated alias: preserve for compatibility, but behavior now matches `tui`.
@@ -129,6 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--version",
         help="Upgrade to a specific release tag (example: v0.2.0). Defaults to latest.",
     )
+
+    subparsers.add_parser("version", help="Print installed whisper.local version")
 
     return parser
 
@@ -367,6 +375,10 @@ def _upgrade(*, requested_version: str | None) -> None:
         print("Service was running and has been restarted.")
 
 
+def _print_version() -> None:
+    print(__version__)
+
+
 def _handle_models_command(args: argparse.Namespace) -> None:
     from whisper_local.model_manager import (
         download_model,
@@ -489,6 +501,10 @@ def main() -> None:
 
     if args.command == "upgrade":
         _upgrade(requested_version=getattr(args, "version", None))
+        return
+
+    if args.command == "version":
+        _print_version()
         return
 
     parser.print_help()
