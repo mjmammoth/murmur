@@ -43,6 +43,12 @@ case "${os_name}" in
       *) ;;
     esac
     ;;
+  MINGW*|MSYS*|CYGWIN*)
+    case "${arch_name}" in
+      x86_64|amd64) target="windows-x64" ;;
+      *) ;;
+    esac
+    ;;
   *) ;;
 esac
 
