@@ -29,6 +29,28 @@ const [TranscriberProvider, useTranscriber] =
   createContextHelper<TranscriberContextValue>("Transcriber");
 export { useTranscriber };
 
+function transcriptIdentity(entry: TranscriptEntry): string {
+  if (typeof entry.id === "number") {
+    return `id:${entry.id}`;
+  }
+  return `timestamp:${entry.timestamp}`;
+}
+
+function mergeAndDedupeTranscripts(
+  primary: readonly TranscriptEntry[],
+  secondary: readonly TranscriptEntry[],
+): TranscriptEntry[] {
+  const merged: TranscriptEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of [...primary, ...secondary]) {
+    const key = transcriptIdentity(entry);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(entry);
+  }
+  return merged;
+}
+
 export function TranscriberContextProvider(props: {
   children: JSX.Element;
 }): JSX.Element {
@@ -47,14 +69,19 @@ export function TranscriberContextProvider(props: {
   // Listen for transcripts from backend
   onMount(() => {
     backend.onTranscriptHistory((entries) => {
-      const next = [...entries];
-      setTranscripts(next);
-      setSelectedIndex(next.length > 0 ? next.length - 1 : -1);
+      setTranscripts((prev) => {
+        const next =
+          prev.length === 0
+            ? mergeAndDedupeTranscripts(entries, [])
+            : mergeAndDedupeTranscripts(entries, prev);
+        setSelectedIndex(next.length > 0 ? next.length - 1 : -1);
+        return next;
+      });
     });
 
     backend.onTranscript((entry) => {
       setTranscripts((prev) => {
-        const next = [...prev, entry];
+        const next = mergeAndDedupeTranscripts(prev, [entry]);
         setSelectedIndex(next.length - 1);
         return next;
       });

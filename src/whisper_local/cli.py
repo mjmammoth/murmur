@@ -387,6 +387,13 @@ def _handle_models_command(args: argparse.Namespace) -> None:
         set_selected_model,
     )
 
+    if args.models_command is None:
+        print(
+            "Error: No subcommand provided for 'models'. Use --help for options.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
     if args.models_command == "list":
         for model in list_installed_models():
             variants = getattr(model, "variants", None)

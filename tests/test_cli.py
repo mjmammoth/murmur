@@ -431,6 +431,20 @@ def test_main_models_list_runtime_variants(mock_list_models: Mock, monkeypatch: 
     assert "small: faster-whisper=installed, whisper.cpp=available" in captured.out
 
 
+def test_main_models_without_subcommand_exits_with_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "models"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "No subcommand provided for 'models'" in captured.err
+
+
 @patch("whisper_local.cli.load_config")
 def test_main_config_command(mock_load_config: Mock, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "config"])

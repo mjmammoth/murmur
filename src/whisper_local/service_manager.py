@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import signal
 import socket
@@ -20,6 +21,8 @@ from whisper_local.service_state import (
 
 SERVICE_READY_TIMEOUT_SECONDS = 8.0
 SERVICE_READY_POLL_SECONDS = 0.1
+
+logger = logging.getLogger(__name__)
 
 
 def _is_pid_alive(pid: int | None) -> bool:
@@ -170,7 +173,8 @@ class ServiceManager:
     ) -> ServiceStatus:
         current_state = self.load_state()
         if current_state and _is_pid_alive(current_state.pid):
-            if _is_port_reachable(current_state.host, current_state.port):
+            requested_target_matches = current_state.host == host and current_state.port == port
+            if requested_target_matches and _is_port_reachable(current_state.host, current_state.port):
                 return self.status()
             _terminate_pid(current_state.pid)
             _terminate_pid(current_state.status_indicator_pid)
@@ -209,8 +213,19 @@ class ServiceManager:
                 port=port,
                 python_executable=self.python_executable,
             )
-            indicator_provider.start()
-            indicator_pid = indicator_provider.pid
+            try:
+                indicator_provider.start()
+                indicator_pid = indicator_provider.pid
+            except Exception:
+                logger.exception("Failed to start status indicator provider")
+                indicator_pid = None
+                try:
+                    indicator_provider.stop()
+                except Exception:
+                    logger.debug("Failed to clean up status indicator provider after start failure")
+                _terminate_pid(process.pid, timeout=1.0)
+                self.clear_state()
+                raise
 
         self.save_state(
             ServiceState.new(

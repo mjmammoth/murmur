@@ -53,10 +53,14 @@ function parseRequestedTargets(): readonly string[] {
   if (!raw.trim()) {
     return DEFAULT_TARGET_IDS;
   }
-  const parsed = raw
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+  const parsed = Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
   if (parsed.length === 0) {
     return DEFAULT_TARGET_IDS;
   }
@@ -66,7 +70,7 @@ function parseRequestedTargets(): readonly string[] {
 function resolveTargets(requested: readonly string[]): BuildTarget[] {
   const supported = new Set(DEFAULT_TARGET_IDS);
   const targets: BuildTarget[] = [];
-  for (const id of requested) {
+  for (const id of Array.from(new Set(requested))) {
     if (!supported.has(id as (typeof DEFAULT_TARGET_IDS)[number])) {
       throw new Error(`Unsupported target '${id}'. Supported targets: ${DEFAULT_TARGET_IDS.join(", ")}`);
     }

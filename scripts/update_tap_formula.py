@@ -16,7 +16,18 @@ def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments for rendering and writing a Homebrew formula for whisper-local.
 
-    The returned namespace contains the following attributes: version, wheel_url, wheel_sha256, tui_url, tui_sha256, repository, tap_repo_path, formula_path, and template. The `--repository` value defaults to the GITHUB_REPOSITORY environment variable when present.
+    The returned namespace contains:
+    - `version`, `wheel_url`, `wheel_sha256`, `repository`, `tap_repo_path`, `formula_path`, and `template`
+    - optional legacy `tui_url` / `tui_sha256` inputs
+    - per-target TUI inputs:
+      - `tui_url_darwin_arm64`, `tui_sha256_darwin_arm64`
+      - `tui_url_darwin_x64`, `tui_sha256_darwin_x64`
+      - `tui_url_linux_x64`, `tui_sha256_linux_x64`
+      - `tui_url_linux_arm64`, `tui_sha256_linux_arm64`
+
+    After validation, the effective TUI data shape is per-target: each target carries its own
+    `{url, sha256}` values. The `--repository` value defaults to the `GITHUB_REPOSITORY`
+    environment variable when present.
 
     Returns:
         args (argparse.Namespace): Parsed command-line arguments with attributes used to render and write the formula.
@@ -108,8 +119,12 @@ def validate_args(args: argparse.Namespace) -> None:
     - `args.version`, if provided, matches the module-level VERSION_PATTERN.
     - `args.repository` is non-empty and contains a forward slash.
     - `args.wheel_url` ends with ".whl".
-    - `args.tui_url` ends with ".tar.gz".
-    - `args.wheel_sha256` and `args.tui_sha256` are 64-character hexadecimal strings.
+    - each resolved per-target `args.tui_url_<target>` ends with ".tar.gz".
+    - `args.wheel_sha256` and all per-target `args.tui_sha256_<target>` values are
+      64-character hexadecimal strings.
+
+    Legacy `args.tui_url` / `args.tui_sha256` may be provided as defaults and are expanded into
+    the per-target contract during validation.
 
     Parameters:
         args (argparse.Namespace): Parsed command-line arguments produced by parse_args().
@@ -151,8 +166,10 @@ def render_formula(args: argparse.Namespace) -> str:
             - repository: value for `REPOSITORY`
             - wheel_url: value for `WHEEL_URL`
             - wheel_sha256: value for `WHEEL_SHA256`
-            - tui_url: value for `TUI_URL`
-            - tui_sha256: value for `TUI_SHA256`
+            - tui_url_darwin_arm64 / tui_sha256_darwin_arm64
+            - tui_url_darwin_x64 / tui_sha256_darwin_x64
+            - tui_url_linux_x64 / tui_sha256_linux_x64
+            - tui_url_linux_arm64 / tui_sha256_linux_arm64
             - template: filesystem path to the template file
 
     Returns:

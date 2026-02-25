@@ -44,6 +44,25 @@ def test_detect_install_channel_pip_fallback(tmp_path: Path) -> None:
     assert channel == "pip"
 
 
+def test_looks_like_homebrew_install_requires_executable_under_prefix() -> None:
+    result = SimpleNamespace(returncode=0, stdout="/opt/homebrew/opt/whisper-local\n", stderr="")
+    with patch("whisper_local.upgrade.shutil.which", return_value="/opt/homebrew/bin/brew"), patch(
+        "whisper_local.upgrade.subprocess.run", return_value=result
+    ):
+        assert (
+            upgrade._looks_like_homebrew_install(Path("/opt/homebrew/opt/whisper-local/bin/python3"))
+            is True
+        )
+
+
+def test_looks_like_homebrew_install_rejects_executable_outside_prefix() -> None:
+    result = SimpleNamespace(returncode=0, stdout="/opt/homebrew/opt/whisper-local\n", stderr="")
+    with patch("whisper_local.upgrade.shutil.which", return_value="/opt/homebrew/bin/brew"), patch(
+        "whisper_local.upgrade.subprocess.run", return_value=result
+    ):
+        assert upgrade._looks_like_homebrew_install(Path("/usr/local/bin/python3")) is False
+
+
 def test_normalize_version_tag() -> None:
     assert upgrade.normalize_version_tag(None) is None
     assert upgrade.normalize_version_tag("latest") is None
@@ -96,6 +115,54 @@ def test_resolve_release_assets_missing_target_tui_raises() -> None:
             upgrade.resolve_release_assets(target="linux-x64")
 
     assert "TUI artifact" in str(exc_info.value)
+
+
+def test_resolve_release_assets_multiple_wheels_raises() -> None:
+    payload = {
+        "tag_name": "v0.2.0",
+        "assets": [
+            {
+                "name": "whisper_local-0.2.0-py3-none-any.whl",
+                "browser_download_url": "https://example.invalid/whl1",
+            },
+            {
+                "name": "whisper_local-0.2.0-cp312-cp312-manylinux.whl",
+                "browser_download_url": "https://example.invalid/whl2",
+            },
+            {
+                "name": "whisper-local-tui-linux-x64.tar.gz",
+                "browser_download_url": "https://example.invalid/tui",
+            },
+        ],
+    }
+
+    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+        with pytest.raises(UpgradeError, match="multiple wheel artifacts"):
+            upgrade.resolve_release_assets(target="linux-x64")
+
+
+def test_replace_tui_binary_uses_tar_data_filter(tmp_path: Path) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    extract_root = tmp_path / "extract-root"
+    extract_root.mkdir(parents=True, exist_ok=True)
+    (extract_root / "whisper-local-tui").write_text("binary", encoding="utf-8")
+
+    temp_dir_ctx = Mock()
+    temp_dir_ctx.__enter__ = Mock(return_value=str(extract_root))
+    temp_dir_ctx.__exit__ = Mock(return_value=False)
+
+    with patch("whisper_local.upgrade.tempfile.TemporaryDirectory", return_value=temp_dir_ctx), patch(
+        "whisper_local.upgrade.tarfile.open"
+    ) as mock_tar_open:
+        tar_handle = mock_tar_open.return_value.__enter__.return_value
+        upgrade._replace_tui_binary(
+            app_home=app_home,
+            target="linux-x64",
+            archive_path=archive_path,
+        )
+
+    tar_handle.extractall.assert_called_once_with(extract_root, filter="data")
 
 
 def test_run_upgrade_installer_running_service_restarts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

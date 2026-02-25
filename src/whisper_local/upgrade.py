@@ -118,7 +118,28 @@ def _looks_like_homebrew_install(executable: Path) -> bool:
         )
     except Exception:
         return False
-    return result.returncode == 0
+    if result.returncode != 0:
+        return False
+
+    prefix = result.stdout.strip()
+    if not prefix:
+        return False
+
+    try:
+        resolved_executable = executable.expanduser().resolve()
+        resolved_prefix = Path(prefix).expanduser().resolve()
+    except Exception:
+        return False
+
+    try:
+        return resolved_executable.is_relative_to(resolved_prefix)
+    except Exception:
+        resolved_executable_text = str(resolved_executable)
+        resolved_prefix_text = str(resolved_prefix)
+        prefix_with_sep = f"{resolved_prefix_text}{os.sep}"
+        return resolved_executable_text == resolved_prefix_text or resolved_executable_text.startswith(
+            prefix_with_sep
+        )
 
 
 def normalize_version_tag(requested_version: str | None) -> str | None:
@@ -175,23 +196,29 @@ def resolve_release_assets(
     if not isinstance(assets, list):
         raise UpgradeError("Release metadata has invalid assets payload")
 
-    wheel_asset = None
+    wheel_assets: list[dict[str, object]] = []
     tui_asset = None
     expected_tui = f"whisper-local-tui-{target_name}.tar.gz"
     for asset in assets:
         if not isinstance(asset, dict):
             continue
         asset_name = str(asset.get("name") or "")
-        if asset_name.endswith(".whl") and wheel_asset is None:
-            wheel_asset = asset
+        if asset_name.endswith(".whl"):
+            wheel_assets.append(asset)
         if asset_name == expected_tui:
             tui_asset = asset
 
-    if wheel_asset is None:
+    if not wheel_assets:
         raise UpgradeError("Release is missing wheel artifact")
+    if len(wheel_assets) > 1:
+        wheel_names = ", ".join(sorted(str(asset.get("name") or "") for asset in wheel_assets))
+        raise UpgradeError(
+            f"Release contains multiple wheel artifacts; unable to select automatically: {wheel_names}"
+        )
     if tui_asset is None:
         raise UpgradeError(f"Release is missing TUI artifact for target {target_name}")
 
+    wheel_asset = wheel_assets[0]
     wheel_name = str(wheel_asset.get("name") or "")
     wheel_url = str(wheel_asset.get("browser_download_url") or "")
     tui_name = str(tui_asset.get("name") or "")
@@ -230,7 +257,7 @@ def _replace_tui_binary(*, app_home: Path, target: str, archive_path: Path) -> N
     with tempfile.TemporaryDirectory(prefix="whisper-local-upgrade-tui-") as tmp_dir:
         extract_root = Path(tmp_dir)
         with tarfile.open(archive_path, "r:gz") as tar_handle:
-            tar_handle.extractall(extract_root)
+            tar_handle.extractall(extract_root, filter="data")
 
         candidates = [
             extract_root / "whisper-local-tui",

@@ -3,6 +3,13 @@ set -euo pipefail
 
 REPO="${WHISPER_LOCAL_REPO:-mjmammoth/whisper.local}"
 REQUESTED_TAG="${1:-latest}"
+REPO_OWNER="${REPO%%/*}"
+SIGNING_KEY_URL="${WHISPER_LOCAL_SIGNING_KEY_URL:-https://github.com/${REPO_OWNER}.gpg}"
+EXPECTED_SIGNING_FINGERPRINT="$(
+  printf '%s' "${WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT:-}" |
+    tr -d '[:space:]' |
+    tr '[:lower:]' '[:upper:]'
+)"
 
 APP_HOME="${HOME}/.local/share/whisper.local"
 VENV_DIR="${APP_HOME}/venv"
@@ -21,6 +28,22 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 if ! command -v tar >/dev/null 2>&1; then
   echo "Error: tar is required" >&2
+  exit 1
+fi
+if ! command -v gpg >/dev/null 2>&1; then
+  echo "Error: gpg is required" >&2
+  exit 1
+fi
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256_check_cmd=(sha256sum -c)
+elif command -v shasum >/dev/null 2>&1; then
+  sha256_check_cmd=(shasum -a 256 -c)
+else
+  echo "Error: sha256sum (or shasum) is required" >&2
+  exit 1
+fi
+if [ -z "${EXPECTED_SIGNING_FINGERPRINT}" ]; then
+  echo "Error: WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT must be set for release signature verification" >&2
   exit 1
 fi
 
@@ -81,6 +104,73 @@ resolve_tag() {
 
 release_tag="$(resolve_tag "${REQUESTED_TAG}")"
 
+verify_release_signature() {
+  local checksums_path="$1"
+  local signature_path="$2"
+  local gpg_home="$3"
+  local key_path="$4"
+
+  mkdir -p "${gpg_home}"
+  chmod 700 "${gpg_home}"
+
+  curl -fsSL "${SIGNING_KEY_URL}" -o "${key_path}"
+  GNUPGHOME="${gpg_home}" gpg --batch --quiet --import "${key_path}" >/dev/null 2>&1
+
+  local imported_fingerprints
+  imported_fingerprints="$(
+    GNUPGHOME="${gpg_home}" gpg --batch --with-colons --fingerprint |
+      awk -F: '$1 == "fpr" { print toupper($10) }'
+  )"
+  if ! printf '%s\n' "${imported_fingerprints}" | grep -Fxq "${EXPECTED_SIGNING_FINGERPRINT}"; then
+    echo "Error: expected signing key fingerprint not found in imported keyring" >&2
+    exit 1
+  fi
+
+  if ! GNUPGHOME="${gpg_home}" gpg --batch --quiet --verify "${signature_path}" "${checksums_path}" >/dev/null 2>&1; then
+    echo "Error: release checksum signature verification failed" >&2
+    exit 1
+  fi
+}
+
+write_checksum_entry() {
+  local checksums_path="$1"
+  local asset_name="$2"
+  local checksum_entry_path="$3"
+
+  local checksum
+  checksum="$(
+    awk -v target="${asset_name}" '
+      {
+        file_path = $2
+        gsub(/^\*/, "", file_path)
+        count = split(file_path, parts, "/")
+        basename = parts[count]
+        if (basename == target) {
+          print $1
+          exit
+        }
+      }
+    ' "${checksums_path}"
+  )"
+  if [ -z "${checksum}" ]; then
+    echo "Error: missing checksum entry for ${asset_name}" >&2
+    exit 1
+  fi
+  printf '%s  %s\n' "${checksum}" "${asset_name}" > "${checksum_entry_path}"
+}
+
+verify_checksum_entry() {
+  local checksum_entry_path="$1"
+  local verify_dir="$2"
+  if ! (
+    cd "${verify_dir}"
+    "${sha256_check_cmd[@]}" "$(basename "${checksum_entry_path}")" >/dev/null
+  ); then
+    echo "Error: checksum verification failed for $(basename "${checksum_entry_path}")" >&2
+    exit 1
+  fi
+}
+
 tmp_dir="$(mktemp -d)"
 cleanup() {
   rm -rf "${tmp_dir}"
@@ -108,34 +198,100 @@ assets = data.get("assets", [])
 wheel = next((asset for asset in assets if str(asset.get("name", "")).endswith(".whl")), None)
 archive_name = f"whisper-local-tui-{target}.tar.gz"
 tui = next((asset for asset in assets if asset.get("name") == archive_name), None)
+checksums = next(
+    (
+        asset
+        for asset in assets
+        if str(asset.get("name", "")) in {"checksums.txt", "checksums.sha256", "checksums.sha256sum"}
+    ),
+    None,
+)
+
+signature = None
+if checksums is not None:
+    checksums_name = str(checksums.get("name", ""))
+    signature = next(
+        (
+            asset
+            for asset in assets
+            if str(asset.get("name", "")) in {f"{checksums_name}.asc", f"{checksums_name}.sig"}
+        ),
+        None,
+    )
+if signature is None:
+    signature = next(
+        (
+            asset
+            for asset in assets
+            if str(asset.get("name", "")).lower() in {"release.asc", "release.sig"}
+        ),
+        None,
+    )
+if signature is None:
+    signature = next(
+        (
+            asset
+            for asset in assets
+            if str(asset.get("name", "")).lower().endswith(".asc")
+            and "checksum" in str(asset.get("name", "")).lower()
+        ),
+        None,
+    )
 
 if wheel is None:
     raise SystemExit("Missing wheel asset in release")
 if tui is None:
     raise SystemExit(f"Missing TUI archive for target {target}")
+if checksums is None:
+    raise SystemExit("Missing release checksum manifest (checksums.txt/.sha256/.sha256sum)")
+if signature is None:
+    raise SystemExit("Missing release checksum signature (.asc/.sig)")
 
 print(wheel["browser_download_url"])
+print(wheel["name"])
 print(tui["browser_download_url"])
+print(tui["name"])
+print(checksums["browser_download_url"])
+print(signature["browser_download_url"])
 PY
 )
 
-if [ "${#asset_urls[@]}" -ne 2 ]; then
+if [ "${#asset_urls[@]}" -ne 6 ]; then
   echo "Error: failed to resolve release assets for ${release_tag}" >&2
   exit 1
 fi
 
 wheel_url="${asset_urls[0]}"
-tui_url="${asset_urls[1]}"
+wheel_name="${asset_urls[1]}"
+tui_url="${asset_urls[2]}"
+tui_name="${asset_urls[3]}"
+checksums_url="${asset_urls[4]}"
+signature_url="${asset_urls[5]}"
 
 echo "Installing whisper.local ${release_tag} (${target})"
 
 action_dir="${tmp_dir}/download"
 mkdir -p "${action_dir}"
-wheel_path="${action_dir}/whisper-local.whl"
-tui_archive_path="${action_dir}/whisper-local-tui.tar.gz"
+wheel_path="${action_dir}/${wheel_name}"
+tui_archive_path="${action_dir}/${tui_name}"
+checksums_path="${action_dir}/checksums.txt"
+signature_path="${action_dir}/checksums.sig"
+gpg_home="${tmp_dir}/gnupg"
+gpg_key_path="${tmp_dir}/release-signing-key.asc"
 
 curl -fsSL "${wheel_url}" -o "${wheel_path}"
 curl -fsSL "${tui_url}" -o "${tui_archive_path}"
+curl -fsSL "${checksums_url}" -o "${checksums_path}"
+curl -fsSL "${signature_url}" -o "${signature_path}"
+
+verify_release_signature "${checksums_path}" "${signature_path}" "${gpg_home}" "${gpg_key_path}"
+
+wheel_checksum_entry="${action_dir}/${wheel_name}.sha256"
+tui_checksum_entry="${action_dir}/${tui_name}.sha256"
+write_checksum_entry "${checksums_path}" "${wheel_name}" "${wheel_checksum_entry}"
+write_checksum_entry "${checksums_path}" "${tui_name}" "${tui_checksum_entry}"
+verify_checksum_entry "${wheel_checksum_entry}" "${action_dir}"
+verify_checksum_entry "${tui_checksum_entry}" "${action_dir}"
 
 mkdir -p "${APP_HOME}" "${BIN_DIR}" "${TUI_ROOT}/${target}"
 python3 -m venv "${VENV_DIR}"
