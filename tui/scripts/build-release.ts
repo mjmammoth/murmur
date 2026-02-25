@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -6,6 +6,7 @@ import solidTransformPlugin from "@opentui/solid/bun-plugin";
 
 type PackageJson = {
   version: string;
+  dependencies?: Record<string, string>;
 };
 
 type BuildTarget = {
@@ -90,6 +91,21 @@ function targetInstallPlatform(target: BuildTarget): { os: string; cpu: string }
   return { os: rawOs === "windows" ? "win32" : rawOs, cpu: rawCpu };
 }
 
+function targetCorePackageName(target: BuildTarget): string {
+  const platform = targetInstallPlatform(target);
+  return `@opentui/core-${platform.os}-${platform.cpu}`;
+}
+
+function normalizeVersionRange(versionRange: string): string {
+  const match = versionRange.match(/\d+\.\d+\.\d+/);
+  if (!match) {
+    throw new Error(
+      `Unsupported @opentui/core version range '${versionRange}'. Expected semver-like value.`,
+    );
+  }
+  return match[0];
+}
+
 async function main(): Promise<void> {
   const scriptDir = dirname(fileURLToPath(import.meta.url));
   const tuiRoot = resolve(scriptDir, "..");
@@ -110,6 +126,11 @@ async function main(): Promise<void> {
   const targets = resolveTargets(parseRequestedTargets());
   const distRoot = resolve(repoRoot, "dist", "tui");
   mkdirSync(distRoot, { recursive: true });
+  const coreVersionRange = packageJson.dependencies?.["@opentui/core"];
+  if (!coreVersionRange) {
+    throw new Error("package.json is missing dependency '@opentui/core'");
+  }
+  const coreVersion = normalizeVersionRange(coreVersionRange);
 
   const bundlePath = resolve(tuiRoot, ".build-tmp.js");
   const buildResult = await Bun.build({
@@ -130,6 +151,7 @@ async function main(): Promise<void> {
       const binPath = resolve(binDir, target.binaryName);
       const archivePath = resolve(distRoot, target.archiveName);
       const installPlatform = targetInstallPlatform(target);
+      const runtimePackageName = targetCorePackageName(target);
 
       mkdirSync(binDir, { recursive: true });
 
@@ -140,13 +162,20 @@ async function main(): Promise<void> {
         [
           "install",
           "--frozen-lockfile",
-          "--silent",
-          "--no-progress",
+          "--no-save",
+          "--force",
           `--os=${installPlatform.os}`,
           `--cpu=${installPlatform.cpu}`,
+          `${runtimePackageName}@${coreVersion}`,
         ],
         tuiRoot,
       );
+      const runtimePackagePath = resolve(tuiRoot, "node_modules", ...runtimePackageName.split("/"));
+      if (!existsSync(runtimePackagePath)) {
+        throw new Error(
+          `Missing required runtime package after install for target ${target.id}: ${runtimePackageName}`,
+        );
+      }
 
       const compileResult = spawnSync(
         "bun",
