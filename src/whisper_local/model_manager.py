@@ -113,9 +113,9 @@ class ModelInfo:
 def get_hf_cache_dir() -> Path:
     """
     Determine the directory used for Hugging Face cache files.
-    
+
     Checks environment variables in order of precedence: HF_HOME, XDG_CACHE_HOME (appending "huggingface"), and falls back to "~/.cache/huggingface".
-    
+
     Returns:
         Path: Path to the resolved Hugging Face cache directory.
     """
@@ -131,7 +131,7 @@ def get_hf_cache_dir() -> Path:
 def normalize_model_runtime(runtime: str | None) -> RuntimeName:
     """
     Normalize a runtime identifier to one of the supported RuntimeName values.
-    
+
     Returns:
         'whisper.cpp' if the given runtime normalizes to "whisper.cpp", otherwise 'faster-whisper'.
     """
@@ -144,10 +144,10 @@ def normalize_model_runtime(runtime: str | None) -> RuntimeName:
 def _model_operations_for_runtime(runtime: str | None):
     """
     Return the model runtime operations implementation corresponding to the given runtime.
-    
+
     Parameters:
         runtime (str | None): Runtime identifier (e.g., "faster-whisper" or "whisper.cpp"). If None, the runtime is normalized to the default.
-    
+
     Returns:
         An object that implements model operations for the resolved runtime.
     """
@@ -158,10 +158,10 @@ def _model_operations_for_runtime(runtime: str | None):
 def model_variant_format(runtime: str | None) -> str:
     """
     Get the model file format string for a given runtime.
-    
+
     Parameters:
         runtime: The runtime name ("faster-whisper", "whisper.cpp") or None to use the default runtime.
-    
+
     Returns:
         The format string associated with the normalized runtime (for example, "ctranslate2" or "ggml").
     """
@@ -171,11 +171,11 @@ def model_variant_format(runtime: str | None) -> str:
 def _size_cache_key(model_name: str, runtime: str | None = None) -> str:
     """
     Builds a cache key that uniquely identifies a model variant for a runtime.
-    
+
     Parameters:
         model_name (str): The model identifier (e.g., "tiny", "base").
         runtime (str | None): Runtime name to normalize (defaults to the module's default runtime).
-    
+
     Returns:
         str: Cache key in the form "<runtime>:<model_name>" where <runtime> is the normalized runtime name.
     """
@@ -185,10 +185,10 @@ def _size_cache_key(model_name: str, runtime: str | None = None) -> str:
 def _model_cache_path(model_name: str) -> Path:
     """
     Return the primary Hugging Face hub cache directory path for the given model.
-    
+
     Parameters:
         model_name (str): Model identifier as listed in the module's supported models.
-    
+
     Returns:
         Path: Path to the primary cache directory for the model.
     """
@@ -198,10 +198,10 @@ def _model_cache_path(model_name: str) -> Path:
 def _cache_path_for_repo_id(repo_id: str) -> Path:
     """
     Map a Hugging Face repository id to its local hub cache directory.
-    
+
     Parameters:
         repo_id (str): Repository identifier in the form "owner/model".
-    
+
     Returns:
         Path: Path to the model cache directory inside the Hugging Face hub cache (e.g., ~/.cache/huggingface/hub/models--owner--model).
     """
@@ -209,10 +209,33 @@ def _cache_path_for_repo_id(repo_id: str) -> Path:
     return get_hf_cache_dir() / "hub" / cache_name
 
 
+def whisper_local_model_cache_paths() -> tuple[Path, ...]:
+    """
+    Return all Hugging Face cache directories managed by whisper.local model operations.
+
+    Includes faster-whisper model repositories (primary + aliases) and the whisper.cpp
+    repository cache root. Paths are deduplicated while preserving order.
+    """
+    paths: list[Path] = []
+    for model_name in MODEL_NAMES:
+        paths.extend(_model_cache_paths(model_name))
+    paths.append(_cache_path_for_repo_id(WHISPER_CPP_REPO_ID))
+
+    deduped: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        resolved = path.expanduser()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        deduped.append(resolved)
+    return tuple(deduped)
+
+
 def _whisper_cpp_snapshots_dir() -> Path:
     """
     Locate the snapshots directory for the whisper.cpp repository inside the local Hugging Face cache.
-    
+
     Returns:
         Path: Path to the whisper.cpp repository's snapshots directory (the path may not exist on disk).
     """
@@ -222,13 +245,13 @@ def _whisper_cpp_snapshots_dir() -> Path:
 def whisper_cpp_model_filename(model_name: str) -> str:
     """
     Return the expected whisper.cpp binary filename for a supported model.
-    
+
     Parameters:
         model_name (str): Model identifier; must be one of the supported MODEL_NAMES.
-    
+
     Returns:
         str: The whisper.cpp filename corresponding to `model_name`.
-    
+
     Raises:
         ValueError: If `model_name` is not a known model.
         RuntimeError: If a filename mapping for `model_name` is missing.
@@ -244,12 +267,12 @@ def whisper_cpp_model_filename(model_name: str) -> str:
 def _find_cached_whisper_cpp_model(filename: str) -> Path | None:
     """
     Locate the most recently modified cached whisper.cpp model file with the given filename.
-    
+
     Searches the whisper.cpp snapshots directory for files named `filename`, ignores non-directory entries, and returns the newest matching file path.
-    
+
     Parameters:
         filename (str): The model filename to search for within cached whisper.cpp snapshots.
-    
+
     Returns:
         Path | None: `Path` to the most recently modified matching file, or `None` if no matching cached file is found.
     """
@@ -274,13 +297,13 @@ def _find_cached_whisper_cpp_model(filename: str) -> Path | None:
 def _model_repo_ids(model_name: str) -> tuple[str, ...]:
     """
     Get repository IDs for a model with the primary repository listed first.
-    
+
     Parameters:
         model_name (str): Supported model name.
-    
+
     Returns:
         repo_ids (tuple[str, ...]): Tuple containing the primary repo ID followed by any alias repo IDs.
-    
+
     Raises:
         ValueError: If `model_name` is not a known/supported model.
     """
@@ -292,10 +315,10 @@ def _model_repo_ids(model_name: str) -> tuple[str, ...]:
 def _model_cache_paths(model_name: str) -> tuple[Path, ...]:
     """
     Get all cache directory paths that may contain snapshots for the given model.
-    
+
     Parameters:
         model_name (str): Supported model name.
-    
+
     Returns:
         tuple[Path, ...]: Paths for each repository ID associated with the model, with the primary repository first followed by any aliases.
     """
@@ -305,13 +328,13 @@ def _model_cache_paths(model_name: str) -> tuple[Path, ...]:
 def _model_repo_id(model_name: str) -> str:
     """
     Resolve the primary Hugging Face repository identifier for a model name.
-    
+
     Parameters:
         model_name (str): Supported model name.
-    
+
     Returns:
         str: Primary repository identifier associated with the model.
-    
+
     Raises:
         ValueError: If `model_name` is not a recognized supported model.
     """
@@ -324,12 +347,12 @@ def _model_repo_id(model_name: str) -> str:
 def is_model_installed(model_name: str, runtime: str | None = "faster-whisper") -> bool:
     """
     Check whether the specified model variant is installed for the given runtime.
-    
+
     If the model name is not one of the supported models, this returns `false`.
-    
+
     Parameters:
         runtime (str | None): Runtime identifier to check (e.g., "faster-whisper" or "whisper.cpp"); `None` or unknown values are normalized to the default runtime.
-    
+
     Returns:
         `true` if the model variant is installed, `false` otherwise.
     """
@@ -341,11 +364,11 @@ def is_model_installed(model_name: str, runtime: str | None = "faster-whisper") 
 def is_model_variant_installed(model_name: str, runtime: str | None) -> bool:
     """
     Check whether the specified model variant for a given runtime is installed.
-    
+
     Parameters:
         model_name (str): Name of the model (e.g., "tiny", "base", "small", "medium", "large-v2").
         runtime (str | None): Runtime name ("faster-whisper" or "whisper.cpp") or None to use the default.
-    
+
     Returns:
         `True` if the model variant for the given runtime is installed, `False` otherwise.
     """
@@ -355,10 +378,10 @@ def is_model_variant_installed(model_name: str, runtime: str | None) -> bool:
 def _get_installed_faster_model_path(model_name: str) -> Path | None:
     """
     Locate the most recently modified complete cache snapshot for a faster-whisper model.
-    
+
     Parameters:
         model_name (str): Supported model identifier (one of MODEL_NAMES).
-    
+
     Returns:
         Path | None: Path to the newest complete snapshot directory for the model, or `None` if the model is unknown or no complete snapshots are found.
     """
@@ -378,10 +401,10 @@ def _get_installed_faster_model_path(model_name: str) -> Path | None:
 def get_installed_whisper_cpp_model_path(model_name: str) -> Path | None:
     """
     Locate the locally cached whisper.cpp model file for a supported model name.
-    
+
     Parameters:
         model_name (str): One of the supported model identifiers (e.g., "tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo").
-    
+
     Returns:
         Path | None: Path to the most recently cached whisper.cpp model file if present, `None` if the model name is unsupported or no cached file is found.
     """
@@ -395,11 +418,11 @@ def get_installed_model_path(
 ) -> Path | None:
     """
     Locate the most recently installed model path for a model/runtime combination.
-    
+
     Parameters:
         model_name (str): Model name to resolve.
         runtime (str | None): Runtime identifier.
-    
+
     Returns:
         Path | None: Installed path or None when missing.
     """
@@ -412,10 +435,10 @@ def get_installed_model_path(
 def _cache_path_size_bytes(cache_path: Path) -> int:
     """
     Compute the total size in bytes of all regular files under a cache directory.
-    
+
     Parameters:
         cache_path (Path): Directory whose file sizes will be summed.
-    
+
     Returns:
         int: Sum of sizes in bytes of all regular files under `cache_path`. Returns 0 if `cache_path` does not exist.
     """
@@ -434,10 +457,10 @@ def _cache_path_size_bytes(cache_path: Path) -> int:
 def _iter_snapshot_paths(cache_path: Path) -> list[Path]:
     """
     List immediate snapshot subdirectories under a repository cache's "snapshots" folder.
-    
+
     Parameters:
         cache_path (Path): Path to the repository cache directory that may contain a "snapshots" subdirectory.
-    
+
     Returns:
         List[Path]: Paths for each immediate subdirectory inside cache_path/"snapshots"; an empty list if the snapshots directory does not exist.
     """
@@ -450,22 +473,22 @@ def _iter_snapshot_paths(cache_path: Path) -> list[Path]:
 def _snapshot_is_complete(snapshot_path: Path) -> bool:
     """
     Determine whether a model snapshot directory is complete.
-    
+
     A snapshot is complete when every filename listed in MODEL_REQUIRED_FILES exists in the directory and has size greater than zero, and for each tuple in MODEL_REQUIRED_FILE_ALTERNATIVES at least one listed file exists and has size greater than zero.
-    
+
     Parameters:
         snapshot_path (Path): Path to the candidate snapshot directory to validate.
-    
+
     Returns:
         bool: `True` if the snapshot meets the completeness criteria described above, `False` otherwise.
     """
     def has_nonempty_file(filename: str) -> bool:
         """
         Check whether a given file exists under the current snapshot_path and has a size greater than zero.
-        
+
         Parameters:
             filename (str): Name (or relative path) of the file to check within the module's snapshot_path.
-        
+
         Returns:
             bool: `true` if the file exists at snapshot_path/filename and its size is greater than zero, `false` otherwise.
         """
@@ -491,7 +514,7 @@ def _snapshot_is_complete(snapshot_path: Path) -> bool:
 def _prune_cache_path(cache_path: Path) -> None:
     """
     Remove incomplete model snapshot data and orphaned partial blobs from a model cache path.
-    
+
     Prunes any snapshot directories under `cache_path` that are not complete, removes `.incomplete` files under `cache_path/blobs`, and if the cache contains no remaining snapshot directories removes the entire `cache_path`. Failures to remove individual files or directories are logged but do not raise.
     """
     removed_any = False
@@ -535,7 +558,7 @@ def _prune_cache_path(cache_path: Path) -> None:
 def _prune_whisper_cpp_cache() -> None:
     """
     Remove orphaned partial download blobs for the whisper.cpp model cache.
-    
+
     This function deletes files with the ".incomplete" suffix from the whisper.cpp repository cache "blobs" directory; if the blobs directory does not exist the call is a no-op. Failures to remove individual files are logged as warnings.
     """
     cache_path = _cache_path_for_repo_id(WHISPER_CPP_REPO_ID)
@@ -551,10 +574,10 @@ def _prune_whisper_cpp_cache() -> None:
 def prune_invalid_model_cache(model_name: str) -> None:
     """
     Remove incomplete or invalid cached snapshots and orphaned blobs for a model.
-    
+
     For each possible cache path for the given model, removes partial or incomplete snapshot
     directories and cleans up orphaned blobs; if the model name is not recognized, this is a no-op.
-    
+
     Parameters:
         model_name (str): Supported model identifier to prune. Unknown model names are ignored.
     """
@@ -569,7 +592,7 @@ def prune_invalid_model_cache(model_name: str) -> None:
 def prune_invalid_model_caches() -> None:
     """
     Prune incomplete or invalid cache snapshots for all configured models.
-    
+
     Removes incomplete snapshots, partial blobs, and empty cache directories for every model known to the application.
     """
     for model_name in MODEL_NAMES:
@@ -579,10 +602,10 @@ def prune_invalid_model_caches() -> None:
 def _faster_model_cache_size_bytes(model_name: str) -> int:
     """
     Return the total size in bytes of all cached snapshots for the given model across configured cache paths.
-    
+
     Parameters:
         model_name (str): Model identifier.
-    
+
     Returns:
         int: Sum of sizes (in bytes) of all files under the model's cache paths; 0 if no cache is present.
     """
@@ -595,7 +618,7 @@ def _faster_model_cache_size_bytes(model_name: str) -> int:
 def _whisper_cpp_model_cache_size_bytes(model_name: str) -> int:
     """
     Get the file size in bytes of the installed whisper.cpp model file.
-    
+
     Returns:
     	The size in bytes of the model file, or 0 if the model is not installed or the file cannot be accessed.
     """
@@ -613,11 +636,11 @@ def model_cache_size_bytes(
 ) -> int:
     """
     Get total size in bytes of the local cache for a model variant.
-    
+
     Parameters:
         model_name (str): Supported model identifier (e.g., "tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo").
         runtime (str | None): Runtime identifier (e.g., "faster-whisper" or "whisper.cpp"). Defaults to "faster-whisper".
-    
+
     Returns:
         int: Total size in bytes of cached files for the specified model and runtime; `0` if the model or runtime is unknown or no cached files are present.
     """
@@ -630,7 +653,7 @@ def model_cache_size_bytes(
 def list_available_models() -> list[str]:
     """
     List supported model names available for download or selection.
-    
+
     Returns:
         list[str]: A list of supported model name strings.
     """
@@ -640,7 +663,7 @@ def list_available_models() -> list[str]:
 def list_installed_models() -> list[ModelInfo]:
     """
     Retrieve information about all supported models and their runtime-specific variants.
-    
+
     Returns:
         models (list[ModelInfo]): A list of ModelInfo objects, one per supported model. Each ModelInfo.variants maps a runtime name to a ModelVariantInfo describing that variant's runtime, file format, whether it is installed, the installed path (or None), the resolved size in bytes (exact or estimated, or None), and whether the reported size is an estimate.
     """
@@ -669,9 +692,9 @@ def list_installed_models() -> list[ModelInfo]:
 def _resolve_repo_total_bytes(repo_id: str) -> int | None:
     """
     Estimate total size in bytes of all files in a Hugging Face model repository.
-    
+
     Fetches the repository's file metadata and sums sizes reported as positive integers; returns `None` if metadata cannot be retrieved or contains no positive sizes.
-    
+
     Returns:
         int | None: Total size in bytes, or `None` if unavailable.
     """
@@ -692,9 +715,9 @@ def _resolve_repo_total_bytes(repo_id: str) -> int | None:
 def _resolve_repo_file_size_bytes(repo_id: str, filename: str) -> int | None:
     """
     Return the byte size of a specific file in a Hugging Face repository if available.
-    
+
     Queries the repository metadata and returns the positive size of the named file when present.
-    
+
     Returns:
         int | None: Positive file size in bytes if found, `None` if not found or on error.
     """
@@ -722,19 +745,19 @@ def _make_progress_tqdm(
 ):
     """
     Create a tqdm-compatible progress class that reports download progress via the provided callback.
-    
+
     The returned class can be used in two modes by callers that expect a tqdm-like object:
     1. As an iterable wrapper (e.g., `for f in tqdm_class(files):`) to iterate file lists.
     2. As a byte-level progress bar for file download progress (uses `update(n)` and `total`).
-    
+
     Parameters:
         callback (Callable[[int], None]): Function called with the current completion percent (0-100) when progress changes.
         expected_total_bytes (int | None): Optional expected total byte size used to compute percent when per-file totals are unavailable.
         cancel_check (Callable[[], bool] | None): Optional callable checked at key points; if it returns `True`, a DownloadCancelledError is raised.
-    
+
     Returns:
         type: A tqdm-like class whose instances emit integer percent complete to `callback` and support common tqdm methods used by download routines.
-    
+
     Raises:
         DownloadCancelledError: If `cancel_check` returns `True` during an operation.
     """
@@ -869,17 +892,17 @@ def _download_faster_model(
 ) -> Path:
     """
     Download and install the faster-whisper variant of a supported model into the local Hugging Face cache.
-    
+
     Attempts to download the model snapshot for model_name from its configured Hugging Face repo into the local cache. If progress_callback is provided, reports byte progress and attempts to resolve the total size (falling back to an estimated size). If cancel_check signals cancellation at any point, raises DownloadCancelledError and prunes partially downloaded cache entries. On certain file-descriptor-related errors, retries the download in a clean subprocess. On other failures the function prunes invalid cache data and re-raises the underlying exception.
-    
+
     Parameters:
         model_name (str): One of the supported MODEL_NAMES to download.
         progress_callback (Callable[[int], None] | None): Optional callback invoked with the number of bytes downloaded so far.
         cancel_check (Callable[[], bool] | None): Optional callable checked before and during transfer; if it returns True the download is cancelled.
-    
+
     Returns:
         Path: Path to the installed model snapshot directory.
-    
+
     Raises:
         ValueError: If model_name is not a known model.
         DownloadCancelledError: If cancel_check indicates cancellation before or during download.
@@ -956,15 +979,15 @@ def _download_whisper_cpp_model(
 ) -> Path:
     """
     Download and return the local path to the whisper.cpp model file, downloading it from the remote repository if not already cached.
-    
+
     Parameters:
         model_name: Supported model identifier (e.g., "tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo").
         progress_callback: Optional callable invoked with an integer progress percentage (0–100) to report download progress.
         cancel_check: Optional callable that should return True to signal cancellation; if it returns True before or during download, the operation is aborted.
-    
+
     Returns:
         Path: Path to the existing or newly downloaded whisper.cpp model file.
-    
+
     Raises:
         ValueError: If model_name is not a recognized model.
         DownloadCancelledError: If cancel_check signals cancellation before or after transfer.
@@ -1009,13 +1032,13 @@ def download_model(
 ) -> Path:
     """
     Download and install a model variant for the requested runtime.
-    
+
     Parameters:
         model_name (str): Supported model name to download.
         runtime (str | None): Runtime whose model variant should be downloaded.
         progress_callback (Callable[[int], None] | None): Optional callback receiving integer progress 0-100.
         cancel_check (Callable[[], bool] | None): Optional cancellation signal function.
-    
+
     Returns:
         Path: Filesystem path to the downloaded model artifact.
     """
@@ -1032,11 +1055,11 @@ def ensure_model_available(
 ) -> Path:
     """
     Ensure the specified model variant for the given runtime is installed and return its local snapshot path.
-    
+
     Parameters:
         model_name (str): Supported model name (for example "tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo").
         runtime (str | None): Target runtime variant; normalized to either "faster-whisper" or "whisper.cpp". Defaults to "faster-whisper".
-    
+
     Returns:
         Path: Filesystem path to the installed model snapshot.
     """
@@ -1058,18 +1081,18 @@ def _download_model_in_subprocess(
 ) -> Path:
     """
     Download a Hugging Face model snapshot for the given repository in a separate subprocess while reporting progress and honoring cancellation.
-    
+
     When provided, progress_callback receives integer percentage updates (0–100). If expected_total_bytes is given and greater than zero, percentages are estimated from the on-disk cache size and capped at 99% until the subprocess completes; a final 100% update is emitted on success. The cancel_check callable, when it returns True during the operation, causes the download to be terminated and the partial cache to be pruned.
-    
+
     Parameters:
         repo_id (str): Hugging Face repository identifier to download.
         progress_callback (Callable[[int], None] | None): Optional callback invoked with integer percent progress (0–100).
         expected_total_bytes (int | None): Optional expected total size in bytes used to estimate progress percentages.
         cancel_check (Callable[[], bool] | None): Optional callable checked periodically; if it returns True the download is cancelled.
-    
+
     Returns:
         Path: Filesystem path to the downloaded model snapshot.
-    
+
     Raises:
         DownloadCancelledError: If cancellation is requested via cancel_check during the download.
         RuntimeError: If the subprocess fails or does not return a valid path.
@@ -1099,7 +1122,7 @@ def _download_model_in_subprocess(
     def emit_progress() -> None:
         """
         Compute and emit the download progress percentage to the configured progress callback when the value changes.
-        
+
         If `expected_total_bytes` is missing or zero, emits `0`. Otherwise computes the integer percentage from the cached download size divided by the expected total, capping the reported value at `99` until completion. Calls `progress_callback(percent)` only when the newly computed percent differs from the last emitted value.
         """
         nonlocal last_percent, last_size, last_scan_time
@@ -1162,7 +1185,7 @@ def _download_model_in_subprocess(
 def _remove_faster_model(model_name: str) -> None:
     """
     Remove all cached installations of the faster-whisper variant for the given model.
-    
+
     Parameters:
         model_name (str): Supported model identifier (e.g., "tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo").
     """
@@ -1174,7 +1197,7 @@ def _remove_faster_model(model_name: str) -> None:
 def _remove_whisper_cpp_model(model_name: str) -> None:
     """
     Remove installed whisper.cpp model files and clean up empty snapshot directories.
-    
+
     Deletes the whisper.cpp model file corresponding to `model_name` from all
     snapshot directories inside the local Hugging Face cache. If a snapshot
     directory becomes empty after removing the file, the directory is removed.
@@ -1207,7 +1230,7 @@ def _remove_whisper_cpp_model(model_name: str) -> None:
 def remove_model(model_name: str, runtime: str | None = "faster-whisper") -> None:
     """
     Remove locally cached files for the specified model variant and clear its size cache entry.
-    
+
     Parameters:
     	model_name: Supported model name whose cached files should be removed.
     	runtime: Runtime variant to remove (e.g., "faster-whisper" or "whisper.cpp"); defaults to the faster-whisper variant.
@@ -1224,11 +1247,11 @@ def remove_model(model_name: str, runtime: str | None = "faster-whisper") -> Non
 def set_selected_model(model_name: str, path: Path | None = None) -> None:
     """
     Selects a model in the persisted configuration and clears any configured model path.
-    
+
     Parameters:
         model_name: Model identifier to select; must be one of the supported model names.
         path: Optional path to the configuration file or directory; if omitted, the default config location is used.
-    
+
     Raises:
         ValueError: If `model_name` is not a supported model.
     """
@@ -1243,7 +1266,7 @@ def set_selected_model(model_name: str, path: Path | None = None) -> None:
 def set_default_model(model_name: str, path: Path | None = None) -> None:
     """
     Set the selected model in the application configuration (backwards-compatible alias).
-    
+
     Parameters:
         model_name (str): Name of the model to select.
         path (Path | None): Optional path to a specific installed model snapshot to store; if None the stored path is cleared.

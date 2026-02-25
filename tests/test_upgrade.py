@@ -10,6 +10,49 @@ from whisper_local import upgrade
 from whisper_local.upgrade import ReleaseAssetBundle, UpgradeActionRequired, UpgradeError
 
 
+def test_read_install_manifest_valid_payload(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "install-manifest.json"
+    manifest_path.write_text(
+        '{"channel":"installer","installer_home":"/tmp/whisper.local"}',
+        encoding="utf-8",
+    )
+
+    manifest = upgrade.read_install_manifest(manifest_path)
+
+    assert manifest is not None
+    assert manifest.get("channel") == "installer"
+
+
+def test_read_install_manifest_invalid_payload_returns_none(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "install-manifest.json"
+    manifest_path.write_text("[]", encoding="utf-8")
+
+    assert upgrade.read_install_manifest(manifest_path) is None
+
+
+def test_detect_install_channel_prefers_valid_manifest(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper-local"
+    (installer_home / "venv").mkdir(parents=True, exist_ok=True)
+    (installer_home / "tui").mkdir(parents=True, exist_ok=True)
+    (installer_home / upgrade.INSTALLER_MANIFEST_NAME).write_text(
+        (
+            "{"
+            '"channel":"installer",'
+            f'"installer_home":"{installer_home}"'
+            "}"
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("whisper_local.upgrade._looks_like_homebrew_install", return_value=False):
+        channel = upgrade.detect_install_channel(
+            executable="/usr/local/bin/python3",
+            installer_home=installer_home,
+        )
+
+    assert channel == "installer"
+
+
 def test_detect_install_channel_installer(tmp_path: Path) -> None:
     installer_home = tmp_path / "whisper-local"
     executable = installer_home / "venv" / "bin" / "python"
@@ -23,6 +66,42 @@ def test_detect_install_channel_installer(tmp_path: Path) -> None:
     )
 
     assert channel == "installer"
+
+
+def test_detect_install_channel_stale_manifest_falls_back_to_path_heuristic(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper-local"
+    executable = installer_home / "venv" / "bin" / "python"
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    executable.write_text("", encoding="utf-8")
+    (installer_home / "tui").mkdir(parents=True, exist_ok=True)
+    (installer_home / upgrade.INSTALLER_MANIFEST_NAME).write_text(
+        '{"channel":"installer","installer_home":"/different/path"}',
+        encoding="utf-8",
+    )
+
+    channel = upgrade.detect_install_channel(
+        executable=str(executable),
+        installer_home=installer_home,
+    )
+
+    assert channel == "installer"
+
+
+def test_detect_install_channel_stale_manifest_falls_back_to_pip(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper-local"
+    installer_home.mkdir(parents=True, exist_ok=True)
+    (installer_home / upgrade.INSTALLER_MANIFEST_NAME).write_text(
+        '{"channel":"installer","installer_home":"/different/path"}',
+        encoding="utf-8",
+    )
+
+    with patch("whisper_local.upgrade._looks_like_homebrew_install", return_value=False):
+        channel = upgrade.detect_install_channel(
+            executable="/usr/local/bin/python3",
+            installer_home=installer_home,
+        )
+
+    assert channel == "pip"
 
 
 def test_detect_install_channel_homebrew_by_executable_path(tmp_path: Path) -> None:

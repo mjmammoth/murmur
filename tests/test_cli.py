@@ -8,6 +8,13 @@ from unittest.mock import Mock, patch
 import pytest
 
 from whisper_local import cli
+from whisper_local.uninstall import (
+    RemovalFailure,
+    UninstallActionRequired,
+    UninstallError,
+    UninstallOptions,
+    UninstallResult,
+)
 from whisper_local.upgrade import UpgradeActionRequired, UpgradeError, UpgradeResult
 
 
@@ -31,6 +38,14 @@ def test_build_parser_includes_upgrade_command() -> None:
     args = parser.parse_args(["upgrade", "--version", "v1.2.3"])
     assert args.command == "upgrade"
     assert args.version == "v1.2.3"
+
+
+def test_build_parser_includes_uninstall_command() -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["uninstall", "--yes", "--all-data"])
+    assert args.command == "uninstall"
+    assert args.yes is True
+    assert args.all_data is True
 
 
 def test_build_parser_includes_version_command() -> None:
@@ -444,6 +459,15 @@ def test_main_upgrade_command(mock_upgrade: Mock, monkeypatch: pytest.MonkeyPatc
     mock_upgrade.assert_called_once_with(requested_version="v2.0.0")
 
 
+@patch("whisper_local.cli._uninstall")
+def test_main_uninstall_command(mock_uninstall: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "uninstall", "--yes"])
+
+    cli.main()
+
+    mock_uninstall.assert_called_once()
+
+
 def test_main_version_flag_prints_and_exits(
     monkeypatch: pytest.MonkeyPatch,
     capsys,
@@ -473,6 +497,130 @@ def test_print_version_outputs_installed_version(monkeypatch: pytest.MonkeyPatch
     cli._print_version()
     captured = capsys.readouterr()
     assert captured.out.strip() == "1.2.3"
+
+
+@patch("whisper_local.uninstall.run_uninstall")
+@patch("whisper_local.cli.sys.stdout")
+@patch("whisper_local.cli.sys.stdin")
+def test_uninstall_non_interactive_without_flags_requires_yes(
+    mock_stdin: Mock,
+    mock_stdout: Mock,
+    mock_run_uninstall: Mock,
+    capsys,
+) -> None:
+    mock_stdin.isatty.return_value = False
+    mock_stdout.isatty.return_value = False
+    parser = cli.build_parser()
+    args = parser.parse_args(["uninstall"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli._uninstall(args)
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "non-interactive uninstall requires --yes" in captured.err
+    mock_run_uninstall.assert_not_called()
+
+
+@patch("whisper_local.uninstall.run_uninstall")
+@patch("builtins.input", side_effect=["2", "y"])
+@patch("whisper_local.cli.sys.stdout")
+@patch("whisper_local.cli.sys.stdin")
+def test_uninstall_interactive_prompt_selects_scope(
+    mock_stdin: Mock,
+    mock_stdout: Mock,
+    mock_input: Mock,
+    mock_run_uninstall: Mock,
+) -> None:
+    mock_stdin.isatty.return_value = True
+    mock_stdout.isatty.return_value = True
+    parser = cli.build_parser()
+    args = parser.parse_args(["uninstall"])
+    mock_run_uninstall.return_value = UninstallResult(
+        channel="installer",
+        removed_paths=(),
+        failed_paths=(),
+        warnings=(),
+    )
+
+    cli._uninstall(args)
+
+    mock_run_uninstall.assert_called_once_with(
+        options=UninstallOptions(
+            remove_state=True,
+            remove_config=True,
+            remove_model_cache=False,
+        )
+    )
+
+
+@patch("whisper_local.uninstall.run_uninstall")
+def test_uninstall_success_outputs_summary(mock_run_uninstall: Mock, capsys) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["uninstall", "--yes"])
+    mock_run_uninstall.return_value = UninstallResult(
+        channel="installer",
+        removed_paths=(Path("/tmp/a"), Path("/tmp/b")),
+        failed_paths=(),
+        warnings=("warn",),
+    )
+
+    cli._uninstall(args)
+
+    captured = capsys.readouterr()
+    assert "Removed paths:" in captured.out
+    assert "Warnings:" in captured.out
+    assert "Uninstall complete." in captured.out
+
+
+@patch("whisper_local.uninstall.run_uninstall")
+def test_uninstall_action_required_exits_with_guidance(mock_run_uninstall: Mock, capsys) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["uninstall", "--yes"])
+    mock_run_uninstall.side_effect = UninstallActionRequired(
+        channel="homebrew",
+        command="brew uninstall whisper-local",
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli._uninstall(args)
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "brew uninstall whisper-local" in captured.out
+
+
+@patch("whisper_local.uninstall.run_uninstall")
+def test_uninstall_error_exits_non_zero(mock_run_uninstall: Mock, capsys) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["uninstall", "--yes"])
+    mock_run_uninstall.side_effect = UninstallError("failed")
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli._uninstall(args)
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error: failed" in captured.out
+
+
+@patch("whisper_local.uninstall.run_uninstall")
+def test_uninstall_reports_failed_paths_as_non_zero(mock_run_uninstall: Mock, capsys) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["uninstall", "--yes"])
+    mock_run_uninstall.return_value = UninstallResult(
+        channel="installer",
+        removed_paths=(Path("/tmp/a"),),
+        failed_paths=(RemovalFailure(path=Path("/tmp/b"), reason="permission denied"),),
+        warnings=(),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli._uninstall(args)
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Failed to remove:" in captured.out
 
 
 @patch("whisper_local.upgrade.run_upgrade")

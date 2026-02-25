@@ -23,6 +23,7 @@ from whisper_local.model_manager import (
     remove_model,
     set_default_model,
     set_selected_model,
+    whisper_local_model_cache_paths,
 )
 from whisper_local.model_ops import (
     FasterWhisperModelRuntimeOperations,
@@ -34,7 +35,7 @@ from whisper_local.model_ops import (
 def _write_complete_snapshot(snapshot_path: Path, vocabulary_file: str = "vocabulary.json") -> None:
     """
     Create a minimal, complete model snapshot directory containing the files required by tests.
-    
+
     Parameters:
         snapshot_path (Path): Directory to create for the snapshot; will be created if it does not exist.
         vocabulary_file (str): Filename to use for the vocabulary file (created with minimal placeholder content).
@@ -103,6 +104,21 @@ def test_model_cache_path(monkeypatch):
     monkeypatch.setenv("HF_HOME", "/test/cache")
     cache_path = model_manager._model_cache_path("tiny")
     assert str(cache_path).endswith("models--Systran--faster-whisper-tiny")
+
+
+def test_whisper_local_model_cache_paths_deduplicated_and_scoped(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+
+    paths = whisper_local_model_cache_paths()
+    assert paths
+    assert len(paths) == len(set(paths))
+
+    hub_root = (tmp_path / "hf-home" / "hub").expanduser().resolve()
+    for path in paths:
+        assert path.expanduser().resolve().is_relative_to(hub_root)
+
+    assert model_manager._cache_path_for_repo_id(model_manager.WHISPER_CPP_REPO_ID) in paths
+    assert all(path in paths for path in model_manager._model_cache_paths("large-v3-turbo"))
 
 
 def test_model_repo_id_valid():
@@ -311,7 +327,7 @@ def test_prune_invalid_model_cache_keeps_valid_snapshot(
 ) -> None:
     """
     Ensure prune_invalid_model_cache removes incomplete snapshot directories while preserving valid ones.
-    
+
     Creates a valid and an incomplete snapshot for the "small" model, arranges modification times so the incomplete snapshot appears newer, verifies the valid snapshot is initially recognized as installed, runs prune_invalid_model_cache("small"), and then asserts the valid snapshot still exists while the incomplete snapshot has been removed.
     """
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))

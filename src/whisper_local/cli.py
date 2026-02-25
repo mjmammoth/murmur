@@ -146,6 +146,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Upgrade to a specific release tag (example: v0.2.0). Defaults to latest.",
     )
 
+    uninstall_parser = subparsers.add_parser(
+        "uninstall",
+        help="Uninstall whisper.local (auto-uninstall only for installer-managed installs)",
+    )
+    uninstall_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+    uninstall_parser.add_argument(
+        "--remove-state",
+        action="store_true",
+        help="Remove ~/.local/state/whisper.local during uninstall",
+    )
+    uninstall_parser.add_argument(
+        "--remove-config",
+        action="store_true",
+        help="Remove ~/.config/whisper.local during uninstall",
+    )
+    uninstall_parser.add_argument(
+        "--remove-model-cache",
+        action="store_true",
+        help="Remove whisper.local model caches under ~/.cache/huggingface",
+    )
+    uninstall_parser.add_argument(
+        "--all-data",
+        action="store_true",
+        help="Equivalent to --remove-state --remove-config --remove-model-cache",
+    )
+
     subparsers.add_parser("version", help="Print installed whisper.local version")
 
     return parser
@@ -397,6 +427,118 @@ def _upgrade(*, requested_version: str | None) -> None:
         print("Service was running and has been restarted.")
 
 
+def _resolve_uninstall_scope(args: argparse.Namespace) -> tuple[bool, bool, bool, bool]:
+    remove_state = bool(getattr(args, "remove_state", False))
+    remove_config = bool(getattr(args, "remove_config", False))
+    remove_model_cache = bool(getattr(args, "remove_model_cache", False))
+    if bool(getattr(args, "all_data", False)):
+        remove_state = True
+        remove_config = True
+        remove_model_cache = True
+    explicit_scope = any([remove_state, remove_config, remove_model_cache, bool(getattr(args, "all_data", False))])
+    return remove_state, remove_config, remove_model_cache, explicit_scope
+
+
+def _prompt_uninstall_scope() -> tuple[bool, bool, bool]:
+    print("Select uninstall scope:")
+    print("  1) App/runtime only")
+    print("  2) App/runtime + local state/config")
+    print("  3) App/runtime + local state/config + model cache")
+    while True:
+        choice = input("Choice [1-3] (default: 1): ").strip() or "1"
+        if choice == "1":
+            return False, False, False
+        if choice == "2":
+            return True, True, False
+        if choice == "3":
+            return True, True, True
+        print("Invalid choice. Enter 1, 2, or 3.")
+
+
+def _print_uninstall_plan(*, remove_state: bool, remove_config: bool, remove_model_cache: bool) -> None:
+    print("Uninstall plan:")
+    print("  - Remove installer launchers and runtime under ~/.local/share/whisper.local")
+    if remove_state:
+        print("  - Remove ~/.local/state/whisper.local")
+    if remove_config:
+        print("  - Remove ~/.config/whisper.local")
+    if remove_model_cache:
+        print("  - Remove whisper.local model caches under ~/.cache/huggingface/hub")
+
+
+def _confirm_uninstall() -> bool:
+    response = input("Proceed with uninstall? [y/N]: ").strip().lower()
+    return response in {"y", "yes"}
+
+
+def _uninstall(args: argparse.Namespace) -> None:
+    from whisper_local.uninstall import (
+        UninstallActionRequired,
+        UninstallError,
+        UninstallOptions,
+        run_uninstall,
+    )
+
+    remove_state, remove_config, remove_model_cache, explicit_scope = _resolve_uninstall_scope(args)
+    tty_session = sys.stdin.isatty() and sys.stdout.isatty()
+    assume_yes = bool(getattr(args, "yes", False))
+
+    if not assume_yes and not tty_session and not explicit_scope:
+        print(
+            "Error: non-interactive uninstall requires --yes or explicit scope flags "
+            "(--remove-state/--remove-config/--remove-model-cache/--all-data).",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+    if tty_session and not assume_yes:
+        if not explicit_scope:
+            remove_state, remove_config, remove_model_cache = _prompt_uninstall_scope()
+        _print_uninstall_plan(
+            remove_state=remove_state,
+            remove_config=remove_config,
+            remove_model_cache=remove_model_cache,
+        )
+        if not _confirm_uninstall():
+            print("Uninstall cancelled.")
+            raise SystemExit(1)
+
+    options = UninstallOptions(
+        remove_state=remove_state,
+        remove_config=remove_config,
+        remove_model_cache=remove_model_cache,
+    )
+
+    try:
+        result = run_uninstall(options=options)
+    except UninstallActionRequired as exc:
+        print(str(exc))
+        raise SystemExit(2)
+    except UninstallError as exc:
+        print(f"Error: {exc}")
+        raise SystemExit(1)
+
+    if result.removed_paths:
+        print("Removed paths:")
+        for path in result.removed_paths:
+            print(f"  - {path}")
+    else:
+        print("No files were removed.")
+
+    if result.warnings:
+        print("Warnings:")
+        for warning in result.warnings:
+            print(f"  - {warning}")
+
+    if result.failed_paths:
+        print("Failed to remove:")
+        for failure in result.failed_paths:
+            print(f"  - {failure.path}: {failure.reason}")
+        raise SystemExit(1)
+
+    print("Uninstall complete.")
+
+
 def _print_version() -> None:
     print(__version__)
 
@@ -534,6 +676,10 @@ def main() -> None:
 
     if args.command == "upgrade":
         _upgrade(requested_version=getattr(args, "version", None))
+        return
+
+    if args.command == "uninstall":
+        _uninstall(args)
         return
 
     if args.command == "version":

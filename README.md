@@ -80,6 +80,7 @@ whisper.local tui             # attach TUI to running service
 whisper.local trigger toggle  # hotkey fallback trigger command
 whisper.local trigger start --timeout-seconds 5
 whisper.local upgrade         # upgrade installer-managed install to latest
+whisper.local uninstall       # uninstall installer-managed install
 whisper.local --version       # print installed version
 whisper.local version         # subcommand alias
 whisper.local service stop    # stop background service
@@ -129,6 +130,22 @@ Behavior:
 - If the background service is running, upgrade stops it and restarts it automatically on success.
 - Homebrew installs receive: `brew update && brew upgrade whisper-local`.
 - pip installs receive: `python -m pip install -U whisper-local`.
+
+### Uninstall
+
+Installer-managed installs support first-class uninstall:
+
+```bash
+whisper.local uninstall
+whisper.local uninstall --yes
+whisper.local uninstall --yes --all-data
+```
+
+Behavior:
+- Default scope removes installer runtime/launchers only.
+- `--all-data` also removes `~/.local/state/whisper.local`, `~/.config/whisper.local`, and whisper.local model cache directories under `~/.cache/huggingface/hub`.
+- Homebrew installs receive: `brew uninstall whisper-local`.
+- pip installs receive: `python -m pip uninstall whisper-local`.
 
 ### Troubleshooting hotkey deps
 

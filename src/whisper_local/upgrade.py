@@ -18,6 +18,8 @@ from whisper_local.service_manager import ServiceManager
 
 DEFAULT_REPOSITORY = os.environ.get("WHISPER_LOCAL_REPO", "mjmammoth/whisper.local")
 INSTALLER_HOME = Path("~/.local/share/whisper.local").expanduser()
+INSTALLER_MANIFEST_NAME = "install-manifest.json"
+INSTALLER_MANIFEST = INSTALLER_HOME / INSTALLER_MANIFEST_NAME
 
 
 class UpgradeError(RuntimeError):
@@ -83,6 +85,10 @@ def detect_install_channel(
     installer_home: Path = INSTALLER_HOME,
 ) -> str:
     current_executable = Path(executable or sys.executable).expanduser().resolve()
+    manifest = read_install_manifest(installer_home / INSTALLER_MANIFEST_NAME)
+    if _manifest_indicates_installer(manifest, installer_home):
+        return "installer"
+
     venv_root = installer_home / "venv"
     tui_root = installer_home / "tui"
 
@@ -97,6 +103,47 @@ def detect_install_channel(
         return "homebrew"
 
     return "pip"
+
+
+def read_install_manifest(
+    manifest_path: Path = INSTALLER_MANIFEST,
+) -> dict[str, object] | None:
+    try:
+        if not manifest_path.exists():
+            return None
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _manifest_indicates_installer(
+    manifest: dict[str, object] | None,
+    installer_home: Path,
+) -> bool:
+    if manifest is None:
+        return False
+
+    channel = str(manifest.get("channel") or "").strip().lower()
+    if channel != "installer":
+        return False
+
+    manifest_home_raw = str(manifest.get("installer_home") or "").strip()
+    if not manifest_home_raw:
+        return False
+
+    try:
+        manifest_home = Path(manifest_home_raw).expanduser().resolve()
+        expected_home = installer_home.expanduser().resolve()
+    except Exception:
+        return False
+
+    if manifest_home != expected_home:
+        return False
+
+    return (expected_home / "venv").exists() and (expected_home / "tui").exists()
 
 
 def _looks_like_homebrew_install(executable: Path) -> bool:

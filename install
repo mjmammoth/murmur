@@ -5,6 +5,7 @@ DEFAULT_EXPECTED_SIGNING_FINGERPRINT="031A071DD2F8736D5AB270EF239D1750F8F92826"
 REPO="${WHISPER_LOCAL_REPO:-mjmammoth/whisper.local}"
 CLI_NO_VERIFY=false
 REQUESTED_TAG="latest"
+INSTALLER_MANIFEST_VERSION="1"
 REPO_OWNER="${REPO%%/*}"
 SIGNING_KEY_URL="${WHISPER_LOCAL_SIGNING_KEY_URL:-https://github.com/${REPO_OWNER}.gpg}"
 EXPECTED_SIGNING_FINGERPRINT="$(
@@ -525,6 +526,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 exec "${SCRIPT_DIR}/whisper.local" "$@"
 EOF
 chmod +x "${ALT_LAUNCHER_PATH}"
+
+MANIFEST_PATH="${APP_HOME}/install-manifest.json"
+MANIFEST_TMP="$(mktemp "${APP_HOME}/install-manifest.tmp.XXXXXX")"
+export MANIFEST_TMP MANIFEST_PATH APP_HOME target REPO release_tag LAUNCHER_PATH ALT_LAUNCHER_PATH INSTALLER_MANIFEST_VERSION
+python3 - <<'PY'
+import datetime
+import json
+import os
+from pathlib import Path
+
+tmp_path = Path(os.environ["MANIFEST_TMP"])
+manifest_path = Path(os.environ["MANIFEST_PATH"])
+payload = {
+    "channel": "installer",
+    "installer_home": os.environ["APP_HOME"],
+    "target": os.environ["target"],
+    "repository": os.environ["REPO"],
+    "tag": os.environ["release_tag"],
+    "installed_at": datetime.datetime.now(datetime.UTC).isoformat(),
+    "installer_version": os.environ["INSTALLER_MANIFEST_VERSION"],
+    "launchers": [
+        os.environ["LAUNCHER_PATH"],
+        os.environ["ALT_LAUNCHER_PATH"],
+    ],
+}
+tmp_path.write_text(f"{json.dumps(payload, indent=2)}\n", encoding="utf-8")
+tmp_path.replace(manifest_path)
+PY
 
 if [[ ":${PATH}:" != *":${BIN_DIR}:"* ]]; then
   echo
