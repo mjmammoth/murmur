@@ -58,7 +58,7 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Download wheel artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ci-python-dist
           path: dist
@@ -153,13 +153,13 @@ jobs:
           python-version: "3.12"
 
       - name: Download wheel artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ci-python-dist
           path: dist
 
       - name: Download TUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ci-tui-dist
           path: dist/tui

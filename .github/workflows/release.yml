@@ -59,13 +59,13 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Download Python dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: python-dist
           path: release-assets/python-dist
 
       - name: Download TUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: tui-dist
           path: release-assets/tui-dist
@@ -96,19 +96,19 @@ jobs:
       contents: write
     steps:
       - name: Download Python dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: python-dist
           path: release-assets/python-dist
 
       - name: Download TUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: tui-dist
           path: release-assets/tui-dist
 
       - name: Download checksums artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: checksums
           path: release-assets
@@ -138,19 +138,19 @@ jobs:
           python-version: "3.12"
 
       - name: Download Python dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: python-dist
           path: release-assets/python-dist
 
       - name: Download TUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: tui-dist
           path: release-assets/tui-dist
 
       - name: Download checksums artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: checksums
           path: release-assets
