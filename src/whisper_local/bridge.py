@@ -1062,12 +1062,17 @@ class BridgeServer:
         }
 
     async def _send_transcript_history(self, websocket: WebSocketServerProtocol) -> None:
-        records = await asyncio.to_thread(self._transcript_store.history)
+        try:
+            records = await asyncio.to_thread(self._transcript_store.history)
+            entries = [self._serialize_transcript_record(item) for item in records]
+        except Exception:
+            logger.exception("Failed to load transcript history during client initialization")
+            entries = []
         await websocket.send(
             json.dumps(
                 {
                     "type": "transcript_history",
-                    "entries": [self._serialize_transcript_record(item) for item in records],
+                    "entries": entries,
                 }
             )
         )
@@ -1085,10 +1090,9 @@ class BridgeServer:
             len(self._passive_clients),
         )
 
-        if self._model_loaded:
-            self._start_hotkey()
-
         try:
+            if self._model_loaded:
+                self._start_hotkey()
             await websocket.send(
                 json.dumps({"type": "status", "status": self._status, "message": self._status_message})
             )

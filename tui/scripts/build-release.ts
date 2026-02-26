@@ -138,15 +138,28 @@ async function fetchRuntimePackageTarball(
   const packageSlug = packageName.includes("/") ? packageName.split("/")[1] : packageName;
   const tarballFile = `${packageSlug}-${version}.tgz`;
   const packageUrl = `https://registry.npmjs.org/${encodeURIComponent(packageName)}/-/${tarballFile}`;
-  const response = await fetch(packageUrl, {
-    headers: { "User-Agent": "whisper-local-build-release" },
-  });
-  if (!response.ok) {
-    throw new Error(
-      `Failed to download ${packageName}@${version} tarball: ${response.status} ${response.statusText}`,
-    );
+  const timeoutMs = 30_000;
+  const signal = AbortSignal.timeout(timeoutMs);
+  let tarballBuffer: Buffer;
+  try {
+    const response = await fetch(packageUrl, {
+      headers: { "User-Agent": "whisper-local-build-release" },
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to download ${packageName}@${version} tarball: ${response.status} ${response.statusText}`,
+      );
+    }
+    tarballBuffer = Buffer.from(await response.arrayBuffer());
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `Timed out downloading ${packageName}@${version} tarball after ${timeoutMs}ms`,
+      );
+    }
+    throw err;
   }
-  const tarballBuffer = Buffer.from(await response.arrayBuffer());
   const tempDir = resolve(tuiRoot, ".build-release-tmp");
   mkdirSync(tempDir, { recursive: true });
   const tarballPath = resolve(tempDir, tarballFile);
@@ -274,7 +287,15 @@ async function main(): Promise<void> {
       run("tar", ["-czf", archivePath, "-C", binDir, target.binaryName], repoRoot);
     }
   } finally {
-    unlinkSync(bundlePath);
+    if (existsSync(bundlePath)) {
+      try {
+        unlinkSync(bundlePath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw err;
+        }
+      }
+    }
   }
 
   const gitSha = run("git", ["rev-parse", "HEAD"], repoRoot);

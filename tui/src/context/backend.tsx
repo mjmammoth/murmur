@@ -67,11 +67,11 @@ export interface BackendContextValue {
   send: (message: ClientMessage) => boolean;
   requestConfigFile: () => void;
   requestCapabilities: () => void;
-  onTranscriptHistory: (handler: (entries: TranscriptEntry[]) => void) => void;
-  onTranscript: (handler: (entry: TranscriptEntry) => void) => void;
-  onHotkeyPress: (handler: () => void) => void;
-  onHotkeyRelease: (handler: () => void) => void;
-  onToast: (handler: (message: string, level: "info" | "error") => void) => void;
+  onTranscriptHistory: (handler: (entries: TranscriptEntry[]) => void) => () => void;
+  onTranscript: (handler: (entry: TranscriptEntry) => void) => () => void;
+  onHotkeyPress: (handler: () => void) => () => void;
+  onHotkeyRelease: (handler: () => void) => () => void;
+  onToast: (handler: (message: string, level: "info" | "error") => void) => () => void;
   onRuntimeSwitchRequired: (
     handler: (payload: { runtime: RuntimeName; model: string; format: string }) => void,
   ) => () => void;
@@ -136,6 +136,16 @@ export function BackendContextProvider(props: {
   const runtimeSwitchRequiredHandlers: (
     (payload: { runtime: RuntimeName; model: string; format: string }) => void
   )[] = [];
+
+  function registerHandler<T>(handlers: T[], handler: T): () => void {
+    handlers.push(handler);
+    return () => {
+      const index = handlers.indexOf(handler);
+      if (index >= 0) {
+        handlers.splice(index, 1);
+      }
+    };
+  }
 
   /**
    * Create a unique queue key for a model within a specific runtime.
@@ -778,19 +788,19 @@ export function BackendContextProvider(props: {
   }
 
   function onTranscript(handler: (entry: TranscriptEntry) => void) {
-    transcriptHandlers.push(handler);
+    return registerHandler(transcriptHandlers, handler);
   }
 
   function onTranscriptHistory(handler: (entries: TranscriptEntry[]) => void) {
-    transcriptHistoryHandlers.push(handler);
+    return registerHandler(transcriptHistoryHandlers, handler);
   }
 
   function onHotkeyPress(handler: () => void) {
-    hotkeyPressHandlers.push(handler);
+    return registerHandler(hotkeyPressHandlers, handler);
   }
 
   function onHotkeyRelease(handler: () => void) {
-    hotkeyReleaseHandlers.push(handler);
+    return registerHandler(hotkeyReleaseHandlers, handler);
   }
 
   /**
@@ -799,7 +809,7 @@ export function BackendContextProvider(props: {
    * @param handler - Function called with the toast `message` and its `level` (`"info"` or `"error"`)
    */
   function onToast(handler: (message: string, level: "info" | "error") => void) {
-    toastHandlers.push(handler);
+    return registerHandler(toastHandlers, handler);
   }
 
   /**

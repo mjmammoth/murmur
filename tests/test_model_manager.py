@@ -112,13 +112,18 @@ def test_whisper_local_model_cache_paths_deduplicated_and_scoped(tmp_path: Path,
     paths = whisper_local_model_cache_paths()
     assert paths
     assert len(paths) == len(set(paths))
+    assert paths[0] == model_manager._model_cache_paths(model_manager.MODEL_NAMES[0])[0]
 
     hub_root = (tmp_path / "hf-home" / "hub").expanduser().resolve()
     for path in paths:
         assert path.expanduser().resolve().is_relative_to(hub_root)
 
-    assert model_manager._cache_path_for_repo_id(model_manager.WHISPER_CPP_REPO_ID) in paths
-    assert all(path in paths for path in model_manager._model_cache_paths("large-v3-turbo"))
+    assert paths[-1] == model_manager._cache_path_for_repo_id(model_manager.WHISPER_CPP_REPO_ID)
+
+    turbo_paths = model_manager._model_cache_paths("large-v3-turbo")
+    assert all(path in paths for path in turbo_paths)
+    turbo_indices = [paths.index(path) for path in turbo_paths]
+    assert turbo_indices == sorted(turbo_indices)
 
 
 def test_model_repo_id_valid():

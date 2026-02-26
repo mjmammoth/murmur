@@ -1153,6 +1153,54 @@ def test_send_transcript_history_sends_history_payload(mock_config):
     assert payload["entries"][-1]["text"] == "first"
 
 
+def test_send_transcript_history_handles_history_read_failure(mock_config):
+    server = BridgeServer(mock_config)
+    server._transcript_store.history = Mock(side_effect=RuntimeError("history read failed"))
+    websocket = AsyncMock()
+
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(server._send_transcript_history(websocket))
+
+    websocket.send.assert_awaited_once()
+    raw_payload = websocket.send.await_args.args[0]
+    payload = json.loads(raw_payload)
+    assert payload["type"] == "transcript_history"
+    assert payload["entries"] == []
+    mock_logger.exception.assert_called_once()
+
+
+def test_handle_client_start_hotkey_failure_runs_cleanup(mock_config):
+    server = BridgeServer(mock_config)
+    server._model_loaded = True
+    server._hotkey_blocked = True
+    server._start_hotkey = Mock(side_effect=RuntimeError("hotkey start failed"))
+    server._send_config = AsyncMock()
+    server._send_transcript_history = AsyncMock()
+
+    class DummyWebSocket:
+        path = "/ws"
+
+        async def send(self, _payload: str) -> None:
+            return
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    websocket = DummyWebSocket()
+
+    with pytest.raises(RuntimeError, match="hotkey start failed"):
+        asyncio.run(server._handle_client(websocket))
+
+    assert websocket not in server.clients
+    assert websocket not in server._passive_clients
+    assert server._hotkey_blocked is False
+    server._send_config.assert_not_awaited()
+    server._send_transcript_history.assert_not_awaited()
+
+
 def test_bridge_server_installed_model_names():
     """Test _installed_model_names returns installed model names."""
     config = Mock()

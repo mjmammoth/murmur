@@ -18,11 +18,10 @@ from whisper_local.uninstall import (
 from whisper_local.upgrade import UpgradeActionRequired, UpgradeError, UpgradeResult
 
 
-def test_build_parser_includes_service_command() -> None:
+def test_build_parser_includes_start_command() -> None:
     parser = cli.build_parser()
-    args = parser.parse_args(["service", "status"])
-    assert args.command == "service"
-    assert args.service_command == "status"
+    args = parser.parse_args(["start"])
+    assert args.command == "start"
 
 
 def test_build_parser_includes_trigger_command() -> None:
@@ -61,12 +60,26 @@ def test_build_parser_tui_defaults() -> None:
     assert args.port == 7878
 
 
-def test_build_parser_service_run_defaults() -> None:
+def test_build_parser_start_defaults() -> None:
     parser = cli.build_parser()
-    args = parser.parse_args(["service", "run"])
+    args = parser.parse_args(["start"])
     assert args.host == "localhost"
     assert args.port == 7878
     assert args.foreground is False
+
+
+def test_build_parser_rejects_removed_service_command() -> None:
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(["service", "status"])
+    assert exc_info.value.code == 2
+
+
+def test_main_rejects_removed_service_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "service", "status"])
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 2
 
 
 def test_build_parser_models_pull_with_runtime() -> None:
@@ -220,7 +233,7 @@ def test_run_tui_attach_exits_when_service_start_fails(mock_ensure_service: Mock
 
 
 @patch("whisper_local.cli._service_run")
-def test_main_no_command_defaults_to_background_service(
+def test_main_no_command_prints_help(
     mock_service_run: Mock,
     monkeypatch: pytest.MonkeyPatch,
     capsys,
@@ -229,9 +242,9 @@ def test_main_no_command_defaults_to_background_service(
 
     cli.main()
 
-    mock_service_run.assert_called_once_with("localhost", 7878, foreground=False, status_indicator=True)
+    mock_service_run.assert_not_called()
     captured = capsys.readouterr()
-    assert "No command provided - starting background service on localhost:7878" in captured.out
+    assert "usage:" in captured.out
 
 
 @patch("whisper_local.cli._run_tui_attach")
@@ -264,21 +277,33 @@ def test_main_runs_tui_command(mock_attach: Mock, monkeypatch: pytest.MonkeyPatc
 
 
 @patch("whisper_local.cli._service_run")
-def test_main_service_run_command(mock_service_run: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_start_command_defaults_to_background_service(
+    mock_service_run: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "start"])
+
+    cli.main()
+
+    mock_service_run.assert_called_once_with("localhost", 7878, foreground=False, status_indicator=True)
+
+
+@patch("whisper_local.cli._service_run")
+def test_main_start_command(mock_service_run: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         sys,
         "argv",
-        ["cli", "service", "run", "--host", "0.0.0.0", "--port", "8123", "--foreground"],
+        ["cli", "start", "--host", "0.0.0.0", "--port", "8123", "--foreground", "--no-status-indicator"],
     )
 
     cli.main()
 
-    mock_service_run.assert_called_once_with("0.0.0.0", 8123, foreground=True, status_indicator=True)
+    mock_service_run.assert_called_once_with("0.0.0.0", 8123, foreground=True, status_indicator=False)
 
 
 @patch("whisper_local.cli._service_stop")
-def test_main_service_stop_command(mock_service_stop: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["cli", "service", "stop"])
+def test_main_stop_command(mock_service_stop: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "stop"])
 
     cli.main()
 
@@ -286,8 +311,8 @@ def test_main_service_stop_command(mock_service_stop: Mock, monkeypatch: pytest.
 
 
 @patch("whisper_local.cli._service_status")
-def test_main_service_status_command(mock_service_status: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["cli", "service", "status"])
+def test_main_status_command(mock_service_status: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["cli", "status"])
 
     cli.main()
 

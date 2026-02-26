@@ -66,25 +66,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable macOS menu bar status indicator while auto-starting service",
     )
 
-    service_parser = subparsers.add_parser("service", help="Manage whisper.local background service")
-    service_sub = service_parser.add_subparsers(dest="service_command")
-
-    service_run = service_sub.add_parser("run", help="Start service")
-    service_run.add_argument("--host", default="localhost", help="Bridge host")
-    service_run.add_argument("--port", type=int, default=7878, help="Bridge port")
-    service_run.add_argument(
+    start_parser = subparsers.add_parser("start", help="Start service")
+    start_parser.add_argument("--host", default="localhost", help="Bridge host")
+    start_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    start_parser.add_argument(
         "--foreground",
         action="store_true",
         help="Run service in foreground (blocks current terminal)",
     )
-    service_run.add_argument(
+    start_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
         help="Disable macOS menu bar status indicator",
     )
 
-    service_sub.add_parser("stop", help="Stop service")
-    service_sub.add_parser("status", help="Show service status")
+    subparsers.add_parser("stop", help="Stop service")
+    subparsers.add_parser("status", help="Show service status")
 
     trigger_parser = subparsers.add_parser(
         "trigger",
@@ -616,11 +613,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command is None:
-        print(
-            "No command provided - starting background service on localhost:7878 "
-            "(use --help for options)"
-        )
-        _service_run("localhost", 7878, foreground=False, status_indicator=True)
+        parser.print_help()
         return
 
     if args.command == "run":
@@ -632,21 +625,22 @@ def main() -> None:
         )
         return
 
-    if args.command == "service":
-        if args.service_command in {None, "run"}:
-            _service_run(
-                getattr(args, "host", "localhost"),
-                getattr(args, "port", 7878),
-                foreground=bool(getattr(args, "foreground", False)),
-                status_indicator=not bool(getattr(args, "no_status_indicator", False)),
-            )
-            return
-        if args.service_command == "stop":
-            _service_stop()
-            return
-        if args.service_command == "status":
-            _service_status()
-            return
+    if args.command == "start":
+        _service_run(
+            args.host,
+            args.port,
+            foreground=args.foreground,
+            status_indicator=not args.no_status_indicator,
+        )
+        return
+
+    if args.command == "stop":
+        _service_stop()
+        return
+
+    if args.command == "status":
+        _service_status()
+        return
 
     if args.command == "bridge":
         _run_bridge(args.host, args.port, capture_logs=bool(getattr(args, "capture_logs", False)))

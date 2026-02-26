@@ -94,9 +94,8 @@ def detect_install_channel(
 ) -> str:
     current_executable = Path(executable or sys.executable).expanduser().resolve()
     venv_root = installer_home / "venv"
-    tui_root = installer_home / "tui"
 
-    if tui_root.exists() and venv_root.exists():
+    if venv_root.exists():
         try:
             if current_executable.is_relative_to(venv_root):
                 return "installer"
@@ -636,11 +635,20 @@ def run_upgrade(
             restarted_service=restarted_service,
         )
     except Exception as exc:
+        restart_exc: Exception | None = None
         if was_running:
             try:
                 manager.start_background(host=host, port=port, status_indicator=status_indicator)
-            except Exception:
-                pass
+            except Exception as restart_error:
+                restart_exc = restart_error
+        if restart_exc is not None:
+            if isinstance(exc, UpgradeError):
+                raise UpgradeError(
+                    f"{exc}; additionally failed to restart service: {restart_exc}"
+                ) from exc
+            raise UpgradeError(
+                f"Upgrade failed: {exc}; additionally failed to restart service: {restart_exc}"
+            ) from exc
         if isinstance(exc, UpgradeError):
             raise
         raise UpgradeError(f"Upgrade failed: {exc}") from exc

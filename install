@@ -544,7 +544,7 @@ payload = {
     "target": os.environ["target"],
     "repository": os.environ["REPO"],
     "tag": os.environ["release_tag"],
-    "installed_at": datetime.datetime.now(datetime.UTC).isoformat(),
+    "installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     "installer_version": os.environ["INSTALLER_MANIFEST_VERSION"],
     "launchers": [
         os.environ["LAUNCHER_PATH"],

@@ -1,5 +1,6 @@
 import {
   createSignal,
+  onCleanup,
   onMount,
   untrack,
   type JSX,
@@ -47,18 +48,23 @@ export function TranscriberContextProvider(props: {
 
   // Listen for transcripts from backend
   onMount(() => {
-    backend.onTranscriptHistory((entries) => {
+    const disposeTranscriptHistory = backend.onTranscriptHistory((entries) => {
       const previous = untrack(() => transcripts());
       const next = mergeAndDedupeTranscripts(entries, previous);
       setTranscripts(next);
       setSelectedIndex(next.length > 0 ? next.length - 1 : -1);
     });
 
-    backend.onTranscript((entry) => {
+    const disposeTranscript = backend.onTranscript((entry) => {
       const previous = untrack(() => transcripts());
       const next = mergeAndDedupeTranscripts(previous, [entry]);
       setTranscripts(next);
       setSelectedIndex(next.length > 0 ? next.length - 1 : -1);
+    });
+
+    onCleanup(() => {
+      disposeTranscriptHistory();
+      disposeTranscript();
     });
   });
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
@@ -30,8 +31,8 @@ def _is_pid_alive(pid: int | None) -> bool:
         return False
     try:
         os.kill(pid, 0)
-    except OSError:
-        return False
+    except OSError as exc:
+        return exc.errno == errno.EPERM
     return True
 
 
@@ -72,7 +73,15 @@ def _terminate_pid(pid: int | None, *, timeout: float = 4.0) -> None:
     try:
         os.kill(pid, kill_signal)
     except OSError:
-        return
+        pass
+
+    waitpid = getattr(os, "waitpid", None)
+    wnohang = getattr(os, "WNOHANG", 0)
+    if callable(waitpid):
+        try:
+            waitpid(pid, wnohang)
+        except Exception:
+            pass
 
 
 class ServiceManager:
@@ -96,7 +105,6 @@ class ServiceManager:
             return None
 
     def save_state(self, state: ServiceState) -> None:
-        ensure_state_directory()
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.state_path.write_text(
             f"{json.dumps(state.to_dict(), indent=2)}\n",
@@ -124,9 +132,12 @@ class ServiceManager:
 
         pid_alive = _is_pid_alive(state.pid)
         reachable = pid_alive and _is_port_reachable(state.host, state.port)
-        stale = not pid_alive
+        stale = not reachable
         running = pid_alive and reachable
         if stale:
+            if pid_alive and not reachable:
+                _terminate_pid(state.pid)
+                _terminate_pid(state.status_indicator_pid, timeout=1.5)
             self.clear_state()
             return ServiceStatus(
                 running=False,
@@ -160,7 +171,7 @@ class ServiceManager:
         status_indicator: bool,
     ) -> ServiceStatus:
         current = self.status()
-        if current.running:
+        if current.running and current.host == host and current.port == port and not status_indicator:
             return current
         return self.start_background(host=host, port=port, status_indicator=status_indicator)
 
@@ -175,7 +186,21 @@ class ServiceManager:
         if current_state and _is_pid_alive(current_state.pid):
             requested_target_matches = current_state.host == host and current_state.port == port
             if requested_target_matches and _is_port_reachable(current_state.host, current_state.port):
-                return self.status()
+                indicator_degraded = (
+                    status_indicator
+                    and sys.platform == "darwin"
+                    and not _is_pid_alive(current_state.status_indicator_pid)
+                )
+                if not indicator_degraded:
+                    return self.status()
+                logger.info(
+                    "Restarting service to recover missing/dead status indicator "
+                    "(bridge_pid=%s indicator_pid=%s host=%s port=%s)",
+                    current_state.pid,
+                    current_state.status_indicator_pid,
+                    current_state.host,
+                    current_state.port,
+                )
             _terminate_pid(current_state.pid)
             _terminate_pid(current_state.status_indicator_pid)
             self.clear_state()
@@ -207,7 +232,7 @@ class ServiceManager:
             raise RuntimeError(f"Service failed to start on {host}:{port}")
 
         indicator_pid: int | None = None
-        if status_indicator and sys.platform == "darwin":
+        if status_indicator:
             indicator_provider = create_status_indicator_provider(
                 host=host,
                 port=port,

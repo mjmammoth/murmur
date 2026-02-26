@@ -157,17 +157,20 @@ def _path_exists_or_symlink(path: Path) -> bool:
 
 def _installer_launcher_candidates(installer_home: Path) -> tuple[Path, ...]:
     manifest = read_install_manifest(installer_home / INSTALLER_MANIFEST_NAME)
-    candidates = [DEFAULT_LAUNCHER_PATH, ALT_LAUNCHER_PATH]
+    candidates = [
+        DEFAULT_LAUNCHER_PATH.expanduser().resolve(strict=False),
+        ALT_LAUNCHER_PATH.expanduser().resolve(strict=False),
+    ]
     manifest_launchers = manifest.get("launchers") if manifest is not None else None
     if isinstance(manifest_launchers, list):
         for entry in manifest_launchers:
             if isinstance(entry, str) and entry.strip():
-                candidates.append(Path(entry).expanduser())
+                candidates.append(Path(entry).expanduser().resolve(strict=False))
 
     deduped: list[Path] = []
     seen: set[Path] = set()
     for candidate in candidates:
-        resolved = candidate.expanduser()
+        resolved = candidate.expanduser().resolve(strict=False)
         if resolved in seen:
             continue
         seen.add(resolved)

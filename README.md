@@ -74,8 +74,9 @@ brew install --cask rnnoise
 ### Service-first commands
 
 ```bash
-whisper.local                 # start/ensure background service
-whisper.local service status  # check service state
+whisper.local                 # show help
+whisper.local start           # start/ensure background service
+whisper.local status          # check service state
 whisper.local tui             # attach TUI to running service
 whisper.local trigger toggle  # hotkey fallback trigger command
 whisper.local trigger start --timeout-seconds 5
@@ -83,7 +84,7 @@ whisper.local upgrade         # upgrade installer-managed install to latest
 whisper.local uninstall       # uninstall installer-managed install
 whisper.local --version       # print installed version
 whisper.local version         # subcommand alias
-whisper.local service stop    # stop background service
+whisper.local stop            # stop background service
 ```
 
 ### Hotkey

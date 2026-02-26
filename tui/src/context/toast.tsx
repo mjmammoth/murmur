@@ -1,4 +1,4 @@
-import { createSignal, onMount, type JSX, type Accessor } from "solid-js";
+import { createSignal, onCleanup, onMount, type JSX, type Accessor } from "solid-js";
 import { createContextHelper } from "./helper";
 import { useBackend } from "./backend";
 import type { Toast } from "../types";
@@ -77,8 +77,11 @@ export function ToastContextProvider(props: { children: JSX.Element }): JSX.Elem
 
   // Listen for toast messages from backend
   onMount(() => {
-    backend.onToast((message, level) => {
+    const disposeToast = backend.onToast((message, level) => {
       addToast(message, level, { log: false, source: "backend.toast" });
+    });
+    onCleanup(() => {
+      disposeToast();
     });
   });
 

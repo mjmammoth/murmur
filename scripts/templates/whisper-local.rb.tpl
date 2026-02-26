@@ -97,7 +97,8 @@ class WhisperLocal < Formula
   def caveats
     <<~EOS
       whisper.local can run as a background service:
-        whisper.local
+        whisper.local start
+        whisper.local status
         whisper.local tui
 
       On Wayland, global key swallowing may be unavailable.
@@ -110,6 +111,6 @@ class WhisperLocal < Formula
 
   test do
     assert_match "usage", shell_output("#{bin}/whisper-local --help")
-    assert_match "service", shell_output("#{bin}/whisper-local service status")
+    assert_match "Service", shell_output("#{bin}/whisper-local status")
   end
 end

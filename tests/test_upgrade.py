@@ -92,6 +92,20 @@ def test_detect_install_channel_installer(tmp_path: Path) -> None:
     assert channel == "installer"
 
 
+def test_detect_install_channel_installer_without_tui_dir(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper-local"
+    executable = installer_home / "venv" / "bin" / "python"
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    executable.write_text("", encoding="utf-8")
+
+    channel = upgrade.detect_install_channel(
+        executable=str(executable),
+        installer_home=installer_home,
+    )
+
+    assert channel == "installer"
+
+
 def test_detect_install_channel_stale_manifest_falls_back_to_path_heuristic(tmp_path: Path) -> None:
     installer_home = tmp_path / "whisper-local"
     executable = installer_home / "venv" / "bin" / "python"
@@ -490,6 +504,53 @@ def test_run_upgrade_failure_attempts_service_recovery(
             upgrade.run_upgrade(installer_home=tmp_path, service_manager=manager)
 
     assert "download failed" in str(exc_info.value)
+    manager.stop.assert_called_once()
+    manager.start_background.assert_called_once_with(
+        host="localhost",
+        port=7878,
+        status_indicator=False,
+    )
+
+
+def test_run_upgrade_failure_surfaces_restart_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(upgrade.sys, "platform", "linux")
+
+    manager = Mock()
+    manager.status.return_value = SimpleNamespace(
+        running=True,
+        host="localhost",
+        port=7878,
+        status_indicator_pid=None,
+    )
+    manager.start_background.side_effect = RuntimeError("restart failed")
+    assets = ReleaseAssetBundle(
+        repository="owner/repo",
+        tag="v0.2.0",
+        wheel_name="whisper_local-0.2.0-py3-none-any.whl",
+        wheel_url="https://example.invalid/whl",
+        tui_name="whisper-local-tui-linux-x64.tar.gz",
+        tui_url="https://example.invalid/tui",
+        checksums_name="checksums.txt",
+        checksums_url="https://example.invalid/checksums",
+        signature_name="checksums.txt.asc",
+        signature_url="https://example.invalid/checksums.sig",
+        target="linux-x64",
+    )
+
+    with patch("whisper_local.upgrade.detect_install_channel", return_value="installer"), patch(
+        "whisper_local.upgrade.resolve_release_assets", return_value=assets
+    ), patch(
+        "whisper_local.upgrade._download_to_file",
+        side_effect=RuntimeError("download failed"),
+    ), patch("whisper_local.upgrade._installed_version", return_value="0.1.0"):
+        with pytest.raises(UpgradeError) as exc_info:
+            upgrade.run_upgrade(installer_home=tmp_path, service_manager=manager)
+
+    assert "download failed" in str(exc_info.value)
+    assert "restart failed" in str(exc_info.value)
     manager.stop.assert_called_once()
     manager.start_background.assert_called_once_with(
         host="localhost",
