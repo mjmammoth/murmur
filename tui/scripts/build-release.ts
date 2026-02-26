@@ -101,14 +101,53 @@ function targetCorePackageName(target: BuildTarget): string {
   return `@opentui/core-${platform.os}-${platform.cpu}`;
 }
 
+function isAsciiDigit(character: string): boolean {
+  return character >= "0" && character <= "9";
+}
+
 function normalizeVersionRange(versionRange: string): string {
-  const match = versionRange.match(/\d+\.\d+\.\d+/);
-  if (!match) {
-    throw new Error(
-      `Unsupported @opentui/core version range '${versionRange}'. Expected semver-like value.`,
-    );
+  const value = versionRange.trim();
+  let index = 0;
+  while (index < value.length) {
+    while (index < value.length && !isAsciiDigit(value[index]!)) {
+      index += 1;
+    }
+    if (index >= value.length) {
+      break;
+    }
+
+    const majorStart = index;
+    while (index < value.length && isAsciiDigit(value[index]!)) {
+      index += 1;
+    }
+    if (index >= value.length || value[index] !== ".") {
+      continue;
+    }
+
+    index += 1;
+    const minorStart = index;
+    while (index < value.length && isAsciiDigit(value[index]!)) {
+      index += 1;
+    }
+    if (minorStart === index || index >= value.length || value[index] !== ".") {
+      continue;
+    }
+
+    index += 1;
+    const patchStart = index;
+    while (index < value.length && isAsciiDigit(value[index]!)) {
+      index += 1;
+    }
+    if (patchStart === index) {
+      continue;
+    }
+
+    return value.slice(majorStart, index);
   }
-  return match[0];
+
+  throw new Error(
+    `Unsupported @opentui/core version range '${versionRange}'. Expected semver-like value.`,
+  );
 }
 
 function runtimePackagePath(tuiRoot: string, packageName: string): string {

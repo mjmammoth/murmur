@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -375,16 +374,23 @@ def _run_command_or_error(command: list[str], *, env: dict[str, str] | None = No
 
 def _parse_checksums_manifest(manifest_path: Path) -> dict[str, str]:
     entries: dict[str, str] = {}
-    pattern = re.compile(r"^([0-9A-Fa-f]{64})\s+\*?(.+)$")
     for raw_line in manifest_path.read_text(encoding="utf-8", errors="ignore").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        match = pattern.match(line)
-        if not match:
+
+        parts = line.split(maxsplit=1)
+        if len(parts) != 2:
             continue
-        digest = match.group(1).lower()
-        name = match.group(2).strip()
+
+        digest_token, name_token = parts
+        if len(digest_token) != 64 or any(char not in "0123456789abcdefABCDEF" for char in digest_token):
+            continue
+
+        digest = digest_token.lower()
+        name = name_token.strip()
+        if name.startswith("*"):
+            name = name[1:].strip()
         if name:
             entries[name] = digest
     if not entries:

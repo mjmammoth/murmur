@@ -337,6 +337,47 @@ def test_verify_release_signature_requires_gpg(tmp_path: Path) -> None:
             )
 
 
+def test_parse_checksums_manifest_parses_sha256_and_optional_star(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "checksums.txt"
+    manifest_path.write_text(
+        "\n".join(
+            [
+                "# comment",
+                "invalid line",
+                "A" * 64 + "  whisper_local-0.2.0-py3-none-any.whl",
+                "b" * 64 + "\t*whisper-local-tui-linux-x64.tar.gz",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    parsed = upgrade._parse_checksums_manifest(manifest_path)
+
+    assert parsed == {
+        "whisper_local-0.2.0-py3-none-any.whl": "a" * 64,
+        "whisper-local-tui-linux-x64.tar.gz": "b" * 64,
+    }
+
+
+def test_parse_checksums_manifest_raises_when_no_valid_entries(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "checksums.txt"
+    manifest_path.write_text(
+        "\n".join(
+            [
+                "# comment",
+                "not-a-checksum file.whl",
+                "abc123",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(UpgradeError, match="checksum manifest is empty or invalid"):
+        upgrade._parse_checksums_manifest(manifest_path)
+
+
 def test_replace_tui_binary_uses_tar_data_filter(tmp_path: Path) -> None:
     app_home = tmp_path / "app"
     archive_path = tmp_path / "tui.tar.gz"
