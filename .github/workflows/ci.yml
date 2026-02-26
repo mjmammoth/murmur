@@ -48,7 +48,7 @@ jobs:
           SETUPTOOLS_SCM_PRETEND_VERSION: "0.0.0"
 
       - name: Upload Python dist artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ci-python-dist
           path: dist/*
@@ -236,7 +236,7 @@ jobs:
           test -f dist/tui/manifest.json
 
       - name: Upload TUI artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ci-tui-dist
           path: dist/tui/*
