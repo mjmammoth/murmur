@@ -2,6 +2,8 @@
 
 **Press a key. Speak. Text appears in your app.** Local, private voice transcription — nothing leaves your machine.
 
+[![CI](https://github.com/mjmammoth/whisper.local/actions/workflows/ci.yml/badge.svg)](https://github.com/mjmammoth/whisper.local/actions/workflows/ci.yml) [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE) [![Homebrew](https://img.shields.io/badge/Homebrew-install-orange?logo=homebrew)](#homebrew-v1-arm64) [![CodeRabbit](https://img.shields.io/badge/CodeRabbit-PR%20Reviews-red)](https://shields.io/badges/code-rabbit-pull-request-reviews)
+
 <!-- tui-showcase:start -->
 ![whisper.local TUI home across themes](docs/assets/tui-home-themes.png)
 <!-- tui-showcase:end -->
@@ -59,11 +61,6 @@ Default hotkey is `f3`. Configure it through the TUI (by pressing 'h') or in the
 `~/.config/whisper.local/config.toml`
 Supported keys: letters, digits, space, return, tab, escape, and function keys `f1`-`f12`.
 
-### macOS permissions
-
-Global hotkeys require **Input Monitoring** permission for your terminal or app host.
-Auto-paste uses System Events and requires the **Accessibility** permission for the terminal or app running whisper.local.
-
 
 ### Model downloading
 
@@ -95,3 +92,29 @@ Key bindings are visualised in the TUI by highlighted letters in function words.
 - `t`: theme picker
 - drag/drop (paste path): transcribe audio file(s)
 - `q`: quit
+
+## Troubleshooting
+
+### MacOS
+
+#### Input Monitoring permission missing (hotkey does nothing)
+
+Global hotkeys require **Input Monitoring** permission for your terminal or app host.
+
+1. Open `System Settings` -> `Privacy & Security` -> `Input Monitoring`
+2. Enable your terminal or app host
+3. Restart the app after granting permission
+
+#### Accessibility permission missing (auto-paste fails)
+
+Auto-paste uses System Events and requires **Accessibility** permission.
+
+1. Open `System Settings` -> `Privacy & Security` -> `Accessibility`
+2. Enable your terminal or app host
+3. Restart whisper.local
+
+#### Common errors
+
+- `No model selected` or `model not found`: run `whisper.local models pull small` then `whisper.local models select small`
+- `PortAudio`/input device errors: check your selected microphone and macOS microphone permissions
+- Slow first transcription: expected on first run while model files are downloaded and initialized
