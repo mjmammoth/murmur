@@ -1,6 +1,6 @@
 <p align="center">
   <img align="center" src="docs/assets/banner.png"/>
-  <h5 align="center">Press a key. Speak. Text appears in your app.</h5>
+  <h5 align="center">Press a key. Speak. Text appears in your focused app.</h5>
   <p align="center">Local, private voice transcription — nothing leaves your machine.</p>
 </p>
 
@@ -9,7 +9,7 @@
   <a href="https://github.com/mjmammoth/whisper.local/actions/workflows/release.yml"><img src="https://github.com/mjmammoth/whisper.local/actions/workflows/release.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
   <a href="#homebrew-v1-arm64"><img src="https://img.shields.io/badge/Homebrew-install-orange?logo=homebrew" alt="Homebrew"></a>
-  <a href="https://coderabbit.ai/workspace_dashboard"><img src="https://img.shields.io/coderabbit/prs/github/mjmammoth/whisper.local?utm_source=oss&utm_medium=github&utm_campaign=mjmammoth%2Fwhisper.local&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews" alt="CodeRabbit Pull Request Reviews"></a>
+  <a href="https://coderabbit.ai/"><img src="https://img.shields.io/coderabbit/prs/github/mjmammoth/whisper.local?utm_source=oss&utm_medium=github&utm_campaign=mjmammoth%2Fwhisper.local&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews" alt="CodeRabbit Pull Request Reviews"></a>
 </p>
 
 
