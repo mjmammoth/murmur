@@ -316,26 +316,30 @@ async def _wait_for_status(
         except TimeoutError:
             return last_status, last_message
 
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict):
+        status_update = _extract_status_update(raw)
+        if status_update is None:
             continue
 
-        if payload.get("type") != "status":
-            continue
-        status = str(payload.get("status", ""))
-        last_status = status or None
-        status_message = payload.get("message")
-        if isinstance(status_message, str):
-            last_message = status_message
-        else:
-            last_message = None
-        if expected_statuses is None:
+        last_status, last_message = status_update
+        if expected_statuses is None or last_status in expected_statuses:
             return last_status, last_message
-        if last_status in expected_statuses:
-            return last_status, last_message
+
+
+def _extract_status_update(raw: str) -> tuple[str | None, str | None] | None:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("type") != "status":
+        return None
+
+    status = str(payload.get("status", ""))
+    last_status = status or None
+    status_message = payload.get("message")
+    last_message = status_message if isinstance(status_message, str) else None
+    return last_status, last_message
 
 
 async def _trigger_async(host: str, port: int, action: str, timeout_seconds: float) -> str:
