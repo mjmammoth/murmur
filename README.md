@@ -1,6 +1,17 @@
-# whisper.local
+<p align="center">
+  <img align="center" src="docs/assets/banner.png"/>
+  <h5 align="center">Press a key. Speak. Text appears in your focused app.</h5>
+  <p align="center">Local, private voice transcription — nothing leaves your machine.</p>
+</p>
 
-**Press a key. Speak. Text appears in your app.** Local, private voice transcription — nothing leaves your machine.
+<p align="center">
+  <a href="https://sonarcloud.io/summary/new_code?id=mjmammoth_whisper.local"><img src="https://sonarcloud.io/api/project_badges/measure?project=mjmammoth_whisper.local&metric=security_rating" alt="Security Rating"></a>
+  <a href="https://github.com/mjmammoth/whisper.local/actions/workflows/release.yml"><img src="https://github.com/mjmammoth/whisper.local/actions/workflows/release.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
+  <a href="#homebrew-v1-arm64"><img src="https://img.shields.io/badge/Homebrew-install-orange?logo=homebrew" alt="Homebrew"></a>
+  <a href="https://coderabbit.ai/"><img src="https://img.shields.io/coderabbit/prs/github/mjmammoth/whisper.local?utm_source=oss&utm_medium=github&utm_campaign=mjmammoth%2Fwhisper.local&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews" alt="CodeRabbit Pull Request Reviews"></a>
+</p>
+
 
 <!-- tui-showcase:start -->
 ![whisper.local TUI home across themes](docs/assets/tui-home-themes.png)
@@ -194,3 +205,29 @@ Key bindings are visualised in the TUI by highlighted letters in function words.
 - `t`: theme picker
 - drag/drop (paste path): transcribe audio file(s)
 - `q`: quit
+
+## Troubleshooting
+
+### MacOS
+
+#### Input Monitoring permission missing (hotkey does nothing)
+
+Global hotkeys require **Input Monitoring** permission for your terminal or app host.
+
+1. Open `System Settings` -> `Privacy & Security` -> `Input Monitoring`
+2. Enable your terminal or app host
+3. Restart the app after granting permission
+
+#### Accessibility permission missing (auto-paste fails)
+
+Auto-paste uses System Events and requires **Accessibility** permission.
+
+1. Open `System Settings` -> `Privacy & Security` -> `Accessibility`
+2. Enable your terminal or app host
+3. Restart whisper.local
+
+#### Common errors
+
+- `No model selected` or `model not found`: run `whisper.local models pull small` then `whisper.local models select small`
+- `PortAudio`/input device errors: check your selected microphone and macOS microphone permissions
+- Slow first transcription: expected on first run while model files are downloaded and initialized

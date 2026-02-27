@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible problem in whisper.local
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug clearly and concisely.
+      placeholder: A short description of the issue.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide exact steps so we can reproduce the issue.
+      placeholder: |
+        1. Run ...
+        2. Press ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_vs_actual
+    attributes:
+      label: Expected vs actual behavior
+      description: Explain what you expected and what happened instead.
+      placeholder: Expected ... but got ...
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: e.g. macOS 15.3.1
+      placeholder: macOS 15.x
+    validations:
+      required: true
+
+  - type: input
+    id: whisper_local_version
+    attributes:
+      label: whisper.local version/commit
+      description: Output of `whisper.local --version` or the git commit hash.
+      placeholder: v1.2.3 or abc1234
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs, audio files, transcriptions or screenshots
+      description: Paste stack traces, logs, or screenshots.
+      render: shell
+    validations:
+      required: false
