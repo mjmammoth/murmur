@@ -109,8 +109,8 @@ def test_clipboard_macos_snapshot_uses_pasteboard_api(monkeypatch) -> None:
             """
             return [FakeItem()]
 
-        generalPasteboard = staticmethod(general_pasteboard)
-        pasteboardItems = pasteboard_items
+    setattr(FakePasteboard, "generalPasteboard", staticmethod(FakePasteboard.general_pasteboard))
+    setattr(FakePasteboard, "pasteboardItems", FakePasteboard.pasteboard_items)
 
     fake_appkit = types.SimpleNamespace(NSPasteboard=FakePasteboard)
     monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
@@ -164,8 +164,8 @@ def test_clipboard_macos_snapshot_skips_empty_items(monkeypatch) -> None:
             """
             return [FakeItem()]
 
-        generalPasteboard = staticmethod(general_pasteboard)
-        pasteboardItems = pasteboard_items
+    setattr(FakePasteboard, "generalPasteboard", staticmethod(FakePasteboard.general_pasteboard))
+    setattr(FakePasteboard, "pasteboardItems", FakePasteboard.pasteboard_items)
 
     fake_appkit = types.SimpleNamespace(NSPasteboard=FakePasteboard)
     monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
@@ -238,8 +238,6 @@ def test_restore_macos_snapshot_writes_all_items(monkeypatch) -> None:
             """
             return FakePasteboard()
 
-        generalPasteboard = staticmethod(general_pasteboard)
-
         def clearContents(self):
             """
             Clear all contents of the receiver.
@@ -258,6 +256,8 @@ def test_restore_macos_snapshot_writes_all_items(monkeypatch) -> None:
             """
             written_objects.extend(objects)
             return True
+
+    setattr(FakePasteboard, "generalPasteboard", staticmethod(FakePasteboard.general_pasteboard))
 
     fake_appkit = types.SimpleNamespace(
         NSPasteboard=FakePasteboard,
@@ -336,8 +336,6 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
             """
             return FakePasteboard()
 
-        generalPasteboard = staticmethod(general_pasteboard)
-
         def clearContents(self):
             """
             Clear all contents of the receiver.
@@ -355,6 +353,8 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
                 False: Indicates the write operation failed.
             """
             return False
+
+    setattr(FakePasteboard, "generalPasteboard", staticmethod(FakePasteboard.general_pasteboard))
 
     fake_appkit = types.SimpleNamespace(
         NSPasteboard=FakePasteboard,
@@ -513,8 +513,8 @@ def test_clipboard_macos_snapshot_empty_pasteboard(monkeypatch):
         def pasteboard_items(self):
             return None
 
-        generalPasteboard = staticmethod(general_pasteboard)
-        pasteboardItems = pasteboard_items
+    setattr(FakePasteboard, "generalPasteboard", staticmethod(FakePasteboard.general_pasteboard))
+    setattr(FakePasteboard, "pasteboardItems", FakePasteboard.pasteboard_items)
 
     fake_appkit = types.SimpleNamespace(NSPasteboard=FakePasteboard)
     monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
