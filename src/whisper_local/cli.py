@@ -29,6 +29,10 @@ else:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+NO_STATUS_INDICATOR_AUTOSTART_HELP = (
+    "Disable macOS menu bar status indicator while auto-starting service"
+)
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
@@ -46,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
-        help="Disable macOS menu bar status indicator while auto-starting service",
+        help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
     )
 
     bridge_parser = subparsers.add_parser("bridge", help="Start only the WebSocket bridge server")
@@ -63,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     tui_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
-        help="Disable macOS menu bar status indicator while auto-starting service",
+        help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
     )
 
     start_parser = subparsers.add_parser("start", help="Start service")
@@ -99,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     trigger_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
-        help="Disable macOS menu bar status indicator while auto-starting service",
+        help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
     )
 
     models_parser = subparsers.add_parser("models", help="Manage models")
@@ -312,26 +316,30 @@ async def _wait_for_status(
         except TimeoutError:
             return last_status, last_message
 
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict):
+        status_update = _extract_status_update(raw)
+        if status_update is None:
             continue
 
-        if payload.get("type") != "status":
-            continue
-        status = str(payload.get("status", ""))
-        last_status = status or None
-        status_message = payload.get("message")
-        if isinstance(status_message, str):
-            last_message = status_message
-        else:
-            last_message = None
-        if expected_statuses is None:
+        last_status, last_message = status_update
+        if expected_statuses is None or last_status in expected_statuses:
             return last_status, last_message
-        if last_status in expected_statuses:
-            return last_status, last_message
+
+
+def _extract_status_update(raw: str) -> tuple[str | None, str | None] | None:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("type") != "status":
+        return None
+
+    status = str(payload.get("status", ""))
+    last_status = status or None
+    status_message = payload.get("message")
+    last_message = status_message if isinstance(status_message, str) else None
+    return last_status, last_message
 
 
 async def _trigger_async(host: str, port: int, action: str, timeout_seconds: float) -> str:

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
-import random
 import re
 import shutil
 import socket
@@ -19,6 +19,11 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 THEMES = ["dark", "catppuccin-mocha", "light"]
+THEME_CAPTURE_PORTS = {
+    "dark": 18787,
+    "catppuccin-mocha": 18788,
+    "light": 18789,
+}
 CAPTURE_GEOMETRY = "120x32"
 DEFAULT_CAPTURE_SECONDS = 4.0
 README_START = "<!-- tui-showcase:start -->"
@@ -27,7 +32,23 @@ OUTPUT_SVG = "svg"
 OUTPUT_PNG = "png"
 DEFAULT_PNG_SCALE = 2.0
 FONT_FAMILY = "'JetBrainsMono Nerd Font Mono', 'JetBrainsMono Nerd Font', 'JetBrains Mono', monospace"
-FONT_TTF_URL = "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf"
+FONT_TTF_URL = (
+    "https://raw.githubusercontent.com/ryanoasis/nerd-fonts/"
+    "ae57d27445e9d85db49fc917c5276c5d249109c8/"
+    "patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf"
+)
+FONT_TTF_SHA256 = "f01031f40e48dc29e1112e6b0b0450a2c6cd097f3f35cfff05c55cb311f8034c"
+
+
+def _secure_temp_root(repo_root: Path) -> Path:
+    temp_root = repo_root / ".tmp" / "showcase"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        temp_root.chmod(0o700)
+    except OSError:
+        # Windows may not support POSIX chmod semantics; best effort is enough here.
+        pass
+    return temp_root
 
 
 def _clear_capture_target(path: Path) -> None:
@@ -124,22 +145,46 @@ def _sanitize_termtosvg_capture(path: Path) -> None:
         _sanitize_termtosvg_svg(path)
 
 
-def _pick_port() -> int:
+def _is_port_available(port: int) -> bool:
     """
     Select an available TCP port on localhost.
 
     Attempts to bind an ephemeral port on 127.0.0.1 and return the chosen port number. If the environment disallows binding (PermissionError), returns a pseudo-available port chosen uniformly from 20000 to 59999.
 
     Returns:
-        int: A port number to use for local TCP listeners.
+        bool: `true` if the port can be bound, otherwise `false`.
     """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind(("127.0.0.1", 0))
-            return int(sock.getsockname()[1])
-    except PermissionError:
-        # Some restricted environments disallow local binds during port probing.
-        return random.randint(20000, 59999)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", port))
+            return True
+    except OSError:
+        return False
+
+
+def _pick_capture_port(theme: str) -> int:
+    """
+    Pick a deterministic available TCP port for a theme capture run.
+
+    The function starts from a theme-specific preferred port and scans forward
+    to find an available local port.
+
+    Parameters:
+        theme (str): Theme name being captured.
+
+    Returns:
+        int: An available local TCP port.
+
+    Raises:
+        RuntimeError: If no port is available in the probe range.
+    """
+    base_port = THEME_CAPTURE_PORTS.get(theme, 18790)
+    for offset in range(100):
+        candidate = base_port + offset
+        if _is_port_available(candidate):
+            return candidate
+    raise RuntimeError(f"Could not find available capture port for theme '{theme}'.")
 
 
 def _wait_for_server(port: int, timeout: float = 5.0, interval: float = 0.1) -> bool:
@@ -301,6 +346,9 @@ def run_capture_termtosvg(
 
     _clear_capture_target(svg_path)
     capture_env = os.environ.copy()
+    capture_env.setdefault("TZ", "UTC")
+    capture_env.setdefault("LANG", "C.UTF-8")
+    capture_env.setdefault("LC_ALL", "C.UTF-8")
     capture_env["WHISPER_LOCAL_TUI_CAPTURE_SECONDS"] = f"{capture_seconds:.2f}"
     server = _start_mock_backend(repo_root=repo_root, theme=theme, port=port)
     try:
@@ -419,6 +467,23 @@ def _extract_svg_canvas_color(svg_text: str) -> str:
     return "#0c0c0c"
 
 
+def _sha256_file(path: Path) -> str:
+    """
+    Return the SHA-256 hash of a file as a lowercase hexadecimal string.
+
+    Parameters:
+        path (Path): The file path to hash.
+
+    Returns:
+        str: The SHA-256 digest in hex form.
+    """
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _download_font(dest: Path) -> Path:
     """
     Ensure the JetBrains Mono Nerd Font is present in the destination directory and return its file path.
@@ -430,18 +495,31 @@ def _download_font(dest: Path) -> Path:
         Path: Path to the JetBrains Mono Nerd Font TTF file.
 
     Raises:
-        RuntimeError: If downloading the font fails.
+        RuntimeError: If downloading the font fails or the downloaded payload checksum does not match the pinned digest.
     """
     font_path = dest / "JetBrainsMonoNerdFontMono-Regular.ttf"
-    if font_path.exists():
-        return font_path
     dest.mkdir(parents=True, exist_ok=True)
+    if font_path.exists():
+        if _sha256_file(font_path) == FONT_TTF_SHA256:
+            return font_path
+        font_path.unlink()
+
+    tmp_path = font_path.with_suffix(".ttf.download")
     try:
-        urllib.request.urlretrieve(FONT_TTF_URL, str(font_path))
+        urllib.request.urlretrieve(FONT_TTF_URL, str(tmp_path))
     except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
         raise RuntimeError(
-            f"Failed to download font from {FONT_TTF_URL} to {font_path}: {exc}"
+            f"Failed to download font from {FONT_TTF_URL} to {tmp_path}: {exc}"
         ) from exc
+    downloaded_sha = _sha256_file(tmp_path)
+    if downloaded_sha != FONT_TTF_SHA256:
+        tmp_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            "Downloaded font checksum mismatch. "
+            f"expected={FONT_TTF_SHA256} actual={downloaded_sha}"
+        )
+    tmp_path.replace(font_path)
     return font_path
 
 
@@ -716,7 +794,10 @@ def main() -> int:
     final_svg = assets_dir / "tui-home-themes.svg"
     final_png = assets_dir / "tui-home-themes.png"
 
-    with tempfile.TemporaryDirectory(prefix="whisper-local-showcase-") as temp_dir:
+    with tempfile.TemporaryDirectory(
+        prefix="whisper-local-showcase-",
+        dir=str(_secure_temp_root(repo_root)),
+    ) as temp_dir:
         capture_dir = Path(temp_dir)
         theme_svgs: list[tuple[str, Path]] = []
         for theme in THEMES:
@@ -729,7 +810,7 @@ def main() -> int:
                     rendered_svg = run_capture_termtosvg(
                         repo_root=repo_root,
                         theme=theme,
-                        port=_pick_port(),
+                        port=_pick_capture_port(theme),
                         svg_path=svg_path,
                         capture_seconds=capture_seconds,
                     )
