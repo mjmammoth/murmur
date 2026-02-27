@@ -91,7 +91,7 @@ def test_clipboard_macos_snapshot_uses_pasteboard_api(monkeypatch) -> None:
 
     class FakePasteboard:
         @staticmethod
-        def generalPasteboard():
+        def general_pasteboard():
             """
             Create a FakePasteboard instance for tests that simulates the macOS system pasteboard.
 
@@ -100,7 +100,7 @@ def test_clipboard_macos_snapshot_uses_pasteboard_api(monkeypatch) -> None:
             """
             return FakePasteboard()
 
-        def pasteboardItems(self):
+        def pasteboard_items(self):
             """
             Create a list of pasteboard items used by the fake pasteboard.
 
@@ -108,6 +108,9 @@ def test_clipboard_macos_snapshot_uses_pasteboard_api(monkeypatch) -> None:
                 list: A list containing a single FakeItem instance representing a pasteboard item.
             """
             return [FakeItem()]
+
+        generalPasteboard = staticmethod(general_pasteboard)
+        pasteboardItems = pasteboard_items
 
     fake_appkit = types.SimpleNamespace(NSPasteboard=FakePasteboard)
     monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
@@ -143,7 +146,7 @@ def test_clipboard_macos_snapshot_skips_empty_items(monkeypatch) -> None:
 
     class FakePasteboard:
         @staticmethod
-        def generalPasteboard():
+        def general_pasteboard():
             """
             Create a FakePasteboard instance for tests that simulates the macOS system pasteboard.
 
@@ -152,7 +155,7 @@ def test_clipboard_macos_snapshot_skips_empty_items(monkeypatch) -> None:
             """
             return FakePasteboard()
 
-        def pasteboardItems(self):
+        def pasteboard_items(self):
             """
             Create a list of pasteboard items used by the fake pasteboard.
 
@@ -160,6 +163,9 @@ def test_clipboard_macos_snapshot_skips_empty_items(monkeypatch) -> None:
                 list: A list containing a single FakeItem instance representing a pasteboard item.
             """
             return [FakeItem()]
+
+        generalPasteboard = staticmethod(general_pasteboard)
+        pasteboardItems = pasteboard_items
 
     fake_appkit = types.SimpleNamespace(NSPasteboard=FakePasteboard)
     monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
@@ -223,7 +229,7 @@ def test_restore_macos_snapshot_writes_all_items(monkeypatch) -> None:
 
     class FakePasteboard:
         @staticmethod
-        def generalPasteboard():
+        def general_pasteboard():
             """
             Create a FakePasteboard instance for tests that simulates the macOS system pasteboard.
 
@@ -231,6 +237,8 @@ def test_restore_macos_snapshot_writes_all_items(monkeypatch) -> None:
                 FakePasteboard: A new FakePasteboard instance.
             """
             return FakePasteboard()
+
+        generalPasteboard = staticmethod(general_pasteboard)
 
         def clearContents(self):
             """
@@ -319,7 +327,7 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
 
     class FakePasteboard:
         @staticmethod
-        def generalPasteboard():
+        def general_pasteboard():
             """
             Create a FakePasteboard instance for tests that simulates the macOS system pasteboard.
 
@@ -327,6 +335,8 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
                 FakePasteboard: A new FakePasteboard instance.
             """
             return FakePasteboard()
+
+        generalPasteboard = staticmethod(general_pasteboard)
 
         def clearContents(self):
             """
@@ -497,10 +507,14 @@ def test_clipboard_macos_snapshot_appkit_import_error(monkeypatch):
 def test_clipboard_macos_snapshot_empty_pasteboard(monkeypatch):
     class FakePasteboard:
         @staticmethod
-        def generalPasteboard():
+        def general_pasteboard():
             return FakePasteboard()
-        def pasteboardItems(self):
+
+        def pasteboard_items(self):
             return None
+
+        generalPasteboard = staticmethod(general_pasteboard)
+        pasteboardItems = pasteboard_items
 
     fake_appkit = types.SimpleNamespace(NSPasteboard=FakePasteboard)
     monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)

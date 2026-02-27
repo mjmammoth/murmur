@@ -720,8 +720,8 @@ def test_make_progress_tqdm_reset():
     instance = cls(total=1000, name="huggingface_hub.snapshot_download")
     instance.update(500)
     instance.reset(total=2000)
-    assert instance.n == 0.0
-    assert instance.total == 2000.0
+    assert instance.n == pytest.approx(0.0)
+    assert instance.total == pytest.approx(2000.0)
 
 
 def test_make_progress_tqdm_refresh():

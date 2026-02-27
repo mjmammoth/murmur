@@ -238,7 +238,8 @@ def test_process_ctypes_path():
     sup._backend = "ctypes"
     sup._lib = MagicMock()
     sup._state = ctypes.c_void_p(1)
-    audio = np.random.randn(FRAME_SIZE * 2).astype(np.float32)
+    rng = np.random.default_rng(0)
+    audio = rng.standard_normal(FRAME_SIZE * 2).astype(np.float32)
     result = sup.process(audio, 48000)
     assert result.applied is True
     assert result.audio.shape[0] == audio.shape[0]
