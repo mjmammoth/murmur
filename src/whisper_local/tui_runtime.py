@@ -29,13 +29,13 @@ def resolve_tui_runtime(
 ) -> TuiRuntime:
     """
     Determine how to run the Whisper Local TUI and return a descriptor describing the chosen command and working directory.
-    
+
     Parameters:
         env (Mapping[str, str] | None): Environment variables to consult; defaults to the process environment.
         sys_executable (str | None): Path to the Python interpreter used to derive packaged-executable candidate locations; defaults to sys.executable.
         cli_file (str | Path | None): Path to the current CLI file used to derive relative candidate locations; defaults to this module's file.
         current_dir (str | Path | None): Current working directory used when searching for a local development TUI; defaults to Path.cwd().
-    
+
     Returns:
         TuiRuntime: An immutable descriptor with `mode` set to one of:
           - "env-override": executable path taken from the environment override,
@@ -104,11 +104,11 @@ def _packaged_tui_candidates(
 ) -> list[Path]:
     """
     Produce an ordered list of candidate filesystem paths where a packaged TUI executable may be located.
-    
+
     Parameters:
         sys_executable_path (Path): Path to the Python interpreter; used to derive interpreter-relative candidate locations.
         cli_file_path (Path): Path to the CLI source file; used to derive project-relative candidate locations.
-    
+
     Returns:
         list[Path]: Unique candidate paths (in search order) for the packaged TUI executable.
     """
@@ -138,13 +138,13 @@ def _packaged_tui_candidates(
 def _find_local_tui_directory(*, cli_file_path: Path, current_dir: Path) -> Path | None:
     """
     Locate a local development TUI directory containing a valid source entry point.
-    
+
     Searches current_dir / "tui" first, then for each parent of cli_file_path searches parent / "tui" and returns the first directory that contains src/index.tsx.
-    
+
     Parameters:
         cli_file_path (Path): Path to the CLI file used to derive parent search locations.
         current_dir (Path): Current working directory to check for a local TUI.
-    
+
     Returns:
         Path | None: Path to the first matching "tui" directory, or `None` if no directory containing src/index.tsx is found.
     """
@@ -161,10 +161,10 @@ def _find_local_tui_directory(*, cli_file_path: Path, current_dir: Path) -> Path
 def _is_executable_file(path: Path) -> bool:
     """
     Check whether a given filesystem path points to an executable file.
-    
+
     Parameters:
         path (Path): Filesystem path to test.
-    
+
     Returns:
         bool: `True` if `path` exists as a file and the current process has execute permission for it, `False` otherwise (including when an `OSError` occurs).
     """

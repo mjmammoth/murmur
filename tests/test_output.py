@@ -53,7 +53,7 @@ def test_clipboard_macos_snapshot_uses_pasteboard_api(monkeypatch) -> None:
         def __bytes__(self):
             """
             Return the object's bytes representation.
-            
+
             Returns:
                 bytes: The bytes value for this instance (b"abc").
             """
@@ -63,7 +63,7 @@ def test_clipboard_macos_snapshot_uses_pasteboard_api(monkeypatch) -> None:
         def types(self):
             """
             Provide the pasteboard uniform type identifiers this payload supports.
-            
+
             Returns:
                 list[str]: A list with the UTI "public.utf8-plain-text".
             """
@@ -72,10 +72,10 @@ def test_clipboard_macos_snapshot_uses_pasteboard_api(monkeypatch) -> None:
         def dataForType_(self, _item_type):
             """
             Return a fake payload object for a requested pasteboard data type.
-            
+
             Parameters:
                 _item_type (str): Pasteboard type identifier (ignored by this fake).
-            
+
             Returns:
                 FakePayload: A new FakePayload instance representing the data for the requested type.
             """
@@ -86,7 +86,7 @@ def test_clipboard_macos_snapshot_uses_pasteboard_api(monkeypatch) -> None:
         def generalPasteboard():
             """
             Create a FakePasteboard instance for tests that simulates the macOS system pasteboard.
-            
+
             Returns:
                 FakePasteboard: A new FakePasteboard instance.
             """
@@ -95,7 +95,7 @@ def test_clipboard_macos_snapshot_uses_pasteboard_api(monkeypatch) -> None:
         def pasteboardItems(self):
             """
             Create a list of pasteboard items used by the fake pasteboard.
-            
+
             Returns:
                 list: A list containing a single FakeItem instance representing a pasteboard item.
             """
@@ -115,7 +115,7 @@ def test_clipboard_macos_snapshot_skips_empty_items(monkeypatch) -> None:
         def types(self):
             """
             Provide the pasteboard uniform type identifiers this payload supports.
-            
+
             Returns:
                 list[str]: A list with the UTI "public.utf8-plain-text".
             """
@@ -124,10 +124,10 @@ def test_clipboard_macos_snapshot_skips_empty_items(monkeypatch) -> None:
         def dataForType_(self, _item_type):
             """
             Simulate retrieving data for a pasteboard item; always indicates no data available.
-            
+
             Parameters:
                 _item_type: The requested pasteboard data type (ignored).
-            
+
             Returns:
                 None to indicate the item has no data for the requested type.
             """
@@ -138,7 +138,7 @@ def test_clipboard_macos_snapshot_skips_empty_items(monkeypatch) -> None:
         def generalPasteboard():
             """
             Create a FakePasteboard instance for tests that simulates the macOS system pasteboard.
-            
+
             Returns:
                 FakePasteboard: A new FakePasteboard instance.
             """
@@ -147,7 +147,7 @@ def test_clipboard_macos_snapshot_skips_empty_items(monkeypatch) -> None:
         def pasteboardItems(self):
             """
             Create a list of pasteboard items used by the fake pasteboard.
-            
+
             Returns:
                 list: A list containing a single FakeItem instance representing a pasteboard item.
             """
@@ -170,11 +170,11 @@ def test_restore_macos_snapshot_writes_all_items(monkeypatch) -> None:
         def dataWithBytes_length_(payload, _length):
             """
             Provide the payload unchanged for compatibility with an Objective-C-style dataWithBytes:length: call.
-            
+
             Parameters:
             	payload: The data-like object to return. May be bytes, bytearray, or any object representing raw data.
             	_length: Ignored; present for API compatibility with calls that supply a length.
-            
+
             Returns:
             	The original `payload` object unchanged.
             """
@@ -185,7 +185,7 @@ def test_restore_macos_snapshot_writes_all_items(monkeypatch) -> None:
         def alloc(cls):
             """
             Create a new instance of the class.
-            
+
             Returns:
                 instance: A new instance of the class.
             """
@@ -194,9 +194,9 @@ def test_restore_macos_snapshot_writes_all_items(monkeypatch) -> None:
         def init(self):
             """
             Initialize the instance by creating an empty values mapping.
-            
+
             Sets self.values to an empty dictionary.
-            
+
             Returns:
                 self: The same instance.
             """
@@ -206,7 +206,7 @@ def test_restore_macos_snapshot_writes_all_items(monkeypatch) -> None:
         def setData_forType_(self, payload, item_type):
             """
             Store the given payload under the specified pasteboard type key in this item's values.
-            
+
             Parameters:
                 payload (bytes): The data to associate with the pasteboard type.
                 item_type (str): The pasteboard/type identifier used as the dictionary key.
@@ -218,7 +218,7 @@ def test_restore_macos_snapshot_writes_all_items(monkeypatch) -> None:
         def generalPasteboard():
             """
             Create a FakePasteboard instance for tests that simulates the macOS system pasteboard.
-            
+
             Returns:
                 FakePasteboard: A new FakePasteboard instance.
             """
@@ -233,10 +233,10 @@ def test_restore_macos_snapshot_writes_all_items(monkeypatch) -> None:
         def writeObjects_(self, objects):
             """
             Append the given pasteboard objects to the captured write list.
-            
+
             Parameters:
                 objects (iterable): Sequence of objects to write to the pasteboard; each object is recorded into the test's captured written_objects list.
-            
+
             Returns:
                 bool: True if the write is considered successful.
             """
@@ -266,11 +266,11 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
         def dataWithBytes_length_(payload, _length):
             """
             Provide the payload unchanged for compatibility with an Objective-C-style dataWithBytes:length: call.
-            
+
             Parameters:
             	payload: The data-like object to return. May be bytes, bytearray, or any object representing raw data.
             	_length: Ignored; present for API compatibility with calls that supply a length.
-            
+
             Returns:
             	The original `payload` object unchanged.
             """
@@ -281,7 +281,7 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
         def alloc(cls):
             """
             Create a new instance of the class.
-            
+
             Returns:
                 instance: A new instance of the class.
             """
@@ -290,9 +290,9 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
         def init(self):
             """
             Initialize the instance by creating an empty values mapping.
-            
+
             Sets self.values to an empty dictionary.
-            
+
             Returns:
                 self: The same instance.
             """
@@ -302,7 +302,7 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
         def setData_forType_(self, payload, item_type):
             """
             Store the given payload under the specified pasteboard type key in this item's values.
-            
+
             Parameters:
                 payload (bytes): The data to associate with the pasteboard type.
                 item_type (str): The pasteboard/type identifier used as the dictionary key.
@@ -314,7 +314,7 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
         def generalPasteboard():
             """
             Create a FakePasteboard instance for tests that simulates the macOS system pasteboard.
-            
+
             Returns:
                 FakePasteboard: A new FakePasteboard instance.
             """
@@ -329,10 +329,10 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
         def writeObjects_(self, _objects):
             """
             Simulate writing objects to a pasteboard and indicate the write failed.
-            
+
             Parameters:
                 _objects (list): The objects intended to be written to the pasteboard.
-            
+
             Returns:
                 False: Indicates the write operation failed.
             """

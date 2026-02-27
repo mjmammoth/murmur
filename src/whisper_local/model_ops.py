@@ -27,12 +27,12 @@ class ModelRuntimeOperations(ABC):
     ) -> Path:
         """
         Download the specified model for this runtime and return the installed filesystem path.
-        
+
         Parameters:
             model_name (str): Name or identifier of the model to download.
             progress_callback (Callable[[int], None] | None): Optional callback invoked with an integer progress percentage (0–100) during the download.
             cancel_check (Callable[[], bool] | None): Optional callable that should be called periodically; if it returns True the download should be aborted.
-        
+
         Returns:
             Path: Path to the installed model file or directory.
         """
@@ -42,7 +42,7 @@ class ModelRuntimeOperations(ABC):
     def remove(self, model_name: str) -> None:
         """
         Remove an installed model from the runtime's storage.
-        
+
         Parameters:
             model_name (str): Name of the model to remove.
         """
@@ -52,10 +52,10 @@ class ModelRuntimeOperations(ABC):
     def installed_path(self, model_name: str) -> Path | None:
         """
         Get the installed filesystem path for a model or None if the model is not installed.
-        
+
         Parameters:
             model_name (str): Canonical name of the model to query.
-        
+
         Returns:
             Path | None: The filesystem path to the installed model, or `None` when the model is not installed.
         """
@@ -65,10 +65,10 @@ class ModelRuntimeOperations(ABC):
     def cache_size_bytes(self, model_name: str) -> int:
         """
         Return the total size, in bytes, of the cached files for the specified model.
-        
+
         Parameters:
             model_name (str): The model identifier to query.
-        
+
         Returns:
             int: Total size in bytes of the model's cache (0 if the model is not installed or has no cached files).
         """
@@ -78,7 +78,7 @@ class ModelRuntimeOperations(ABC):
     def estimated_size_bytes(self, model_name: str) -> int | None:
         """
         Provide the estimated size in bytes for the specified model.
-        
+
         Returns:
             int | None: Estimated size in bytes for the model, or `None` if an estimate is not available.
         """
@@ -96,12 +96,12 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
     ) -> Path:
         """
         Download and install the specified model for the faster-whisper runtime.
-        
+
         Parameters:
             model_name (str): The identifier of the model to download.
             progress_callback (Callable[[int], None] | None): Optional callback invoked with download progress as an integer percentage (0–100).
             cancel_check (Callable[[], bool] | None): Optional callable that should return True to signal cancellation of the download.
-        
+
         Returns:
             Path: Filesystem path to the installed model.
         """
@@ -116,7 +116,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
     def remove(self, model_name: str) -> None:
         """
         Remove a model installed for the faster-whisper runtime.
-        
+
         Parameters:
             model_name (str): The model identifier used by the faster-whisper runtime to locate and remove the installed model.
         """
@@ -127,7 +127,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
     def installed_path(self, model_name: str) -> Path | None:
         """
         Get the installed path for a faster-whisper model.
-        
+
         Returns:
         	Path or `None`: Path to the installed model file if the model is installed, `None` otherwise.
         """
@@ -138,10 +138,10 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
     def cache_size_bytes(self, model_name: str) -> int:
         """
         Return the total size in bytes of the cached files for the specified faster-whisper model.
-        
+
         Parameters:
             model_name (str): Identifier of the model whose cache size should be calculated.
-        
+
         Returns:
             int: Total cache size for the specified model in bytes.
         """
@@ -152,7 +152,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
     def estimated_size_bytes(self, model_name: str) -> int | None:
         """
         Provide the estimated download size in bytes for the specified model, if available.
-        
+
         Returns:
             int | None: The estimated size in bytes for `model_name` if known, `None` otherwise.
         """
@@ -172,15 +172,15 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
     ) -> Path:
         """
         Download and install the specified whisper.cpp model and return the installed file path.
-        
+
         Parameters:
             model_name (str): Name of the model to download; must be one of the known whisper.cpp model names.
             progress_callback (Callable[[int], None] | None): Optional callback that receives integer progress percentages (0–100).
             cancel_check (Callable[[], bool] | None): Optional callable that returns True to request cancellation.
-        
+
         Returns:
             Path: Filesystem path to the installed model file.
-        
+
         Raises:
             ValueError: If `model_name` is not a recognized whisper.cpp model.
             DownloadCancelledError: If cancellation is requested before start or during the download.
@@ -240,17 +240,17 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
     ) -> Path:
         """
         Download a file from a Hugging Face repository in a subprocess while reporting progress and supporting cancellation.
-        
+
         Parameters:
         	repo_id (str): Hugging Face repository identifier to download from (e.g., "owner/repo").
         	filename (str): Name of the file within the repository to download.
         	progress_callback (Callable[[int], None] | None): Optional callback receiving download progress as an integer percent (0–100).
         	expected_total_bytes (int | None): Optional expected total size in bytes used to estimate progress; if None, progress may be indeterminate.
         	cancel_check (Callable[[], bool] | None): Optional callable that returns True to request cancellation; if it returns True, the download is aborted.
-        
+
         Returns:
         	Path: Path to the downloaded file as printed by the subprocess.
-        
+
         Raises:
         	whisper_local.model_manager.DownloadCancelledError: If cancellation is requested via cancel_check during download.
         	RuntimeError: If the subprocess fails or does not return a download path.
@@ -283,7 +283,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
         def emit_progress() -> None:
             """
             Compute current download progress from the local cache size and invoke the provided progress callback.
-            
+
             If no progress callback is set, this function does nothing. It samples the cache directory size at most once per size_scan_interval, computes downloaded bytes as max(last_size - baseline_size, 0), and maps that to a percentage of expected_total_bytes. When expected_total_bytes is unknown or zero the percentage is treated as 0. The reported percentage is clamped between 0 and 99 and is only sent to progress_callback when it differs from the last reported value; last_percent is updated accordingly.
             """
             nonlocal last_percent, last_size, last_scan_time
@@ -336,10 +336,10 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
     def _terminate_process(process: subprocess.Popen[str]) -> None:
         """
         Terminate a subprocess, escalating to kill if it does not exit within a short timeout.
-        
+
         Attempts to terminate the given subprocess gracefully and waits up to 2 seconds for it to exit.
         If the process does not exit in that time, it is killed and another wait of up to 2 seconds is performed.
-        
+
         Parameters:
             process (subprocess.Popen[str]): The subprocess to terminate.
         """
@@ -356,7 +356,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
     def remove(self, model_name: str) -> None:
         """
         Remove the installed whisper.cpp model files for the given model name.
-        
+
         Parameters:
             model_name (str): The whisper.cpp model identifier to remove (e.g., a known model name).
         """
@@ -367,10 +367,10 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
     def installed_path(self, model_name: str) -> Path | None:
         """
         Get the installed file path for a whisper.cpp model.
-        
+
         Parameters:
             model_name (str): The whisper.cpp model identifier.
-        
+
         Returns:
             Path | None: Path to the installed model file if installed, `None` otherwise.
         """
@@ -381,10 +381,10 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
     def cache_size_bytes(self, model_name: str) -> int:
         """
         Return the total size in bytes of the whisper.cpp model cache for the given model.
-        
+
         Parameters:
             model_name (str): Name of the whisper.cpp model.
-        
+
         Returns:
             int: Total cache size in bytes for the specified model.
         """
@@ -395,7 +395,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
     def estimated_size_bytes(self, model_name: str) -> int | None:
         """
         Get the estimated download size for a whisper.cpp model.
-        
+
         Returns:
             int | None: Estimated size in bytes for the specified model, or None if no estimate is available.
         """
@@ -409,10 +409,10 @@ class ModelRuntimeOperationsFactory(ABC):
     def for_runtime(self, runtime: str | None) -> ModelRuntimeOperations:
         """
         Return the ModelRuntimeOperations instance appropriate for the given runtime name.
-        
+
         Parameters:
             runtime (str | None): Runtime identifier (e.g., "faster-whisper" or "whisper.cpp"); pass `None` to request the default runtime.
-        
+
         Returns:
             ModelRuntimeOperations: The operations handler for the specified runtime.
         """
@@ -423,7 +423,7 @@ class DefaultModelRuntimeOperationsFactory(ModelRuntimeOperationsFactory):
     def __init__(self) -> None:
         """
         Initialize the factory's mapping of runtime names to their operation handlers.
-        
+
         Creates and stores concrete ModelRuntimeOperations instances for the supported runtimes:
         "faster-whisper" and "whisper.cpp", accessible via self._operations.
         """
@@ -435,10 +435,10 @@ class DefaultModelRuntimeOperationsFactory(ModelRuntimeOperationsFactory):
     def for_runtime(self, runtime: str | None) -> ModelRuntimeOperations:
         """
         Selects the appropriate ModelRuntimeOperations implementation for the provided runtime name.
-        
+
         Parameters:
             runtime (str | None): Runtime identifier to select; if None, defaults to "faster-whisper". The input is normalized with normalize_runtime_name before selection.
-        
+
         Returns:
             ModelRuntimeOperations: The operation handler for the normalized runtime ("whisper.cpp" or "faster-whisper").
         """
@@ -453,7 +453,7 @@ _DEFAULT_MODEL_RUNTIME_OPERATIONS_FACTORY = DefaultModelRuntimeOperationsFactory
 def get_model_runtime_operations_factory() -> ModelRuntimeOperationsFactory:
     """
     Provide the singleton factory used to obtain runtime-specific model operation handlers.
-    
+
     Returns:
         ModelRuntimeOperationsFactory: The singleton ModelRuntimeOperationsFactory instance.
     """
