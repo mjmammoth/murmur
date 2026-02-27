@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import io
+import tarfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, call, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
@@ -378,28 +380,228 @@ def test_parse_checksums_manifest_raises_when_no_valid_entries(tmp_path: Path) -
         upgrade._parse_checksums_manifest(manifest_path)
 
 
-def test_replace_tui_binary_uses_tar_data_filter(tmp_path: Path) -> None:
+def _write_tar_gz_archive(archive_path: Path, entries: list[tuple[str, bytes]]) -> None:
+    with tarfile.open(archive_path, "w:gz") as tar_handle:
+        for name, payload in entries:
+            member = tarfile.TarInfo(name=name)
+            member.size = len(payload)
+            tar_handle.addfile(member, io.BytesIO(payload))
+
+
+def test_replace_tui_binary_extracts_expected_binary(tmp_path: Path) -> None:
     app_home = tmp_path / "app"
     archive_path = tmp_path / "tui.tar.gz"
-    extract_root = tmp_path / "extract-root"
-    extract_root.mkdir(parents=True, exist_ok=True)
-    (extract_root / "whisper-local-tui").write_text("binary", encoding="utf-8")
+    _write_tar_gz_archive(archive_path, [("whisper-local-tui", b"binary")])
 
-    temp_dir_ctx = Mock()
-    temp_dir_ctx.__enter__ = Mock(return_value=str(extract_root))
-    temp_dir_ctx.__exit__ = Mock(return_value=False)
+    upgrade._replace_tui_binary(
+        app_home=app_home,
+        target="linux-x64",
+        archive_path=archive_path,
+    )
 
-    with patch("whisper_local.upgrade.tempfile.TemporaryDirectory", return_value=temp_dir_ctx), patch(
-        "whisper_local.upgrade.tarfile.open"
-    ) as mock_tar_open:
-        tar_handle = mock_tar_open.return_value.__enter__.return_value
+    installed_binary = app_home / "tui" / "linux-x64" / "whisper-local-tui"
+    assert installed_binary.read_bytes() == b"binary"
+
+
+def test_replace_tui_binary_rejects_too_many_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    _write_tar_gz_archive(
+        archive_path,
+        [
+            ("whisper-local-tui", b"binary"),
+            ("extra.txt", b"extra"),
+        ],
+    )
+    monkeypatch.setattr(upgrade, "MAX_TUI_ARCHIVE_ENTRIES", 1)
+
+    with pytest.raises(UpgradeError, match="maximum allowed number of entries"):
         upgrade._replace_tui_binary(
             app_home=app_home,
             target="linux-x64",
             archive_path=archive_path,
         )
 
-    tar_handle.extractall.assert_called_once_with(extract_root, filter="data")
+
+def test_replace_tui_binary_rejects_large_uncompressed_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    _write_tar_gz_archive(archive_path, [("whisper-local-tui", b"binary")])
+    monkeypatch.setattr(upgrade, "MAX_TUI_ARCHIVE_UNCOMPRESSED_BYTES", 3)
+
+    with pytest.raises(UpgradeError, match="maximum allowed extracted size"):
+        upgrade._replace_tui_binary(
+            app_home=app_home,
+            target="linux-x64",
+            archive_path=archive_path,
+        )
+
+
+def test_replace_tui_binary_rejects_suspicious_compression_ratio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    _write_tar_gz_archive(archive_path, [("whisper-local-tui", b"binary")])
+    monkeypatch.setattr(upgrade, "MAX_TUI_ARCHIVE_COMPRESSION_RATIO", 0.001)
+
+    with pytest.raises(UpgradeError, match="maximum allowed compression ratio"):
+        upgrade._replace_tui_binary(
+            app_home=app_home,
+            target="linux-x64",
+            archive_path=archive_path,
+        )
+
+
+@pytest.mark.parametrize("member_name", ["/etc/passwd", "../../etc/passwd", r"..\..\etc\passwd"])
+def test_replace_tui_binary_rejects_unsafe_member_paths(tmp_path: Path, member_name: str) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    _write_tar_gz_archive(archive_path, [(member_name, b"unsafe")])
+
+    with pytest.raises(UpgradeError, match="unsafe member paths"):
+        upgrade._replace_tui_binary(
+            app_home=app_home,
+            target="linux-x64",
+            archive_path=archive_path,
+        )
+
+
+def test_replace_tui_binary_rejects_links(tmp_path: Path) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as tar_handle:
+        symlink = tarfile.TarInfo(name="whisper-local-tui")
+        symlink.type = tarfile.SYMTYPE
+        symlink.linkname = "/tmp/target"
+        tar_handle.addfile(symlink)
+
+    with pytest.raises(UpgradeError, match="links, which are not allowed"):
+        upgrade._replace_tui_binary(
+            app_home=app_home,
+            target="linux-x64",
+            archive_path=archive_path,
+        )
+
+
+def test_replace_tui_binary_rejects_hardlinks(tmp_path: Path) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as tar_handle:
+        hardlink = tarfile.TarInfo(name="whisper-local-tui")
+        hardlink.type = tarfile.LNKTYPE
+        hardlink.linkname = "target"
+        tar_handle.addfile(hardlink)
+
+    with pytest.raises(UpgradeError, match="links, which are not allowed"):
+        upgrade._replace_tui_binary(
+            app_home=app_home,
+            target="linux-x64",
+            archive_path=archive_path,
+        )
+
+
+def test_replace_tui_binary_rejects_special_files(tmp_path: Path) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as tar_handle:
+        fifo_entry = tarfile.TarInfo(name="fifo-entry")
+        fifo_entry.type = tarfile.FIFOTYPE
+        tar_handle.addfile(fifo_entry)
+
+    with pytest.raises(UpgradeError, match="special files, which are not allowed"):
+        upgrade._replace_tui_binary(
+            app_home=app_home,
+            target="linux-x64",
+            archive_path=archive_path,
+        )
+
+
+def test_replace_tui_binary_rejects_device_files(tmp_path: Path) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as tar_handle:
+        char_device = tarfile.TarInfo(name="char-device")
+        char_device.type = tarfile.CHRTYPE
+        char_device.devmajor = 1
+        char_device.devminor = 3
+        tar_handle.addfile(char_device)
+
+    with pytest.raises(UpgradeError, match="special files, which are not allowed"):
+        upgrade._replace_tui_binary(
+            app_home=app_home,
+            target="linux-x64",
+            archive_path=archive_path,
+        )
+
+
+def test_replace_tui_binary_rejects_negative_member_size(tmp_path: Path) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    archive_path.write_bytes(b"stub")
+
+    class NegativeSizeMember:
+        name = "whisper-local-tui"
+        size = -1
+
+        def issym(self) -> bool:
+            return False
+
+        def islnk(self) -> bool:
+            return False
+
+        def isdev(self) -> bool:
+            return False
+
+        def isfifo(self) -> bool:
+            return False
+
+        def isfile(self) -> bool:
+            return True
+
+    tar_handle = MagicMock()
+    tar_handle.__iter__.return_value = iter([NegativeSizeMember()])
+    tar_context = MagicMock()
+    tar_context.__enter__.return_value = tar_handle
+    tar_context.__exit__.return_value = False
+
+    with patch("whisper_local.upgrade.tarfile.open", return_value=tar_context):
+        with pytest.raises(UpgradeError, match="member with invalid size"):
+            upgrade._replace_tui_binary(
+                app_home=app_home,
+                target="linux-x64",
+                archive_path=archive_path,
+            )
+
+
+def test_replace_tui_binary_raises_when_no_executable_candidate_exists(tmp_path: Path) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    _write_tar_gz_archive(archive_path, [("README.txt", b"text only")])
+
+    with pytest.raises(UpgradeError, match="did not contain an executable"):
+        upgrade._replace_tui_binary(
+            app_home=app_home,
+            target="linux-x64",
+            archive_path=archive_path,
+        )
+
+
+def test_replace_tui_binary_rejects_zero_byte_executable(tmp_path: Path) -> None:
+    app_home = tmp_path / "app"
+    archive_path = tmp_path / "tui.tar.gz"
+    _write_tar_gz_archive(archive_path, [("whisper-local-tui", b"")])
+
+    with pytest.raises(UpgradeError, match="zero-byte executable entry"):
+        upgrade._replace_tui_binary(
+            app_home=app_home,
+            target="linux-x64",
+            archive_path=archive_path,
+        )
 
 
 def test_run_upgrade_installer_running_service_restarts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

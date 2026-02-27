@@ -11,7 +11,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from whisper_local import __version__
 from whisper_local.service_manager import ServiceManager
@@ -23,6 +23,25 @@ INSTALLER_HOME = Path("~/.local/share/whisper.local").expanduser()
 INSTALLER_MANIFEST_NAME = "install-manifest.json"
 INSTALLER_MANIFEST = INSTALLER_HOME / INSTALLER_MANIFEST_NAME
 CHECKSUM_MANIFEST_NAMES = {"checksums.txt", "checksums.sha256", "checksums.sha256sum"}
+TUI_BINARY_CANDIDATES = ("whisper-local-tui", "whisper-local-tui.exe")
+MAX_TUI_ARCHIVE_ENTRIES = 1024
+MAX_TUI_ARCHIVE_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
+MAX_TUI_ARCHIVE_COMPRESSION_RATIO = 10.0
+
+
+def _secure_temp_root(base_dir: Path | None = None) -> Path:
+    temp_root = (base_dir or INSTALLER_HOME).expanduser() / ".tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        temp_root.chmod(0o700)
+    except OSError:
+        # Windows may not support POSIX chmod semantics; best effort is enough here.
+        pass
+    return temp_root
+
+
+def _temporary_directory(*, prefix: str, base_dir: Path | None = None) -> tempfile.TemporaryDirectory[str]:
+    return tempfile.TemporaryDirectory(prefix=prefix, dir=str(_secure_temp_root(base_dir)))
 
 
 class UpgradeError(RuntimeError):
@@ -434,6 +453,7 @@ def _verify_release_signature(
     repository: str,
     checksums_path: Path,
     signature_path: Path,
+    temp_dir_base: Path | None = None,
 ) -> None:
     gpg = shutil.which("gpg")
     if not gpg:
@@ -444,7 +464,10 @@ def _verify_release_signature(
     expected_fingerprint = _expected_signing_fingerprint()
     signing_key_url = _signing_key_url_for_repository(repository)
 
-    with tempfile.TemporaryDirectory(prefix="whisper-local-upgrade-gpg-") as tmp_dir:
+    with _temporary_directory(
+        prefix="whisper-local-upgrade-gpg-",
+        base_dir=temp_dir_base,
+    ) as tmp_dir:
         tmp_root = Path(tmp_dir)
         gpg_home = tmp_root / "gnupg"
         gpg_home.mkdir(parents=True, exist_ok=True)
@@ -493,11 +516,13 @@ def _verify_downloaded_release_assets(
     signature_path: Path,
     wheel_path: Path,
     tui_path: Path,
+    temp_dir_base: Path | None = None,
 ) -> None:
     _verify_release_signature(
         repository=bundle.repository,
         checksums_path=checksums_path,
         signature_path=signature_path,
+        temp_dir_base=temp_dir_base,
     )
     checksums = _parse_checksums_manifest(checksums_path)
 
@@ -519,17 +544,102 @@ def _verify_downloaded_release_assets(
 def _replace_tui_binary(*, app_home: Path, target: str, archive_path: Path) -> None:
     target_dir = app_home / "tui" / target
     target_dir.mkdir(parents=True, exist_ok=True)
+    archive_size_bytes = max(archive_path.stat().st_size, 1)
 
-    with tempfile.TemporaryDirectory(prefix="whisper-local-upgrade-tui-") as tmp_dir:
+    with _temporary_directory(
+        prefix="whisper-local-upgrade-tui-",
+        base_dir=app_home,
+    ) as tmp_dir:
         extract_root = Path(tmp_dir)
-        with tarfile.open(archive_path, "r:gz") as tar_handle:
-            tar_handle.extractall(extract_root, filter="data")
+        extracted_candidates: dict[str, Path] = {}
+        total_entries = 0
+        total_uncompressed_bytes = 0
 
-        candidates = [
-            extract_root / "whisper-local-tui",
-            extract_root / "whisper-local-tui.exe",
-        ]
-        extracted_binary = next((candidate for candidate in candidates if candidate.exists()), None)
+        with tarfile.open(archive_path, "r:gz") as tar_handle:
+            for member in tar_handle:
+                total_entries += 1
+                if total_entries > MAX_TUI_ARCHIVE_ENTRIES:
+                    raise UpgradeError(
+                        "Upgraded TUI archive exceeded the maximum allowed number of entries"
+                    )
+
+                member_path = PurePosixPath(member.name)
+                normalized_member_path = PurePosixPath(member.name.replace("\\", "/"))
+                if (
+                    member_path.is_absolute()
+                    or normalized_member_path.is_absolute()
+                    or ".." in member_path.parts
+                    or ".." in normalized_member_path.parts
+                ):
+                    raise UpgradeError("Upgraded TUI archive contained unsafe member paths")
+                if member.issym() or member.islnk():
+                    raise UpgradeError("Upgraded TUI archive contained links, which are not allowed")
+                if member.isdev() or member.isfifo():
+                    raise UpgradeError(
+                        "Upgraded TUI archive contained special files, which are not allowed"
+                    )
+
+                if member.size < 0:
+                    raise UpgradeError("Upgraded TUI archive contained a member with invalid size")
+
+                total_uncompressed_bytes += member.size
+                if total_uncompressed_bytes > MAX_TUI_ARCHIVE_UNCOMPRESSED_BYTES:
+                    raise UpgradeError(
+                        "Upgraded TUI archive exceeded the maximum allowed extracted size"
+                    )
+
+                if (
+                    total_uncompressed_bytes / archive_size_bytes
+                    > MAX_TUI_ARCHIVE_COMPRESSION_RATIO
+                ):
+                    raise UpgradeError(
+                        "Upgraded TUI archive exceeded the maximum allowed compression ratio"
+                    )
+
+                if not member.isfile():
+                    continue
+
+                member_basename = member_path.name
+                if (
+                    member_basename not in TUI_BINARY_CANDIDATES
+                    or member_basename in extracted_candidates
+                ):
+                    continue
+                if member.size == 0:
+                    raise UpgradeError(
+                        "Upgraded TUI archive contained a zero-byte executable entry"
+                    )
+
+                source_handle = tar_handle.extractfile(member)
+                if source_handle is None:
+                    raise UpgradeError("Upgraded TUI archive member could not be read")
+
+                extracted_path = extract_root / member_basename
+                with source_handle as extracted_stream, extracted_path.open("wb") as output_handle:
+                    extracted_bytes = 0
+                    while extracted_bytes < member.size:
+                        remaining_bytes = member.size - extracted_bytes
+                        chunk = extracted_stream.read(min(1024 * 1024, remaining_bytes))
+                        if not chunk:
+                            break
+                        if len(chunk) > remaining_bytes:
+                            raise UpgradeError(
+                                "Upgraded TUI archive member exceeded declared metadata size"
+                            )
+                        extracted_bytes += len(chunk)
+                        output_handle.write(chunk)
+                    if extracted_stream.read(1):
+                        raise UpgradeError(
+                            "Upgraded TUI archive member exceeded declared metadata size"
+                        )
+
+                if extracted_bytes != member.size:
+                    raise UpgradeError("Upgraded TUI archive member size did not match metadata")
+
+                extracted_candidates[member_basename] = extracted_path
+
+        candidates = [extracted_candidates.get(name) for name in TUI_BINARY_CANDIDATES]
+        extracted_binary = next((candidate for candidate in candidates if candidate is not None), None)
         if extracted_binary is None:
             raise UpgradeError("Upgraded TUI archive did not contain an executable")
 
@@ -594,7 +704,10 @@ def run_upgrade(
             requested_version=requested_version,
         )
 
-        with tempfile.TemporaryDirectory(prefix="whisper-local-upgrade-") as tmp_dir:
+        with _temporary_directory(
+            prefix="whisper-local-upgrade-",
+            base_dir=installer_home,
+        ) as tmp_dir:
             tmp_root = Path(tmp_dir)
             wheel_path = tmp_root / assets.wheel_name
             tui_path = tmp_root / assets.tui_name
@@ -612,6 +725,7 @@ def run_upgrade(
                 signature_path=signature_path,
                 wheel_path=wheel_path,
                 tui_path=tui_path,
+                temp_dir_base=installer_home,
             )
 
             subprocess.run(
