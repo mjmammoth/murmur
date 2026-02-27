@@ -37,6 +37,18 @@ from whisper_local.model_manager import (
 
 logger = logging.getLogger(__name__)
 WHISPER_CPP_BINARIES = ("whisper-cli", "whisper-cpp", "main")
+APP_HOME = Path(os.environ.get("WHISPER_LOCAL_HOME", "~/.local/share/whisper.local")).expanduser()
+
+
+def _secure_temp_root(base_dir: Path | None = None) -> Path:
+    temp_root = (base_dir or APP_HOME).expanduser() / ".tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        temp_root.chmod(0o700)
+    except OSError:
+        # Windows may not support POSIX chmod semantics; best effort is enough here.
+        pass
+    return temp_root
 
 
 @dataclass
@@ -215,7 +227,11 @@ class FasterWhisperRuntime(_RuntimeBase):
             compute_type,
         ]
 
-        with tempfile.NamedTemporaryFile(suffix=".npy", delete=True) as handle:
+        with tempfile.NamedTemporaryFile(
+            suffix=".npy",
+            delete=True,
+            dir=str(_secure_temp_root()),
+        ) as handle:
             np.save(handle.name, audio)
             env = os.environ.copy()
             env["HF_HUB_DISABLE_XET"] = "1"
@@ -375,7 +391,10 @@ class WhisperCppRuntime(_RuntimeBase):
         if sample_rate != 16000:
             audio = resample_audio(audio, sample_rate, 16000)
 
-        with tempfile.TemporaryDirectory(prefix="whisper-local-whispercpp-") as tmpdir:
+        with tempfile.TemporaryDirectory(
+            prefix="whisper-local-whispercpp-",
+            dir=str(_secure_temp_root()),
+        ) as tmpdir:
             base_dir = Path(tmpdir)
             audio_path = base_dir / "audio.wav"
             output_base = base_dir / "result"

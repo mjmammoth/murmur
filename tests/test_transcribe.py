@@ -207,6 +207,39 @@ def test_faster_whisper_runtime_transcribe_subprocess():
         mock_run.assert_called_once()
 
 
+def test_faster_whisper_runtime_subprocess_uses_secure_temp_dir(tmp_path: Path):
+    runtime = FasterWhisperRuntime("tiny", "cpu", "int8")
+    audio = np.array([0.1, 0.2], dtype=np.float32)
+
+    class TempHandle:
+        def __init__(self, name: Path) -> None:
+            self.name = str(name)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+    with patch("whisper_local.transcribe.get_installed_model_path", return_value=Path("/cache/tiny")), patch(
+        "whisper_local.transcribe._resolve_faster_runtime", return_value=("cpu", "int8")
+    ), patch("whisper_local.transcribe._secure_temp_root", return_value=tmp_path), patch(
+        "whisper_local.transcribe.tempfile.NamedTemporaryFile"
+    ) as mock_named_tmp, patch("subprocess.run") as mock_run:
+        mock_named_tmp.return_value = TempHandle(tmp_path / "audio.npy")
+        mock_result = Mock()
+        mock_result.stdout = '{"text": "subprocess output", "language": "en"}\n'
+        mock_run.return_value = mock_result
+
+        runtime._transcribe_in_subprocess(audio, "en")
+
+    assert mock_named_tmp.call_count == 1
+    kwargs = mock_named_tmp.call_args.kwargs
+    assert kwargs["dir"] == str(tmp_path)
+    assert kwargs["suffix"] == ".npy"
+    assert kwargs["delete"] is True
+
+
 def test_faster_whisper_runtime_runtime_info():
     """Test FasterWhisperRuntime.runtime_info returns correct info."""
     runtime = FasterWhisperRuntime("tiny", "cpu", "int8", model_path="/custom")
@@ -334,6 +367,47 @@ def test_whisper_cpp_runtime_transcribe():
             assert result.text == "transcribed text"
             assert result.language == "en"
             mock_run.assert_called_once()
+
+
+def test_whisper_cpp_runtime_transcribe_uses_secure_temp_dir(tmp_path: Path):
+    runtime = WhisperCppRuntime("tiny", "cpu", "default")
+    runtime._binary_path = "/usr/bin/whisper-cli"
+    runtime._resolved_model_path = "/models/ggml-tiny.bin"
+    runtime._effective_device = "cpu"
+    runtime._gpu_control_mode = "no-gpu"
+
+    audio = np.array([0.1, 0.2], dtype=np.float32)
+
+    class TempDirContext:
+        def __init__(self, path: Path) -> None:
+            self._path = path
+
+        def __enter__(self):
+            return str(self._path)
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+    with patch("whisper_local.transcribe._secure_temp_root", return_value=tmp_path), patch(
+        "whisper_local.transcribe.tempfile.TemporaryDirectory"
+    ) as mock_tmp_dir, patch("subprocess.run") as mock_run, patch(
+        "whisper_local.transcribe._write_wav_mono16"
+    ), patch("pathlib.Path.exists", return_value=False):
+        mock_tmp_dir.return_value = TempDirContext(tmp_path)
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "whisper output"
+        mock_result.stderr = ""
+        mock_run.return_value = mock_result
+
+        result = runtime.transcribe(audio, 16000, language="en")
+
+    assert mock_tmp_dir.call_count == 1
+    kwargs = mock_tmp_dir.call_args.kwargs
+    assert kwargs["dir"] == str(tmp_path)
+    assert kwargs["prefix"] == "whisper-local-whispercpp-"
+    assert result.text == "whisper output"
+    assert result.language == "en"
 
 
 def test_whisper_cpp_runtime_transcribe_with_gpu_device():
