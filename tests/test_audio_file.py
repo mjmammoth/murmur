@@ -145,14 +145,8 @@ def test_resample_empty_audio():
     assert result.dtype == np.float32
 
 
-def test_resample_with_scipy_mock():
+def test_resample_falls_back_to_interp_without_scipy():
     audio = np.ones(16000, dtype=np.float32)
-    with patch("whisper_local.audio_file.resample_poly", create=True):
-        # This won't work since it's imported inside the function.
-        # Instead test the np.interp fallback by hiding scipy
-        pass
-
-    # Test the np.interp fallback
     with patch.dict("sys.modules", {"scipy": None, "scipy.signal": None}):
         result = _resample_audio(audio, 16000, 48000)
     assert result.dtype == np.float32

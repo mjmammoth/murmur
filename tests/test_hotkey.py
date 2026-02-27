@@ -57,6 +57,10 @@ if _saved_quartz is not None:
     sys.modules["Quartz"] = _saved_quartz
 else:
     sys.modules.pop("Quartz", None)
+if _saved_hotkey is not None:
+    sys.modules[_hotkey_key] = _saved_hotkey
+else:
+    sys.modules.pop(_hotkey_key, None)
 
 
 # ---------------------------------------------------------------------------

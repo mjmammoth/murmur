@@ -681,37 +681,37 @@ def test_run_upgrade_failure_surfaces_restart_failure(
 
 def test_detect_target_darwin_arm64():
     with patch("whisper_local.upgrade.sys.platform", "darwin"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="arm64")):
+         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="arm64"), create=True):
         assert upgrade.detect_target() == "darwin-arm64"
 
 
 def test_detect_target_darwin_x64():
     with patch("whisper_local.upgrade.sys.platform", "darwin"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64")):
+         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64"), create=True):
         assert upgrade.detect_target() == "darwin-x64"
 
 
 def test_detect_target_linux_x64():
     with patch("whisper_local.upgrade.sys.platform", "linux"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64")):
+         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64"), create=True):
         assert upgrade.detect_target() == "linux-x64"
 
 
 def test_detect_target_linux_arm64():
     with patch("whisper_local.upgrade.sys.platform", "linux"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="aarch64")):
+         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="aarch64"), create=True):
         assert upgrade.detect_target() == "linux-arm64"
 
 
 def test_detect_target_windows_x64():
     with patch("whisper_local.upgrade.sys.platform", "win32"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64")):
+         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64"), create=True):
         assert upgrade.detect_target() == "windows-x64"
 
 
 def test_detect_target_unsupported():
     with patch("whisper_local.upgrade.sys.platform", "freebsd"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="mips")):
+         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="mips"), create=True):
         with pytest.raises(UpgradeError, match="Unsupported"):
             upgrade.detect_target()
 
@@ -844,18 +844,30 @@ def test_sha256_file(tmp_path: Path):
 
 
 def test_run_command_or_error_success():
-    result = upgrade._run_command_or_error(["echo", "hello"])
+    with patch(
+        "whisper_local.upgrade.subprocess.run",
+        return_value=SimpleNamespace(returncode=0, stdout="hello\n", stderr=""),
+    ):
+        result = upgrade._run_command_or_error(["echo", "hello"])
     assert "hello" in result
 
 
 def test_run_command_or_error_failure():
-    with pytest.raises(UpgradeError, match="Upgrade verification failed"):
-        upgrade._run_command_or_error(["false"])
+    with patch(
+        "whisper_local.upgrade.subprocess.run",
+        return_value=SimpleNamespace(returncode=1, stdout="", stderr="boom"),
+    ):
+        with pytest.raises(UpgradeError, match="Upgrade verification failed"):
+            upgrade._run_command_or_error(["false"])
 
 
 def test_run_command_or_error_not_found():
-    with pytest.raises(UpgradeError, match="Upgrade verification failed"):
-        upgrade._run_command_or_error(["nonexistent_binary_12345"])
+    with patch(
+        "whisper_local.upgrade.subprocess.run",
+        side_effect=FileNotFoundError("binary not found"),
+    ):
+        with pytest.raises(UpgradeError, match="Upgrade verification failed"):
+            upgrade._run_command_or_error(["nonexistent_binary_12345"])
 
 
 # ---------------------------------------------------------------------------

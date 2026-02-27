@@ -184,11 +184,10 @@ def test_get_installed_model_path_multiple_snapshots(tmp_path: Path, monkeypatch
     snapshot1 = snapshot_dir / "old"
     _write_complete_snapshot(snapshot1)
 
-    import time
-    time.sleep(0.01)
-
     snapshot2 = snapshot_dir / "new"
     _write_complete_snapshot(snapshot2)
+    snapshot1_mtime = snapshot1.stat().st_mtime
+    os.utime(snapshot2, (snapshot1_mtime + 1, snapshot1_mtime + 1))
 
     result = get_installed_model_path("tiny")
     # Should return the newer snapshot
@@ -610,7 +609,8 @@ def test_hf_hub_xet_disabled_during_download():
     """Test that HF_HUB_DISABLE_XET is set during download."""
     # This is a regression test to ensure XET is disabled
     # to avoid subprocess FD issues
-    assert "HF_HUB_DISABLE_XET" in os.environ or True  # Set by module init
+    assert "HF_HUB_DISABLE_XET" in os.environ
+    assert bool(os.environ["HF_HUB_DISABLE_XET"])
 
 
 def test_runtime_operations_factory_returns_expected_strategies():

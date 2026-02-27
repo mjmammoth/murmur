@@ -43,21 +43,35 @@ def test_candidate_rnnoise_paths_defaults():
     assert all(isinstance(p, Path) for p in paths)
 
 
-def test_candidate_rnnoise_paths_with_caskroom(tmp_path: Path):
+def test_candidate_rnnoise_paths_with_caskroom(tmp_path: Path, monkeypatch):
     cask_root = tmp_path / "Caskroom" / "rnnoise"
     v1 = cask_root / "1.0"
     v2 = cask_root / "2.0"
     v1.mkdir(parents=True)
     v2.mkdir(parents=True)
 
-    with patch("whisper_local.noise._candidate_rnnoise_paths"):
-        # Just test the real function's behavior with real dirs
-        pass
+    original_exists = Path.exists
+    original_iterdir = Path.iterdir
 
-    # Call actual function with patched cask_roots
-    with patch("whisper_local.noise._candidate_rnnoise_paths", wraps=_candidate_rnnoise_paths):
-        paths = _candidate_rnnoise_paths()
-    assert len(paths) >= 2
+    def patched_exists(path: Path) -> bool:
+        if str(path) == "/opt/homebrew/Caskroom/rnnoise":
+            return True
+        if str(path) == "/usr/local/Caskroom/rnnoise":
+            return False
+        return original_exists(path)
+
+    def patched_iterdir(path: Path):
+        if str(path) == "/opt/homebrew/Caskroom/rnnoise":
+            return iter([v1, v2])
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "exists", patched_exists)
+    monkeypatch.setattr(Path, "iterdir", patched_iterdir)
+
+    paths = _candidate_rnnoise_paths()
+    assert len(paths) >= 4
+    assert paths[2] == v2 / "macos-rnnoise/rnnoise.component/Contents/MacOS/rnnoise"
+    assert paths[3] == v1 / "macos-rnnoise/rnnoise.component/Contents/MacOS/rnnoise"
 
 
 # ---------------------------------------------------------------------------

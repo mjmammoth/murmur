@@ -35,6 +35,7 @@ jobs:
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
         with:
           branch: automation/pre-commit-autoupdate
+          delete-branch: true
           commit-message: "chore: pre-commit autoupdate"
           title: "chore: pre-commit autoupdate"
           body: |

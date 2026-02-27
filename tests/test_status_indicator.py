@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import importlib
 import sys
 import types
 from unittest.mock import MagicMock, patch
 
+import pytest
 
-# We need to mock macOS-only modules to import status_indicator on any platform.
-# Strategy: temporarily replace sys.modules entries, import the module, then restore.
 
+_SI_KEY = "whisper_local.status_indicator"
 _MOCK_MODULES = {
     "objc": {"python_method": lambda f: f, "super": MagicMock()},
     "AppKit": {
@@ -34,62 +35,59 @@ _MOCK_MODULES = {
     "websockets": {"connect": MagicMock()},
 }
 
-_saved_modules: dict[str, object] = {}
-_installed_mocks: dict[str, types.ModuleType] = {}
 
-for _name, _attrs in _MOCK_MODULES.items():
-    _saved_modules[_name] = sys.modules.get(_name)
-    _mod = types.ModuleType(_name)
-    for _k, _v in _attrs.items():
-        setattr(_mod, _k, _v)
-    _installed_mocks[_name] = _mod
-    sys.modules[_name] = _mod
+@pytest.fixture(scope="module", autouse=True)
+def mock_macos_modules():
+    saved_modules: dict[str, object] = {}
+    installed_mocks: dict[str, types.ModuleType] = {}
+    for name, attrs in _MOCK_MODULES.items():
+        saved_modules[name] = sys.modules.get(name)
+        module = types.ModuleType(name)
+        for key, value in attrs.items():
+            setattr(module, key, value)
+        installed_mocks[name] = module
+        sys.modules[name] = module
 
-# Wire up sub-package
-_installed_mocks["PyObjCTools"].AppHelper = _installed_mocks["PyObjCTools.AppHelper"]  # type: ignore[attr-defined]
-
-# Force fresh import
-_si_key = "whisper_local.status_indicator"
-_saved_si = sys.modules.pop(_si_key, None)
-
-from whisper_local.status_indicator import build_parser, main  # noqa: E402
-
-# Restore all original modules so we don't pollute other tests in the session
-for _name, _orig in _saved_modules.items():
-    if _orig is None:
-        sys.modules.pop(_name, None)
-    else:
-        sys.modules[_name] = _orig  # type: ignore[assignment]
-
-# Don't restore status_indicator itself — we need the imported symbols to work.
-# But the module's references are already bound to the fake objects, which is fine
-# for our tests. Other test modules that import from the real status_indicator
-# won't be affected because they'll trigger their own import.
+    installed_mocks["PyObjCTools"].AppHelper = installed_mocks["PyObjCTools.AppHelper"]  # type: ignore[attr-defined]
+    saved_si = sys.modules.pop(_SI_KEY, None)
+    try:
+        yield
+    finally:
+        for name, original_module in saved_modules.items():
+            if original_module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original_module  # type: ignore[assignment]
+        if saved_si is not None:
+            sys.modules[_SI_KEY] = saved_si
+        else:
+            sys.modules.pop(_SI_KEY, None)
 
 
-# ---------------------------------------------------------------------------
-# build_parser
-# ---------------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def status_indicator_module():
+    return importlib.import_module(_SI_KEY)
 
-def test_build_parser_defaults():
-    parser = build_parser()
+
+def test_build_parser_defaults(status_indicator_module):
+    parser = status_indicator_module.build_parser()
     args = parser.parse_args([])
     assert args.host == "localhost"
     assert args.port == 7878
 
 
-def test_build_parser_custom():
-    parser = build_parser()
+def test_build_parser_custom(status_indicator_module):
+    parser = status_indicator_module.build_parser()
     args = parser.parse_args(["--host", "0.0.0.0", "--port", "9999"])
     assert args.host == "0.0.0.0"
     assert args.port == 9999
 
 
-# ---------------------------------------------------------------------------
-# main() on non-darwin
-# ---------------------------------------------------------------------------
-
-def test_main_non_darwin():
-    with patch.object(sys.modules[_si_key], "sys") as mock_sys:
+def test_main_non_darwin(status_indicator_module):
+    with patch.object(status_indicator_module, "sys") as mock_sys, patch.object(
+        status_indicator_module, "NSApplication"
+    ) as mock_ns_application:
         mock_sys.platform = "linux"
-        main()  # should return early without error
+        status_indicator_module.main()
+
+    mock_ns_application.sharedApplication.assert_not_called()
