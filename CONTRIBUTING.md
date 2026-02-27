@@ -49,10 +49,24 @@ pre-commit install
 Run these before opening a pull request:
 
 ```bash
+pre-commit run --all-files
 pytest
 ruff check src/
 mypy src/
+cd tui && bun test --timeout 5000
 ```
+
+## Security scan exceptions
+
+Security scans fail by default. Reviewed exceptions must be explicit and documented:
+
+- Gitleaks allowlists: `.gitleaks.toml`
+- pip-audit vulnerability ignores: `configs/security/pip-audit-ignore.txt`
+
+## SonarCloud quality gate
+
+- SonarCloud analysis and quality gate are required for pushes to `main` and same-repo PRs.
+- Fork PRs skip SonarCloud because repository secrets are unavailable.
 
 ## Branch and pull request workflow
 
