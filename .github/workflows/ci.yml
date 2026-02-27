@@ -29,7 +29,7 @@ jobs:
       - name: CLI smoke
         run: |
           python -m whisper_local.cli --help
-          python -m whisper_local.cli service status
+          python -m whisper_local.cli status
           python -m whisper_local.cli trigger --help
 
   python_checks:
