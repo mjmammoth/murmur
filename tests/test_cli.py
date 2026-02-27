@@ -585,7 +585,7 @@ def test_uninstall_success_outputs_summary(mock_run_uninstall: Mock, capsys) -> 
     args = parser.parse_args(["uninstall", "--yes"])
     mock_run_uninstall.return_value = UninstallResult(
         channel="installer",
-        removed_paths=(Path("/tmp/a"), Path("/tmp/b")),
+        removed_paths=(Path("/var/lib/whisper-local/a"), Path("/var/lib/whisper-local/b")),
         failed_paths=(),
         warnings=("warn",),
     )
@@ -635,8 +635,8 @@ def test_uninstall_reports_failed_paths_as_non_zero(mock_run_uninstall: Mock, ca
     args = parser.parse_args(["uninstall", "--yes"])
     mock_run_uninstall.return_value = UninstallResult(
         channel="installer",
-        removed_paths=(Path("/tmp/a"),),
-        failed_paths=(RemovalFailure(path=Path("/tmp/b"), reason="permission denied"),),
+        removed_paths=(Path("/var/lib/whisper-local/a"),),
+        failed_paths=(RemovalFailure(path=Path("/var/lib/whisper-local/b"), reason="permission denied"),),
         warnings=(),
     )
 

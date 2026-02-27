@@ -209,7 +209,7 @@ def test_parse_args_defaults(module, monkeypatch):
         "--repository",
         "owner/repo",
         "--tap-repo-path",
-        "/tmp/tap",
+        "/var/lib/whisper-local/tap",
     ]
     monkeypatch.setattr(sys, "argv", args)
 
