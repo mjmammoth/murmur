@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://sonarcloud.io/summary/new_code?id=mjmammoth_whisper.local"><img src="https://sonarcloud.io/api/project_badges/measure?project=mjmammoth_whisper.local&metric=security_rating" alt="Security Rating"></a>
   <a href="https://github.com/mjmammoth/whisper.local/actions/workflows/release.yml"><img src="https://github.com/mjmammoth/whisper.local/actions/workflows/release.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/mjmammoth/whisper.local/releases/latest"><img src="https://img.shields.io/github/v/release/mjmammoth/whisper.local?display_name=tag" alt="Latest Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
   <a href="#homebrew-v1-arm64"><img src="https://img.shields.io/badge/Homebrew-install-orange?logo=homebrew" alt="Homebrew"></a>
   <a href="https://coderabbit.ai/"><img src="https://img.shields.io/coderabbit/prs/github/mjmammoth/whisper.local?utm_source=oss&utm_medium=github&utm_campaign=mjmammoth%2Fwhisper.local&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews" alt="CodeRabbit Pull Request Reviews"></a>
@@ -159,6 +160,12 @@ Behavior:
 - `--all-data` also removes `~/.local/state/whisper.local`, `~/.config/whisper.local`, and whisper.local model cache directories under `~/.cache/huggingface/hub`.
 - Homebrew installs receive: `brew uninstall whisper-local`.
 - pip installs receive: `python -m pip uninstall whisper-local`.
+
+### Release channels
+
+- Stable/default installs track the latest non-prerelease GitHub release.
+- Pre-release builds are available via explicit tags (for example `v1.2.4rc1`) and Homebrew formula `whisper-local-preview`.
+- Release/versioning policy is documented in [`docs/release-flow.md`](docs/release-flow.md).
 
 ### Troubleshooting hotkey deps
 

@@ -60,3 +60,7 @@ mypy src/
 - Keep PRs focused and scoped to one change
 - Link the related issue when available
 - Include test updates and docs updates when behavior changes
+
+## Release process
+
+Release channel/tag policy and flow are documented in [`docs/release-flow.md`](docs/release-flow.md).

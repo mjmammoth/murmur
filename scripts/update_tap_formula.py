@@ -9,7 +9,9 @@ from pathlib import Path
 from string import Template
 
 
-VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+VERSION_PATTERN = re.compile(
+    r"^\d+\.\d+\.\d+(?:(?:a|b|rc)\d+|\.post\d+|\.dev\d+)?$"
+)
 
 
 def parse_args() -> argparse.Namespace:

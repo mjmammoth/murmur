@@ -65,7 +65,19 @@ def test_version_pattern_valid_versions(module):
     pattern = module.VERSION_PATTERN
     assert pattern.match("0.1.0")
     assert pattern.match("1.2.3")
-    assert pattern.match("1.0.0-alpha")
+    assert pattern.match("1.0.0rc1")
+    assert pattern.match("1.0.0a2")
+    assert pattern.match("1.0.0b3")
+    assert pattern.match("1.0.0.post1")
+    assert pattern.match("1.0.0.dev1")
+
+
+def test_version_pattern_rejects_non_canonical_versions(module):
+    pattern = module.VERSION_PATTERN
+    assert not pattern.match("1.0.0-alpha")
+    assert not pattern.match("1.0.0-rc1")
+    assert not pattern.match("1.0.0+build1")
+    assert not pattern.match("v1.0.0")
 
 
 def test_validate_args_accepts_legacy_tui_values(module):
@@ -172,6 +184,26 @@ def test_render_formula_uses_secure_python_extraction(module) -> None:
 
     assert "install_tui_binary_from_archive" in rendered
     assert 'system "tar", "-xzf"' not in rendered
+
+
+def test_render_preview_formula_template(module) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    args = _base_args(
+        template=str(repo_root / "scripts" / "templates" / "whisper-local-preview.rb.tpl"),
+        tui_url_darwin_arm64="https://example.com/darwin-arm64.tar.gz",
+        tui_sha256_darwin_arm64="1" * 64,
+        tui_url_darwin_x64="https://example.com/darwin-x64.tar.gz",
+        tui_sha256_darwin_x64="2" * 64,
+        tui_url_linux_x64="https://example.com/linux-x64.tar.gz",
+        tui_sha256_linux_x64="3" * 64,
+        tui_url_linux_arm64="https://example.com/linux-arm64.tar.gz",
+        tui_sha256_linux_arm64="4" * 64,
+    )
+
+    rendered = module.render_formula(args)
+
+    assert "class WhisperLocalPreview < Formula" in rendered
+    assert 'conflicts_with "whisper-local"' in rendered
 
 
 def test_write_formula(module, tmp_path: Path):

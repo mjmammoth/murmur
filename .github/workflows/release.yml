@@ -6,7 +6,23 @@ on:
       - "v*"
 
 jobs:
+  classify_release:
+    runs-on: ubuntu-latest
+    outputs:
+      normalized_tag: ${{ steps.classify.outputs.normalized_tag }}
+      version_no_v: ${{ steps.classify.outputs.version_no_v }}
+      release_kind: ${{ steps.classify.outputs.release_kind }}
+      is_prerelease: ${{ steps.classify.outputs.is_prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Classify release tag
+        id: classify
+        run: python3 scripts/release_tag.py "${{ github.ref_name }}" --github-output "${GITHUB_OUTPUT}"
+
   build_python_dist:
+    needs: [classify_release]
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -30,6 +46,7 @@ jobs:
           path: dist/*
 
   build_tui_all_targets:
+    needs: [classify_release]
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -95,7 +112,7 @@ jobs:
           path: release-assets/checksums.txt
 
   publish_release:
-    needs: [checksum_assets]
+    needs: [checksum_assets, classify_release]
     runs-on: macos-14
     permissions:
       contents: write
@@ -166,6 +183,7 @@ jobs:
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ needs.classify_release.outputs.is_prerelease == 'true' }}
           generate_release_notes: true
           files: |
             release-assets/python-dist/*
@@ -175,7 +193,7 @@ jobs:
             release-assets/checksums.txt.asc
 
   update_tap_formula:
-    needs: [publish_release]
+    needs: [publish_release, classify_release]
     runs-on: macos-14
     permissions:
       contents: read
@@ -224,12 +242,32 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
+      - name: Select tap target
+        id: tap_target
+        env:
+          RELEASE_KIND: ${{ needs.classify_release.outputs.release_kind }}
+        run: |
+          if [ "${RELEASE_KIND}" = "prerelease" ]; then
+            echo "formula_path=Formula/whisper-local-preview.rb" >> "${GITHUB_OUTPUT}"
+            echo "alias_name=whisper.local-preview" >> "${GITHUB_OUTPUT}"
+            echo "alias_target=../Formula/whisper-local-preview.rb" >> "${GITHUB_OUTPUT}"
+            echo "template_path=scripts/templates/whisper-local-preview.rb.tpl" >> "${GITHUB_OUTPUT}"
+            echo "commit_label=whisper-local-preview" >> "${GITHUB_OUTPUT}"
+          else
+            echo "formula_path=Formula/whisper-local.rb" >> "${GITHUB_OUTPUT}"
+            echo "alias_name=whisper.local" >> "${GITHUB_OUTPUT}"
+            echo "alias_target=../Formula/whisper-local.rb" >> "${GITHUB_OUTPUT}"
+            echo "template_path=scripts/templates/whisper-local.rb.tpl" >> "${GITHUB_OUTPUT}"
+            echo "commit_label=whisper-local" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Render formula from release assets
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.classify_release.outputs.version_no_v }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          FORMULA_PATH: ${{ steps.tap_target.outputs.formula_path }}
+          TEMPLATE_PATH: ${{ steps.tap_target.outputs.template_path }}
         run: |
-          VERSION="${VERSION#v}"
           WHEEL_FILE="$(basename "$(ls release-assets/python-dist/*.whl | head -n 1)")"
           TUI_DARWIN_ARM64="whisper-local-tui-darwin-arm64.tar.gz"
           TUI_DARWIN_X64="whisper-local-tui-darwin-x64.tar.gz"
@@ -272,24 +310,29 @@ jobs:
             --tui-url-linux-arm64 "${BASE_URL}/${TUI_LINUX_ARM64}" \
             --tui-sha256-linux-arm64 "${TUI_LINUX_ARM64_SHA}" \
             --repository "${GITHUB_REPOSITORY}" \
+            --formula-path "${FORMULA_PATH}" \
+            --template "${TEMPLATE_PATH}" \
             --tap-repo-path homebrew-tap
 
       - name: Ensure tap alias exists
+        env:
+          ALIAS_NAME: ${{ steps.tap_target.outputs.alias_name }}
+          ALIAS_TARGET: ${{ steps.tap_target.outputs.alias_target }}
         run: |
           mkdir -p homebrew-tap/Aliases
-          ln -sfn ../Formula/whisper-local.rb homebrew-tap/Aliases/whisper.local
+          ln -sfn "${ALIAS_TARGET}" "homebrew-tap/Aliases/${ALIAS_NAME}"
 
       - name: Commit and push formula update
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.classify_release.outputs.version_no_v }}
+          COMMIT_LABEL: ${{ steps.tap_target.outputs.commit_label }}
         run: |
-          VERSION="${VERSION#v}"
           git -C homebrew-tap config user.name "github-actions[bot]"
           git -C homebrew-tap config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C homebrew-tap add Formula/whisper-local.rb Aliases/
+          git -C homebrew-tap add -A Formula Aliases
           if git -C homebrew-tap diff --cached --quiet; then
             echo "No formula changes to commit."
             exit 0
           fi
-          git -C homebrew-tap commit -m "whisper-local ${VERSION}"
+          git -C homebrew-tap commit -m "${COMMIT_LABEL} ${VERSION}"
           git -C homebrew-tap push
