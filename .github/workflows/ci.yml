@@ -26,11 +26,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
 
-      - name: CLI smoke
-        run: |
-          python -m whisper_local.cli --help
-          python -m whisper_local.cli status
-          python -m whisper_local.cli trigger --help
+      - name: CLI smoke help
+        run: python -m whisper_local.cli --help
+
+      - name: CLI smoke status
+        run: python -m whisper_local.cli status
+
+      - name: CLI smoke trigger help
+        run: python -m whisper_local.cli trigger --help
 
   python_checks:
     runs-on: macos-14
