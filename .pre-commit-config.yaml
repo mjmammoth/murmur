@@ -34,9 +34,3 @@ repos:
         language: system
         pass_filenames: false
         files: ^scripts/(templates/whisper-local\.rb\.tpl|update_tap_formula\.py)$
-      - id: tui-showcase-refresh
-        name: TUI showcase refresh
-        entry: scripts/precommit_tui_showcase.sh
-        language: system
-        pass_filenames: false
-        files: ^(tui/|scripts/(generate_tui_showcase\.py|termtosvg_compat\.py)|README\.md)$

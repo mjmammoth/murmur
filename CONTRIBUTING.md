@@ -37,6 +37,23 @@ When running whisper.local for local UI development, set:
 WHISPER_LOCAL_DEV_USE_BUN=1
 ```
 
+## TUI showcase refresh
+
+When a change affects the TUI home screenshot, regenerate the showcase before opening a PR.
+
+```bash
+python -m pip install --requirement scripts/requirements-tui-showcase.txt
+bun install --frozen-lockfile --cwd tui
+npm ci
+npx playwright install chromium --with-deps
+python scripts/generate_tui_showcase.py --output-format png --png-scale 2
+```
+
+This command updates:
+
+- `README.md`
+- `docs/assets/tui-home-themes.png`
+
 ## Pre-commit hooks
 
 ```bash

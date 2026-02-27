@@ -2,6 +2,15 @@ name: tui-showcase
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "README.md"
+      - "docs/assets/tui-home-themes.png"
+      - "tui/src/**"
+      - "tui/scripts/mock-demo-backend.ts"
+      - "scripts/generate_tui_showcase.py"
+      - "scripts/termtosvg_compat.py"
+      - "scripts/requirements-tui-showcase.txt"
   push:
     branches: [main]
     paths:
@@ -9,12 +18,15 @@ on:
       - "tui/scripts/mock-demo-backend.ts"
       - "scripts/generate_tui_showcase.py"
       - "scripts/termtosvg_compat.py"
+      - "scripts/requirements-tui-showcase.txt"
 
 jobs:
   generate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
+    env:
+      TZ: UTC
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,10 +44,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.11.0"
 
       - name: Install Python dependencies
-        run: python -m pip install termtosvg pyte
+        run: python -m pip install --requirement scripts/requirements-tui-showcase.txt
 
       - name: Install TUI dependencies
         run: bun install --frozen-lockfile
@@ -43,13 +55,28 @@ jobs:
 
       - name: Install Playwright and Chromium
         run: |
-          npm install
+          npm ci
           npx playwright install chromium --with-deps
 
       - name: Generate showcase
         run: python scripts/generate_tui_showcase.py --output-format png --png-scale 2
 
+      - name: Check showcase drift (pull requests)
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- README.md docs/assets/tui-home-themes.png; then
+            echo "Showcase is up to date."
+            exit 0
+          fi
+          echo "TUI showcase drift detected. Regenerate and commit these files:" >&2
+          echo "  - README.md" >&2
+          echo "  - docs/assets/tui-home-themes.png" >&2
+          git --no-pager diff -- README.md docs/assets/tui-home-themes.png
+          exit 1
+
       - name: Commit and push if changed
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"

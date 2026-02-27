@@ -1,0 +1,2 @@
+termtosvg==1.1.0
+pyte==0.8.2
