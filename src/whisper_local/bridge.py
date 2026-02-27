@@ -12,7 +12,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from time import monotonic
-from typing import Any
+from typing import Any, Coroutine
 from urllib.parse import parse_qs, unquote, urlparse
 
 import websockets
@@ -168,8 +168,8 @@ class BridgeServer:
         self._startup_audio_notice_level = "info"
         self._shutdown_requested = threading.Event()
 
-        self._background_tasks: set[asyncio.Task] = set()
-        self._model_tasks: dict[str, asyncio.Task] = {}
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._model_tasks: dict[str, asyncio.Task[Any]] = {}
         self._download_queue = SerialModelTaskQueue()
         self._platform_capabilities = detect_platform_capabilities().to_dict()
         self._paste_provider = create_paste_provider()
@@ -193,14 +193,14 @@ class BridgeServer:
         self.transcriber: Any | None = None
         self.hotkey: Any | None = None
 
-    def _spawn_task(self, coro) -> asyncio.Task:
+    def _spawn_task(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
         """Create a background task and prevent it from being garbage-collected."""
         task = asyncio.create_task(coro)
         self._background_tasks.add(task)
         task.add_done_callback(self._on_task_done)
         return task
 
-    def _on_task_done(self, task: asyncio.Task) -> None:
+    def _on_task_done(self, task: asyncio.Task[Any]) -> None:
         """Clean up a finished background task and surface any unhandled exception."""
         self._background_tasks.discard(task)
         if not task.cancelled():
@@ -208,7 +208,11 @@ class BridgeServer:
             if exc is not None:
                 logger.error("Background task failed: %s", exc)
 
-    def _spawn_model_task(self, name: str, coro) -> asyncio.Task:
+    def _spawn_model_task(
+        self,
+        name: str,
+        coro: Coroutine[Any, Any, Any],
+    ) -> asyncio.Task[Any]:
         """
         Start and track a named background task for model operations.
 
@@ -227,7 +231,7 @@ class BridgeServer:
         task = self._spawn_task(coro)
         self._model_tasks[name] = task
 
-        def _cleanup(_t: asyncio.Task) -> None:
+        def _cleanup(_t: asyncio.Task[Any]) -> None:
             """
             Remove the tracked model task entry when the completed task matches the recorded task for that model.
 
@@ -772,7 +776,7 @@ class BridgeServer:
 
     async def _process_audio(
         self,
-        audio,
+        audio: Any,
         *,
         transcriber: Any | None = None,
         language: str | None = None,

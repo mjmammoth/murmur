@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
+from typing import Any
 
 from AppKit import NSEvent
 from Quartz import (
@@ -28,6 +29,7 @@ from Quartz import (
     kCGSessionEventTap,
     kCFRunLoopCommonModes,
 )
+from whisper_local.platform.providers import PressReleaseCallback
 
 # macOS NX_SYSDEFINED event type for media/special keys.
 # When "Use F1, F2, etc. keys as standard function keys" is OFF (the default),
@@ -149,12 +151,17 @@ def parse_hotkey(hotkey: str) -> HotkeyDefinition:
 
 
 class HotkeyListener:
-    def __init__(self, hotkey: str, on_press, on_release) -> None:
+    def __init__(
+        self,
+        hotkey: str,
+        on_press: PressReleaseCallback,
+        on_release: PressReleaseCallback,
+    ) -> None:
         self.hotkey = parse_hotkey(hotkey)
         self.on_press = on_press
         self.on_release = on_release
-        self._tap = None
-        self._run_loop = None
+        self._tap: Any | None = None
+        self._run_loop: Any | None = None
         self._thread: threading.Thread | None = None
         self._pressed = False
 
@@ -194,7 +201,8 @@ class HotkeyListener:
         CGEventTapEnable(self._tap, True)
         CFRunLoopRun()
 
-    def _callback(self, proxy, event_type, event, refcon):
+    def _callback(self, proxy: Any, event_type: int, event: Any, refcon: Any) -> Any:
+        del proxy, refcon
         if event_type == NX_SYSDEFINED:
             return self._handle_media_key(event)
 
@@ -232,7 +240,7 @@ class HotkeyListener:
 
         return event
 
-    def _handle_media_key(self, event):
+    def _handle_media_key(self, event: Any) -> Any:
         """Handle NX_SYSDEFINED media key events (F-keys without fn held)."""
         try:
             ns_event = NSEvent.eventWithCGEvent_(event)

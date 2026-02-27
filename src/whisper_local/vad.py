@@ -28,7 +28,7 @@ class VadProcessor:
 
     def _load(self) -> None:
         try:
-            import webrtcvad  # type: ignore
+            import webrtcvad
         except ImportError:
             logger.warning("webrtcvad not installed; VAD disabled")
             self._vad = None

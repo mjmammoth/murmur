@@ -9,7 +9,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Any, Callable, Iterable, Iterator, Literal, Sized, cast
 
 # Set before importing huggingface_hub so it applies reliably.
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
@@ -17,7 +17,7 @@ os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
 from whisper_local import config as config_module
-from whisper_local.model_ops import get_model_runtime_operations_factory
+from whisper_local.model_ops import ModelRuntimeOperations, get_model_runtime_operations_factory
 
 
 logger = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ def normalize_model_runtime(runtime: str | None) -> RuntimeName:
     return "faster-whisper"
 
 
-def _model_operations_for_runtime(runtime: str | None):
+def _model_operations_for_runtime(runtime: str | None) -> ModelRuntimeOperations:
     """
     Return the model runtime operations implementation corresponding to the given runtime.
 
@@ -742,7 +742,7 @@ def _make_progress_tqdm(
     callback: Callable[[int], None],
     expected_total_bytes: int | None = None,
     cancel_check: Callable[[], bool] | None = None,
-):
+) -> type[Any]:
     """
     Create a tqdm-compatible progress class that reports download progress via the provided callback.
 
@@ -763,20 +763,33 @@ def _make_progress_tqdm(
     """
 
     class _ProgressTqdm:
-        _lock = threading.Lock()
+        _lock: Any = threading.Lock()
 
         @staticmethod
         def _raise_if_cancelled() -> None:
             if cancel_check is not None and cancel_check():
                 raise DownloadCancelledError("Download cancelled during shutdown")
 
-        def __init__(self, iterable=None, *args, **kwargs):
+        def __init__(
+            self,
+            iterable: Iterable[Any] | None = None,
+            *args: object,
+            **kwargs: object,
+        ) -> None:
+            del args
+
+            def _coerce_float(value: object) -> float:
+                try:
+                    return float(cast(Any, value))
+                except (TypeError, ValueError):
+                    return 0.0
+
             _ProgressTqdm._raise_if_cancelled()
             # Iterable mode (file list wrapper)
             self._iterable = iterable
-            self.total = float(kwargs.get("total", 0) or 0)
-            self.n = float(kwargs.get("initial", 0) or 0)
-            self.disable = kwargs.get("disable", False)
+            self.total = _coerce_float(kwargs.get("total", 0) or 0)
+            self.n = _coerce_float(kwargs.get("initial", 0) or 0)
+            self.disable = bool(kwargs.get("disable", False))
             self._expected_total_bytes = float(expected_total_bytes or 0)
             name = str(kwargs.get("name", ""))
             unit = str(kwargs.get("unit", "")).upper()
@@ -805,20 +818,17 @@ def _make_progress_tqdm(
             self._last_percent = percent
             callback(percent)
 
-        def __iter__(self):
+        def __iter__(self) -> Iterator[Any]:
             if self._iterable is not None:
                 yield from self._iterable
             return
 
-        def __len__(self):
-            if self._iterable is not None:
-                try:
-                    return len(self._iterable)
-                except TypeError:
-                    return 0
+        def __len__(self) -> int:
+            if isinstance(self._iterable, Sized):
+                return len(self._iterable)
             return 0
 
-        def update(self, n=1):
+        def update(self, n: float = 1.0) -> None:
             _ProgressTqdm._raise_if_cancelled()
             if not self._is_download_bytes_bar:
                 return
@@ -827,35 +837,41 @@ def _make_progress_tqdm(
                 self.n += float(n or 0)
                 self._emit_progress_locked()
 
-        def close(self):
+        def close(self) -> None:
             pass
 
-        def __enter__(self):
+        def __enter__(self) -> _ProgressTqdm:
             return self
 
-        def __exit__(self, *args):
+        def __exit__(self, *args: object) -> None:
+            del args
             self.close()
 
-        def set_description(self, *args, **kwargs):
+        def set_description(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
             pass
 
-        def set_postfix(self, *args, **kwargs):
+        def set_postfix(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
             pass
 
-        def set_postfix_str(self, *args, **kwargs):
+        def set_postfix_str(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
             pass
 
-        def refresh(self, *args, **kwargs):
+        def refresh(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
             _ProgressTqdm._raise_if_cancelled()
             if not self._is_download_bytes_bar:
                 return
             with _ProgressTqdm._lock:
                 self._emit_progress_locked()
 
-        def clear(self, *args, **kwargs):
+        def clear(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
             pass
 
-        def reset(self, total=None):
+        def reset(self, total: float | None = None) -> None:
             _ProgressTqdm._raise_if_cancelled()
             with _ProgressTqdm._lock:
                 self.n = 0.0
@@ -864,21 +880,24 @@ def _make_progress_tqdm(
                 if self._is_download_bytes_bar:
                     self._emit_progress_locked()
 
-        def display(self, *args, **kwargs):
+        def display(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
             pass
 
         @classmethod
-        def get_lock(cls):
+        def get_lock(cls) -> Any:
             return cls._lock
 
         @classmethod
-        def set_lock(cls, lock):
+        def set_lock(cls, lock: Any) -> None:
             cls._lock = lock
 
-        def moveto(self, *args, **kwargs):
+        def moveto(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
             pass
 
-        def unpause(self, *args, **kwargs):
+        def unpause(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
             pass
 
     # Reset class-level counters for each download
@@ -919,7 +938,7 @@ def _download_faster_model(
     os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
     logger.info("Downloading model %s", repo_id)
 
-    kwargs: dict = {"repo_id": repo_id}
+    kwargs: dict[str, Any] = {"repo_id": repo_id}
     expected_total_bytes: int | None = None
     if progress_callback is not None:
         if cancel_check is not None and cancel_check():

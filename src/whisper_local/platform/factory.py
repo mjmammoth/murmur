@@ -13,6 +13,7 @@ from whisper_local.platform.providers import (
     NoopPasteProvider,
     NoopStatusIndicatorProvider,
     PasteProvider,
+    PressReleaseCallback,
     StatusIndicatorProvider,
     SubprocessStatusIndicatorProvider,
     WindowsHotkeyProvider,
@@ -84,7 +85,6 @@ HOTKEY_KEYS = {
     "f11",
     "f12",
 }
-
 
 def _is_wayland_session() -> bool:
     return (
@@ -225,7 +225,11 @@ def detect_platform_capabilities() -> PlatformCapabilities:
     )
 
 
-def create_hotkey_provider(hotkey: str, on_press, on_release) -> HotkeyProvider:
+def create_hotkey_provider(
+    hotkey: str,
+    on_press: PressReleaseCallback,
+    on_release: PressReleaseCallback,
+) -> HotkeyProvider:
     modifiers, key = parse_hotkey_tokens(hotkey)
 
     if sys.platform == "darwin":

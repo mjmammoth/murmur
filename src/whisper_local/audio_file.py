@@ -22,7 +22,7 @@ def load_audio_file(path: Path, target_sample_rate: int) -> np.ndarray:
     )
 
     try:
-        from faster_whisper.audio import decode_audio  # type: ignore
+        from faster_whisper.audio import decode_audio
     except ImportError as exc:
         raise RuntimeError(
             "Audio file decoding unavailable. Install faster-whisper."
@@ -81,7 +81,7 @@ def _resample_audio(audio: np.ndarray, original_rate: int, target_rate: int) -> 
     try:
         from scipy.signal import resample_poly
 
-        return resample_poly(audio, up, down).astype(np.float32)
+        return np.asarray(resample_poly(audio, up, down), dtype=np.float32)
     except ImportError:
         pass
 
@@ -91,4 +91,4 @@ def _resample_audio(audio: np.ndarray, original_rate: int, target_rate: int) -> 
 
     source_indices = np.linspace(0, 1, num=audio.shape[0], endpoint=False)
     target_indices = np.linspace(0, 1, num=target_length, endpoint=False)
-    return np.interp(target_indices, source_indices, audio).astype(np.float32)
+    return np.asarray(np.interp(target_indices, source_indices, audio), dtype=np.float32)

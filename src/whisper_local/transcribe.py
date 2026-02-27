@@ -22,12 +22,12 @@ os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
 try:  # pragma: no cover - optional runtime import
     from faster_whisper import WhisperModel
 except Exception:  # pragma: no cover - optional runtime import
-    WhisperModel = None  # type: ignore[assignment]
+    WhisperModel = None
 
 try:  # pragma: no cover - optional runtime import
     import ctranslate2
 except Exception:  # pragma: no cover - optional runtime import
-    ctranslate2 = None  # type: ignore[assignment]
+    ctranslate2 = None
 
 from whisper_local.config import normalize_runtime_name
 from whisper_local.model_manager import (
@@ -52,7 +52,7 @@ class _RuntimeBase(ABC):
     def load(self) -> None:
         """
         Load and initialize the runtime and its model so the runtime is ready to transcribe audio.
-        
+
         Implementations should allocate or open any required resources and ensure that subsequent calls to transcribe succeed. This method may be called multiple times; implementations may make it idempotent.
         """
         raise NotImplementedError
@@ -66,7 +66,7 @@ class _RuntimeBase(ABC):
     def runtime_info(self) -> dict[str, str]:
         """
         Provide metadata about the runtime's current configuration.
-        
+
         Returns:
             info (dict[str, str]): A dictionary with keys:
                 - "runtime": The runtime name (e.g., "faster-whisper" or "whisper.cpp").
@@ -94,7 +94,7 @@ class FasterWhisperRuntime(_RuntimeBase):
     ) -> None:
         """
         Initialize a FasterWhisperRuntime instance with model selection and runtime preferences.
-        
+
         Parameters:
             model_name (str): Identifier of the model to load or look up when resolving a model path.
             device (str): Preferred device for inference (e.g., "cpu", "cuda", "mps"); may be adjusted when loading.
@@ -113,12 +113,12 @@ class FasterWhisperRuntime(_RuntimeBase):
     def _resolve_model_source(self) -> str:
         """
         Determine the filesystem path to the model to load.
-        
-        Checks an explicit model_path first; if not provided, looks up an installed model path for the configured runtime. 
-        
+
+        Checks an explicit model_path first; if not provided, looks up an installed model path for the configured runtime.
+
         Returns:
             The filesystem path to the model as a string.
-        
+
         Raises:
             RuntimeError: If no installed model is found for the given model_name and runtime and model_path was not provided.
         """
@@ -134,11 +134,11 @@ class FasterWhisperRuntime(_RuntimeBase):
     def load(self) -> None:
         """
         Ensure the faster-whisper model is initialized and ready for transcription.
-        
+
         If the model is not already loaded, resolves the model source, determines the effective device
         and compute type, updates the instance's model-related attributes (model_path, _effective_device,
         _effective_compute_type, _model_source) and instantiates the WhisperModel.
-        
+
         Raises:
             RuntimeError: If the faster-whisper runtime is not available (faster-whisper package not installed).
         """
@@ -255,7 +255,7 @@ class FasterWhisperRuntime(_RuntimeBase):
     def runtime_info(self) -> dict[str, str]:
         """
         Return metadata about the active runtime and resolved model.
-        
+
         Returns:
             info (dict[str, str]): Dictionary with keys:
                 - "runtime": name of the runtime implementation.
@@ -283,7 +283,7 @@ class WhisperCppRuntime(_RuntimeBase):
     ) -> None:
         """
         Create a Whisper.cpp runtime instance configured for the given model and hardware.
-        
+
         Parameters:
             model_name (str): Name or identifier of the model to use.
             device (str): Requested execution device (e.g., "cpu", "mps", "cuda"); the instance will determine an effective device from this value.
@@ -302,9 +302,9 @@ class WhisperCppRuntime(_RuntimeBase):
     def load(self) -> None:
         """
         Resolve and prepare the whisper.cpp runtime and model for use by this instance.
-        
+
         This locates the whisper.cpp executable, detects its GPU control mode, and resolves the model file path (either a configured local path or an installed model for this runtime). On success it sets internal fields used by transcribe: `_binary_path`, `_gpu_control_mode`, and `_resolved_model_path`, and emits an informational log entry.
-        
+
         Raises:
             RuntimeError: If the whisper.cpp binary cannot be found (suggests installing whisper.cpp), if a configured local model path does not exist, if a configured model directory contains no `ggml-*.bin` files, or if the named model is not installed for this runtime.
         """
@@ -356,13 +356,13 @@ class WhisperCppRuntime(_RuntimeBase):
     ) -> TranscriptionResult:
         """
         Transcribes the provided audio using the installed whisper.cpp executable.
-        
+
         Parameters:
         	language (str | None): Optional language hint passed to whisper.cpp (e.g., language code); if None no explicit language is provided.
-        
+
         Raises:
         	RuntimeError: If the whisper.cpp runtime fails to initialize or if the external whisper.cpp process exits with a non-zero status.
-        
+
         Returns:
         	TranscriptionResult: Contains the transcribed `text` and the `language` value passed to this call (or `None`).
         """
@@ -418,7 +418,7 @@ class WhisperCppRuntime(_RuntimeBase):
     def runtime_info(self) -> dict[str, str]:
         """
         Provide runtime metadata for this runtime implementation.
-        
+
         Returns:
             info (dict[str, str]): Dictionary with the following keys:
                 - "runtime": runtime identifier string.
@@ -445,10 +445,10 @@ class Transcriber:
     ) -> None:
         """
         Create a Transcriber configured for a specific model and runtime.
-        
+
         Initializes the transcriber with the given model name, target device, and compute type,
         optionally using a local model path, and constructs the appropriate runtime implementation.
-        
+
         Parameters:
             model_name (str): The model identifier or name.
             device (str): Desired execution device (e.g., "cpu", "cuda", "mps").
@@ -481,12 +481,12 @@ class Transcriber:
     ) -> TranscriptionResult:
         """
         Transcribe a raw audio waveform and return the transcription text and language.
-        
+
         Parameters:
         	audio (np.ndarray): 1D or multi-channel audio samples.
         	sample_rate (int): Sample rate of the provided audio in Hz.
         	language (str | None): Optional language code to force transcription; if `None`, language may be detected automatically.
-        
+
         Returns:
         	TranscriptionResult: Object containing the transcription `text` and the `language` (detected or the provided value).
         """
@@ -495,7 +495,7 @@ class Transcriber:
     def runtime_info(self) -> dict[str, str]:
         """
         Return combined metadata about the active runtime and the configured model.
-        
+
         Returns:
             info (dict[str, str]): A mapping of runtime-related fields to their values. Contains at minimum:
                 - "runtime": runtime identifier used by the transcriber implementation
@@ -512,12 +512,12 @@ class Transcriber:
 def detect_runtime_capabilities(selected_runtime: str | None = None) -> dict[str, Any]:
     """
     Detects available transcription runtimes, their supported devices, and supported compute types.
-    
+
     Parameters:
         selected_runtime (str | None): Optional runtime name to focus the returned "devices" and
             "compute_types_by_device" entries on; normalized internally. If None, defaults to
             "faster-whisper".
-    
+
     Returns:
         dict: A mapping under the "model" key containing:
             - runtimes: dict mapping runtime name to {"enabled": bool, "reason": str | None}.
@@ -641,7 +641,7 @@ def detect_runtime_capabilities(selected_runtime: str | None = None) -> dict[str
 def ensure_whisper_cpp_installed() -> None:
     """
     Verify that the whisper.cpp executable is installed and discoverable on the system PATH.
-    
+
     Raises:
         RuntimeError: If no whisper.cpp binary can be located; message suggests installing via
             `brew install whisper-cpp`.
@@ -663,14 +663,14 @@ def _create_runtime(
 ) -> _RuntimeBase:
     """
     Create a runtime implementation for the specified runtime name configured for the given model and device.
-    
+
     Parameters:
         runtime (str): Normalized runtime identifier; expected values include "faster-whisper" and "whisper.cpp".
         model_name (str): Model identifier used by the runtime.
         device (str): Requested device (e.g., "cpu", "cuda", "mps"); the runtime may adjust this value.
         compute_type (str): Requested compute type (e.g., "int8", "float32"); the runtime may adjust this value.
         model_path (str | None): Optional local path to the model files; if None, the runtime will attempt to resolve an installed model.
-    
+
     Returns:
         _RuntimeBase: A concrete runtime instance (WhisperCppRuntime or FasterWhisperRuntime) configured with the provided arguments.
     """
@@ -682,10 +682,10 @@ def _create_runtime(
 def _supported_compute_types(device: str) -> list[str]:
     """
     Return the list of compute types supported for the given device.
-    
+
     Parameters:
         device (str): Device identifier (for example "cpu", "cuda", or "mps").
-    
+
     Returns:
         list[str]: Sorted list of supported compute type names in lowercase (e.g., ["int8", "float32"]). Returns an empty list if supported types cannot be determined or the detection capability is unavailable.
     """
@@ -741,10 +741,10 @@ def _resolve_whisper_cpp_binary() -> str | None:
 def _detect_whisper_cpp_gpu_control(binary_path: str) -> str:
     """
     Detects whether the specified whisper.cpp binary supports a command-line option to disable GPU.
-    
+
     Parameters:
         binary_path (str): Path to the whisper.cpp executable.
-    
+
     Returns:
         str: `'no-gpu'` if the binary's help text contains `--no-gpu` or `-ng`, `'unknown'` otherwise.
     """
@@ -767,7 +767,7 @@ def _detect_whisper_cpp_gpu_control(binary_path: str) -> str:
 def _write_wav_mono16(path: Path, audio: np.ndarray, sample_rate: int) -> None:
     """
     Write a mono 16-bit PCM WAV file from a floating-point audio array.
-    
+
     Parameters:
         path (Path): Filesystem path where the WAV file will be written.
         audio (np.ndarray): Audio samples as a 1-D or multi-dimensional float array in the range [-1.0, 1.0]. Multi-dimensional input will be flattened.
@@ -797,7 +797,7 @@ def resample_audio(audio: np.ndarray, original_rate: int, target_rate: int) -> n
         return np.empty(0, dtype=np.float32)
     source_indices = np.linspace(0, 1, num=audio.shape[0], endpoint=False)
     target_indices = np.linspace(0, 1, num=target_length, endpoint=False)
-    return np.interp(target_indices, source_indices, audio).astype(np.float32)
+    return np.asarray(np.interp(target_indices, source_indices, audio), dtype=np.float32)
 
 
 def _to_float32(audio: np.ndarray) -> np.ndarray:

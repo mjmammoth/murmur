@@ -7,7 +7,7 @@ import sys
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import Callable
+from typing import Any, Callable
 
 
 logger = logging.getLogger(__name__)
@@ -85,7 +85,7 @@ def _x11_keysym_name(key: str) -> str:
     return mapping.get(key, key)
 
 
-def _x11_modifier_mask(modifiers: tuple[str, ...], xlib_x) -> int:
+def _x11_modifier_mask(modifiers: tuple[str, ...], xlib_x: Any) -> int:
     modifier_map = {
         "shift": xlib_x.ShiftMask,
         "ctrl": xlib_x.ControlMask,
@@ -232,7 +232,7 @@ class X11HotkeyProvider(HotkeyProvider):
             self._display = None
 
     @staticmethod
-    def _matches_state(state: int, required_mask: int, xlib_x) -> bool:
+    def _matches_state(state: int, required_mask: int, xlib_x: Any) -> bool:
         ignored = int(xlib_x.LockMask | xlib_x.Mod2Mask)
         normalized_state = int(state & ~ignored)
         normalized_required = int(required_mask & ~ignored)
@@ -271,7 +271,7 @@ def _windows_vk_code(key: str) -> int:
     raise ValueError(f"Unsupported Windows hotkey key: {key}")
 
 
-def _windows_modifier_mask(modifiers: tuple[str, ...], win32con) -> int:
+def _windows_modifier_mask(modifiers: tuple[str, ...], win32con: Any) -> int:
     modifier_map = {
         "alt": int(win32con.MOD_ALT),
         "ctrl": int(win32con.MOD_CONTROL),
@@ -386,7 +386,7 @@ class WindowsHotkeyProvider(HotkeyProvider):
                 except Exception:
                     pass
 
-    def _start_release_monitor(self, win32api, win32con) -> None:
+    def _start_release_monitor(self, win32api: Any, win32con: Any) -> None:
         thread = self._release_monitor_thread
         if thread and thread.is_alive():
             return
@@ -397,7 +397,7 @@ class WindowsHotkeyProvider(HotkeyProvider):
         )
         self._release_monitor_thread.start()
 
-    def _monitor_release(self, win32api, win32con) -> None:
+    def _monitor_release(self, win32api: Any, win32con: Any) -> None:
         while not self._stop_event.is_set() and self._pressed:
             if not self._is_hotkey_down(win32api, win32con):
                 self._pressed = False
@@ -405,7 +405,7 @@ class WindowsHotkeyProvider(HotkeyProvider):
                 return
             time.sleep(0.01)
 
-    def _is_hotkey_down(self, win32api, win32con) -> bool:
+    def _is_hotkey_down(self, win32api: Any, win32con: Any) -> bool:
         def _is_vk_down(vk_code: int) -> bool:
             return bool(int(win32api.GetAsyncKeyState(vk_code)) & 0x8000)
 
@@ -450,7 +450,7 @@ class SubprocessStatusIndicatorProvider(StatusIndicatorProvider):
         self.host = host
         self.port = port
         self.python_executable = python_executable or sys.executable
-        self._process: subprocess.Popen | None = None
+        self._process: subprocess.Popen[bytes] | None = None
 
     @property
     def pid(self) -> int | None:

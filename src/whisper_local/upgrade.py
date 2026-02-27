@@ -12,6 +12,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import cast
 
 from whisper_local import __version__
 from whisper_local.service_manager import ServiceManager
@@ -237,7 +238,10 @@ def _github_get_json(url: str) -> dict[str, object]:
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         raw_payload = response.read().decode("utf-8")
-    return json.loads(raw_payload)
+    payload = json.loads(raw_payload)
+    if not isinstance(payload, dict):
+        raise UpgradeError("Failed to fetch release metadata: invalid JSON payload")
+    return cast(dict[str, object], payload)
 
 
 def resolve_release_assets(
