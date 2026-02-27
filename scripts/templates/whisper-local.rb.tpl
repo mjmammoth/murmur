@@ -72,6 +72,19 @@ class WhisperLocal < Formula
     end
     arch_key = Hardware::CPU.arm? ? :arm : :intel
     tui_url, tui_sha = tui_assets.fetch(platform_key).fetch(arch_key)
+    target_id = case [platform_key, arch_key]
+    when [:darwin, :arm]
+      "darwin-arm64"
+    when [:darwin, :intel]
+      "darwin-x64"
+    when [:linux, :arm]
+      "linux-arm64"
+    when [:linux, :intel]
+      "linux-x64"
+    else
+      odie "Unsupported platform architecture for whisper-local formula"
+    end
+    expected_binary_name = target_id.start_with?("windows-") ? "whisper-local-tui.exe" : "whisper-local-tui"
 
     tui_archive = buildpath/"whisper-local-tui.tar.gz"
     system "curl", "-fsSL", "-o", tui_archive, tui_url
@@ -80,10 +93,29 @@ class WhisperLocal < Formula
     odie "TUI artifact SHA mismatch" if actual_sha != tui_sha
 
     (libexec/"bin").mkpath
-    system "tar", "-xzf", tui_archive, "-C", libexec/"bin"
-    chmod 0755, libexec/"bin/whisper-local-tui"
+    extraction_marker = buildpath/"whisper-local-tui-path.txt"
+    extraction_script = <<~PY
+      from pathlib import Path
+      import sys
 
-    tui_bin = libexec/"bin/whisper-local-tui"
+      from whisper_local.archive_extract import install_tui_binary_from_archive
+
+      archive_path = Path(sys.argv[1])
+      target_dir = Path(sys.argv[2])
+      expected_binary_name = sys.argv[3]
+      marker_path = Path(sys.argv[4])
+      installed = install_tui_binary_from_archive(
+          archive_path=archive_path,
+          target_dir=target_dir,
+          expected_binary_name=expected_binary_name,
+      )
+      marker_path.write_text(str(installed), encoding="utf-8")
+    PY
+    system libexec/"bin/python", "-c", extraction_script,
+           tui_archive, libexec/"bin", expected_binary_name, extraction_marker
+
+    tui_bin = Pathname.new(extraction_marker.read.strip)
+    chmod 0755, tui_bin unless expected_binary_name.end_with?(".exe")
     (bin/"whisper-local").write_env_script(
       libexec/"bin/whisper-local", WHISPER_LOCAL_TUI_BIN: tui_bin
     )

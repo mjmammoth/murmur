@@ -83,10 +83,6 @@ if ! command -v python3 >/dev/null 2>&1; then
   echo "Error: python3 is required" >&2
   exit 1
 fi
-if ! command -v tar >/dev/null 2>&1; then
-  echo "Error: tar is required" >&2
-  exit 1
-fi
 if command -v sha256sum >/dev/null 2>&1; then
   sha256_check_cmd=(sha256sum -c)
 elif command -v shasum >/dev/null 2>&1; then
@@ -431,15 +427,29 @@ else
   "${VENV_PYTHON}" -m pip install --no-cache-dir "${wheel_path}" >/dev/null
 fi
 
-rm -f "${TUI_ROOT}/${target}/whisper-local-tui" "${TUI_ROOT}/${target}/whisper-local-tui.exe"
-tar -xzf "${tui_archive_path}" -C "${TUI_ROOT}/${target}"
-
-if [ -f "${TUI_ROOT}/${target}/whisper-local-tui" ]; then
-  chmod +x "${TUI_ROOT}/${target}/whisper-local-tui"
-elif [ -f "${TUI_ROOT}/${target}/whisper-local-tui.exe" ]; then
-  chmod +x "${TUI_ROOT}/${target}/whisper-local-tui.exe"
+if [[ "${target}" == windows-* ]]; then
+  expected_tui_binary="whisper-local-tui.exe"
 else
-  echo "Error: extracted TUI binary not found" >&2
+  expected_tui_binary="whisper-local-tui"
+fi
+rm -f "${TUI_ROOT}/${target}/whisper-local-tui" "${TUI_ROOT}/${target}/whisper-local-tui.exe"
+if ! "${VENV_PYTHON}" - "${tui_archive_path}" "${TUI_ROOT}/${target}" "${expected_tui_binary}" <<'PY'
+from pathlib import Path
+import sys
+
+from whisper_local.archive_extract import install_tui_binary_from_archive
+
+archive_path = Path(sys.argv[1])
+target_dir = Path(sys.argv[2])
+expected_binary_name = sys.argv[3]
+install_tui_binary_from_archive(
+    archive_path=archive_path,
+    target_dir=target_dir,
+    expected_binary_name=expected_binary_name,
+)
+PY
+then
+  echo "Error: failed to safely extract TUI archive" >&2
   exit 1
 fi
 

@@ -324,6 +324,16 @@ async function main(): Promise<void> {
       }
 
       run("tar", ["-czf", archivePath, "-C", binDir, target.binaryName], repoRoot);
+      const archiveEntries = run("tar", ["-tzf", archivePath], repoRoot)
+        .split(/\r?\n/)
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+      if (archiveEntries.length !== 1 || archiveEntries[0] !== target.binaryName) {
+        throw new Error(
+          `Archive contract violation for ${target.id}: expected exactly one root entry ` +
+            `'${target.binaryName}', got [${archiveEntries.join(", ")}]`,
+        );
+      }
     }
   } finally {
     if (existsSync(bundlePath)) {

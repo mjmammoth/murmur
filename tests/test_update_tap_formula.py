@@ -154,6 +154,26 @@ def test_render_formula_substitutes_per_target_variables(module, template_file: 
     assert "https://example.com/linux-arm64.tar.gz" in rendered
 
 
+def test_render_formula_uses_secure_python_extraction(module) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    args = _base_args(
+        template=str(repo_root / "scripts" / "templates" / "whisper-local.rb.tpl"),
+        tui_url_darwin_arm64="https://example.com/darwin-arm64.tar.gz",
+        tui_sha256_darwin_arm64="1" * 64,
+        tui_url_darwin_x64="https://example.com/darwin-x64.tar.gz",
+        tui_sha256_darwin_x64="2" * 64,
+        tui_url_linux_x64="https://example.com/linux-x64.tar.gz",
+        tui_sha256_linux_x64="3" * 64,
+        tui_url_linux_arm64="https://example.com/linux-arm64.tar.gz",
+        tui_sha256_linux_arm64="4" * 64,
+    )
+
+    rendered = module.render_formula(args)
+
+    assert "install_tui_binary_from_archive" in rendered
+    assert 'system "tar", "-xzf"' not in rendered
+
+
 def test_write_formula(module, tmp_path: Path):
     rendered = "class WhisperLocal < Formula\nend\n"
     tap_repo_path = tmp_path / "tap"
