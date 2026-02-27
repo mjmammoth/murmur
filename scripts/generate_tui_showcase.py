@@ -24,6 +24,8 @@ THEME_CAPTURE_PORTS = {
     "catppuccin-mocha": 18788,
     "light": 18789,
 }
+# The mock backend emits exactly four demo transcript entries.
+MIN_TRANSCRIPT_ITEMS = 4
 CAPTURE_GEOMETRY = "120x32"
 DEFAULT_CAPTURE_SECONDS = 4.0
 README_START = "<!-- tui-showcase:start -->"
@@ -85,28 +87,30 @@ def _resolve_svg_capture(path: Path) -> Path:
         candidates = [candidate for candidate in path.rglob("*.svg") if candidate.is_file()]
         if candidates:
             candidates.sort(key=lambda candidate: candidate.name)
-            # Prefer the earliest frame with content and maximal item count.
-            # This avoids selecting teardown tail frames.
+            # Prefer frames with more transcript items and expected ready/model markers.
             best_candidate: Path | None = None
-            best_score: int | None = None
+            best_score: tuple[int, int, int, int] | None = None
             best_index = 10**9
             for index, candidate in enumerate(candidates):
                 text = candidate.read_text(encoding="utf-8", errors="ignore")
-                if "Ready" not in text or "large-v3-turbo" not in text:
-                    continue
                 items_match = re.search(r"(\d+)\s+items?", text)
                 item_count = int(items_match.group(1)) if items_match else 0
+                score = (
+                    item_count,
+                    1 if "Ready" in text else 0,
+                    1 if "large-v3-turbo" in text else 0,
+                    1 if "Transcripts" in text else 0,
+                )
                 if (
                     best_score is None
-                    or item_count > best_score
-                    or (item_count == best_score and index < best_index)
+                    or score > best_score
+                    or (score == best_score and index < best_index)
                 ):
                     best_candidate = candidate
-                    best_score = item_count
+                    best_score = score
                     best_index = index
             if best_candidate is not None:
                 return best_candidate
-            # Fallback to latest frame if no fully-populated snapshot was found.
             return candidates[-1]
 
     raise FileNotFoundError(
@@ -403,6 +407,13 @@ def run_capture_termtosvg(
         raise RuntimeError(
             "Blank capture frame detected (only cursor/empty terminal). "
             "This usually means termtosvg exited too early."
+        )
+    items_match = re.search(r"(\d+)\s+items?", svg_text)
+    item_count = int(items_match.group(1)) if items_match else 0
+    if item_count < MIN_TRANSCRIPT_ITEMS:
+        raise RuntimeError(
+            "Incomplete capture frame detected "
+            f"(items={item_count}, expected>={MIN_TRANSCRIPT_ITEMS})."
         )
     return rendered_svg
 
@@ -823,6 +834,7 @@ def main() -> int:
                     if (
                         "EADDRINUSE" in message
                         or "Blank capture frame detected" in message
+                        or "Incomplete capture frame detected" in message
                     ):
                         capture_seconds = min(capture_seconds + 1.0, 10.0)
                         continue
