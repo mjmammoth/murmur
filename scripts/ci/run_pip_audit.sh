@@ -17,4 +17,15 @@ if [[ -f "${IGNORE_FILE}" ]]; then
   done < "${IGNORE_FILE}"
 fi
 
-"${PYTHON_BIN}" -m pip_audit --strict --skip-editable "${ignore_args[@]}"
+TMP_REQUIREMENTS="$(mktemp)"
+trap 'rm -f "${TMP_REQUIREMENTS}"' EXIT
+
+"${PYTHON_BIN}" -m pip freeze --all \
+  | awk 'BEGIN { IGNORECASE=1 } $0 !~ /^whisper-local([= ]|@)/ { print }' \
+  > "${TMP_REQUIREMENTS}"
+
+cmd=("${PYTHON_BIN}" -m pip_audit --strict --skip-editable -r "${TMP_REQUIREMENTS}")
+if (( ${#ignore_args[@]} > 0 )); then
+  cmd+=("${ignore_args[@]}")
+fi
+"${cmd[@]}"

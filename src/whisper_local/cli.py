@@ -325,7 +325,12 @@ async def _wait_for_status(
             return last_status, last_message
 
 
-def _extract_status_update(raw: str) -> tuple[str | None, str | None] | None:
+def _extract_status_update(raw: str | bytes) -> tuple[str | None, str | None] | None:
+    if isinstance(raw, bytes):
+        try:
+            raw = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
