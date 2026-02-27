@@ -106,13 +106,14 @@ jobs:
           done <<< "${FILES}"
 
       - name: Install Syft
-        run: |
-          SYFT_VERSION="v1.20.0"
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin "${SYFT_VERSION}"
-          syft version
+        id: syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Check Syft version
+        run: ${{ steps.syft.outputs.cmd }} version
 
       - name: Generate SBOM (SPDX JSON)
-        run: syft dir:release-assets -o spdx-json=release-assets/sbom.spdx.json
+        run: ${{ steps.syft.outputs.cmd }} dir:release-assets -o spdx-json=release-assets/sbom.spdx.json
 
       - name: Upload checksums artifact
         uses: actions/upload-artifact@v4

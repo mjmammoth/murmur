@@ -2,10 +2,3 @@ title = "whisper.local gitleaks config"
 
 [extend]
 useDefault = true
-
-[[allowlists]]
-description = "Allow generated lockfiles that can contain high-entropy hashes"
-paths = [
-  '''(^|/)package-lock\.json$''',
-  '''(^|/)tui/bun\.lock$''',
-]

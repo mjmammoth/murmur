@@ -17,4 +17,4 @@ if [[ -f "${IGNORE_FILE}" ]]; then
   done < "${IGNORE_FILE}"
 fi
 
-"${PYTHON_BIN}" -m pip_audit --strict "${ignore_args[@]}"
+"${PYTHON_BIN}" -m pip_audit --strict --skip-editable "${ignore_args[@]}"

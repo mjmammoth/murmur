@@ -24,7 +24,14 @@ jobs:
           set -euo pipefail
           GITLEAKS_VERSION="8.24.2"
           TARBALL="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          CHECKSUMS="gitleaks_${GITLEAKS_VERSION}_checksums.txt"
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${TARBALL}" -o "${TARBALL}"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${CHECKSUMS}" -o "${CHECKSUMS}"
+          if ! grep -q " ${TARBALL}$" "${CHECKSUMS}"; then
+            echo "Missing checksum entry for ${TARBALL}"
+            exit 1
+          fi
+          sha256sum --ignore-missing -c "${CHECKSUMS}"
           tar -xzf "${TARBALL}" gitleaks
           install -m 0755 gitleaks /usr/local/bin/gitleaks
           gitleaks version
@@ -83,7 +90,7 @@ jobs:
           bun-version: "1.2.21"
 
       - name: Install TUI dependencies
-        run: bun install --frozen-lockfile --os='*' --cpu='*'
+        run: bun install --frozen-lockfile
         working-directory: tui
 
       - name: Run Bun audit
