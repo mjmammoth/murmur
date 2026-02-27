@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 import types
+from pathlib import Path
 from unittest.mock import patch
+
+import pyperclip
 
 from whisper_local.output import (
     ClipboardSnapshot,
     _clipboard_macos_snapshot,
+    _clipboard_text_snapshot,
     _restore_macos_snapshot,
+    append_to_file,
     capture_clipboard_snapshot,
+    copy_to_clipboard,
+    paste_from_clipboard,
     restore_clipboard_snapshot,
 )
 
@@ -351,3 +359,150 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
     restored = _restore_macos_snapshot([{"public.utf8-plain-text": b"hello"}])
 
     assert restored is False
+
+
+# ---------------------------------------------------------------------------
+# _clipboard_text_snapshot
+# ---------------------------------------------------------------------------
+
+def test_clipboard_text_snapshot_success():
+    with patch("whisper_local.output.pyperclip.paste", return_value="hello"):
+        assert _clipboard_text_snapshot() == "hello"
+
+
+def test_clipboard_text_snapshot_exception():
+    with patch("whisper_local.output.pyperclip.paste", side_effect=pyperclip.PyperclipException("fail")):
+        assert _clipboard_text_snapshot() is None
+
+
+# ---------------------------------------------------------------------------
+# copy_to_clipboard
+# ---------------------------------------------------------------------------
+
+def test_copy_to_clipboard_success():
+    with patch("whisper_local.output.pyperclip.copy") as mock_copy:
+        assert copy_to_clipboard("test") is True
+    mock_copy.assert_called_once_with("test")
+
+
+def test_copy_to_clipboard_failure():
+    with patch("whisper_local.output.pyperclip.copy", side_effect=pyperclip.PyperclipException("fail")):
+        assert copy_to_clipboard("test") is False
+
+
+# ---------------------------------------------------------------------------
+# paste_from_clipboard
+# ---------------------------------------------------------------------------
+
+def test_paste_from_clipboard_non_darwin():
+    with patch("whisper_local.output.sys.platform", "linux"):
+        assert paste_from_clipboard() is False
+
+
+def test_paste_from_clipboard_darwin_success():
+    with patch("whisper_local.output.sys.platform", "darwin"), \
+         patch("whisper_local.output.subprocess.run"):
+        assert paste_from_clipboard() is True
+
+
+def test_paste_from_clipboard_file_not_found():
+    with patch("whisper_local.output.sys.platform", "darwin"), \
+         patch("whisper_local.output.subprocess.run", side_effect=FileNotFoundError):
+        assert paste_from_clipboard() is False
+
+
+def test_paste_from_clipboard_called_process_error_permission():
+    exc = subprocess.CalledProcessError(1, "osascript", stderr="not permitted")
+    with patch("whisper_local.output.sys.platform", "darwin"), \
+         patch("whisper_local.output.subprocess.run", side_effect=exc):
+        assert paste_from_clipboard() is False
+
+
+def test_paste_from_clipboard_called_process_error_other():
+    exc = subprocess.CalledProcessError(1, "osascript", stderr="some error")
+    with patch("whisper_local.output.sys.platform", "darwin"), \
+         patch("whisper_local.output.subprocess.run", side_effect=exc):
+        assert paste_from_clipboard() is False
+
+
+def test_paste_from_clipboard_oserror_permission():
+    with patch("whisper_local.output.sys.platform", "darwin"), \
+         patch("whisper_local.output.subprocess.run", side_effect=OSError("not permitted")):
+        assert paste_from_clipboard() is False
+
+
+def test_paste_from_clipboard_oserror_other():
+    with patch("whisper_local.output.sys.platform", "darwin"), \
+         patch("whisper_local.output.subprocess.run", side_effect=OSError("random error")):
+        assert paste_from_clipboard() is False
+
+
+# ---------------------------------------------------------------------------
+# append_to_file
+# ---------------------------------------------------------------------------
+
+def test_append_to_file_creates_dirs_and_writes(tmp_path: Path):
+    target = tmp_path / "sub" / "output.txt"
+    append_to_file(target, "hello world")
+    assert target.read_text(encoding="utf-8") == "hello world\n"
+
+
+def test_append_to_file_appends_newline_when_missing(tmp_path: Path):
+    target = tmp_path / "output.txt"
+    append_to_file(target, "line1")
+    append_to_file(target, "line2\n")
+    content = target.read_text(encoding="utf-8")
+    assert content == "line1\nline2\n"
+
+
+# ---------------------------------------------------------------------------
+# restore_clipboard_snapshot — edge cases
+# ---------------------------------------------------------------------------
+
+def test_restore_clipboard_snapshot_none():
+    assert restore_clipboard_snapshot(None) is False
+
+
+def test_restore_clipboard_snapshot_text_pyperclip_failure():
+    snapshot = ClipboardSnapshot(macos_items=None, text="hello")
+    with patch("whisper_local.output.pyperclip.copy", side_effect=pyperclip.PyperclipException("fail")):
+        assert restore_clipboard_snapshot(snapshot) is False
+
+
+def test_restore_clipboard_snapshot_no_text_no_macos():
+    snapshot = ClipboardSnapshot(macos_items=None, text=None)
+    assert restore_clipboard_snapshot(snapshot) is False
+
+
+# ---------------------------------------------------------------------------
+# _clipboard_macos_snapshot — non-darwin / AppKit unavailable
+# ---------------------------------------------------------------------------
+
+def test_clipboard_macos_snapshot_non_darwin():
+    with patch("whisper_local.output.sys.platform", "linux"):
+        assert _clipboard_macos_snapshot() is None
+
+
+def test_clipboard_macos_snapshot_appkit_import_error(monkeypatch):
+    monkeypatch.setattr("whisper_local.output.sys.platform", "darwin")
+    # Remove AppKit from modules so the import fails
+    with patch.dict("sys.modules", {"AppKit": None}):
+        assert _clipboard_macos_snapshot() is None
+
+
+# ---------------------------------------------------------------------------
+# _clipboard_macos_snapshot — pasteboard has no items
+# ---------------------------------------------------------------------------
+
+def test_clipboard_macos_snapshot_empty_pasteboard(monkeypatch):
+    class FakePasteboard:
+        @staticmethod
+        def generalPasteboard():
+            return FakePasteboard()
+        def pasteboardItems(self):
+            return None
+
+    fake_appkit = types.SimpleNamespace(NSPasteboard=FakePasteboard)
+    monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
+    monkeypatch.setattr("whisper_local.output.sys.platform", "darwin")
+    assert _clipboard_macos_snapshot() == []
