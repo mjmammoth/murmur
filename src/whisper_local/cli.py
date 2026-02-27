@@ -29,6 +29,10 @@ else:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+NO_STATUS_INDICATOR_AUTOSTART_HELP = (
+    "Disable macOS menu bar status indicator while auto-starting service"
+)
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
@@ -46,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
-        help="Disable macOS menu bar status indicator while auto-starting service",
+        help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
     )
 
     bridge_parser = subparsers.add_parser("bridge", help="Start only the WebSocket bridge server")
@@ -63,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     tui_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
-        help="Disable macOS menu bar status indicator while auto-starting service",
+        help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
     )
 
     start_parser = subparsers.add_parser("start", help="Start service")
@@ -99,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     trigger_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
-        help="Disable macOS menu bar status indicator while auto-starting service",
+        help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
     )
 
     models_parser = subparsers.add_parser("models", help="Manage models")
