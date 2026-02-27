@@ -5,11 +5,10 @@ on:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: read
-
 jobs:
   precommit_guard:
+    permissions:
+      contents: read
     runs-on: macos-14
     env:
       WHISPER_LOCAL_SKIP_TUI_SHOWCASE: "1"
@@ -38,6 +37,8 @@ jobs:
         run: pre-commit run --all-files
 
   python_smoke_matrix:
+    permissions:
+      contents: read
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -67,6 +68,8 @@ jobs:
         run: python -m whisper_local.cli trigger --help
 
   python_checks:
+    permissions:
+      contents: read
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -114,6 +117,8 @@ jobs:
           path: dist/*
 
   brew_formula_smoke:
+    permissions:
+      contents: read
     needs: [python_checks]
     runs-on: macos-14
     steps:
@@ -201,6 +206,8 @@ jobs:
           PY
 
   brew_formula_audit:
+    permissions:
+      contents: read
     needs: [python_checks, tui_build_smoke]
     runs-on: macos-14
     steps:
@@ -312,6 +319,8 @@ jobs:
         run: brew audit --formula local/whisper-local-ci/whisper-local
 
   tui_build_smoke:
+    permissions:
+      contents: read
     runs-on: macos-14
     steps:
       - name: Checkout

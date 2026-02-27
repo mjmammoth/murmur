@@ -8,11 +8,10 @@ on:
     - cron: "23 6 * * 1"
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   secret_scan:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -48,6 +47,8 @@ jobs:
             --redact
 
   python_dependency_audit:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -69,6 +70,8 @@ jobs:
         run: scripts/ci/run_pip_audit.sh
 
   tui_dependency_audit:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
