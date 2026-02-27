@@ -93,8 +93,7 @@ def _resolve_svg_capture(path: Path) -> Path:
             best_index = 10**9
             for index, candidate in enumerate(candidates):
                 text = candidate.read_text(encoding="utf-8", errors="ignore")
-                items_match = re.search(r"(\d+)\s+items?", text)
-                item_count = int(items_match.group(1)) if items_match else 0
+                item_count = _extract_transcript_item_count(text)
                 score = (
                     item_count,
                     1 if "Ready" in text else 0,
@@ -117,6 +116,37 @@ def _resolve_svg_capture(path: Path) -> Path:
         f"Could not find rendered SVG at '{path}'. "
         "termtosvg may have failed before producing output."
     )
+
+
+def _extract_transcript_item_count(text: str) -> int:
+    """
+    Extract the largest "<n> item(s)" count from text using a linear scan.
+    """
+    max_items = 0
+    marker = " item"
+    search_from = 0
+
+    while True:
+        marker_index = text.find(marker, search_from)
+        if marker_index == -1:
+            break
+
+        end = marker_index - 1
+        while end >= 0 and text[end].isspace():
+            end -= 1
+
+        start = end
+        while start >= 0 and text[start].isdigit():
+            start -= 1
+
+        if start < end:
+            count = int(text[start + 1 : end + 1])
+            if count > max_items:
+                max_items = count
+
+        search_from = marker_index + len(marker)
+
+    return max_items
 
 
 def _sanitize_termtosvg_svg(path: Path) -> None:
@@ -408,8 +438,7 @@ def run_capture_termtosvg(
             "Blank capture frame detected (only cursor/empty terminal). "
             "This usually means termtosvg exited too early."
         )
-    items_match = re.search(r"(\d+)\s+items?", svg_text)
-    item_count = int(items_match.group(1)) if items_match else 0
+    item_count = _extract_transcript_item_count(svg_text)
     if item_count < MIN_TRANSCRIPT_ITEMS:
         raise RuntimeError(
             "Incomplete capture frame detected "
