@@ -185,7 +185,7 @@ def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
     run_bridge(config, host, port, capture_logs=capture_logs)
 
 
-def _run_tui(host: str, port: int) -> subprocess.Popen:
+def _run_tui(host: str, port: int) -> subprocess.Popen[bytes]:
     runtime = resolve_tui_runtime(cli_file=__file__)
     logger.info("Starting TUI runtime mode=%s", runtime.mode)
     cmd = [*runtime.command, "--host", host, "--port", str(port)]

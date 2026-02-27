@@ -44,7 +44,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python tooling
-        run: python -m pip install --upgrade pip build mypy pytest ruff
+        run: python -m pip install --upgrade pip build mypy pytest pytest-cov ruff
 
       - name: Install project dependencies
         run: python -m pip install -e .
