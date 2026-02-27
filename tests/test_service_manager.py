@@ -3,7 +3,7 @@ from __future__ import annotations
 import errno
 import json
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 import pytest
 
@@ -46,6 +46,74 @@ def test_terminate_pid_ignores_waitpid_errors() -> None:
         create=True,
     ):
         service_manager._terminate_pid(1234, timeout=0.0)
+
+
+def test_terminate_pid_skips_when_expected_pid_check_fails() -> None:
+    with patch("whisper_local.service_manager._is_pid_alive", return_value=True), patch(
+        "whisper_local.service_manager.os.kill"
+    ) as mock_kill:
+        service_manager._terminate_pid(1234, is_expected_pid=lambda _: False)
+
+    mock_kill.assert_not_called()
+
+
+def test_pid_matches_bridge_process_checks_expected_arguments() -> None:
+    with patch(
+        "whisper_local.service_manager._process_argv",
+        return_value=(
+            "/usr/bin/python3",
+            "-m",
+            "whisper_local.cli",
+            "bridge",
+            "--host",
+            "localhost",
+            "--port",
+            "7878",
+            "--capture-logs",
+        ),
+    ):
+        assert service_manager._pid_matches_bridge_process(2222, host="localhost", port=7878) is True
+        assert service_manager._pid_matches_bridge_process(2222, host="127.0.0.1", port=7878) is False
+        assert service_manager._pid_matches_bridge_process(2222, host="localhost", port=9000) is False
+
+
+def test_pid_matches_status_indicator_process_checks_expected_arguments() -> None:
+    with patch(
+        "whisper_local.service_manager._process_argv",
+        return_value=(
+            "/usr/bin/python3",
+            "-m",
+            "whisper_local.status_indicator",
+            "--host",
+            "localhost",
+            "--port",
+            "7878",
+        ),
+    ):
+        assert (
+            service_manager._pid_matches_status_indicator_process(
+                3333,
+                host="localhost",
+                port=7878,
+            )
+            is True
+        )
+        assert (
+            service_manager._pid_matches_status_indicator_process(
+                3333,
+                host="127.0.0.1",
+                port=7878,
+            )
+            is False
+        )
+        assert (
+            service_manager._pid_matches_status_indicator_process(
+                3333,
+                host="localhost",
+                port=9000,
+            )
+            is False
+        )
 
 
 def test_status_returns_stopped_when_state_missing(tmp_path: Path) -> None:
@@ -99,8 +167,8 @@ def test_status_marks_alive_but_unreachable_state_stale(tmp_path: Path) -> None:
     assert status.host == "localhost"
     assert status.port == 7878
     assert status.status_indicator_pid == 3333
-    mock_terminate.assert_any_call(2222)
-    mock_terminate.assert_any_call(3333, timeout=1.5)
+    mock_terminate.assert_any_call(2222, is_expected_pid=ANY)
+    mock_terminate.assert_any_call(3333, timeout=1.5, is_expected_pid=ANY)
     assert state_path.exists() is False
 
 
@@ -210,8 +278,8 @@ def test_start_background_restarts_when_existing_state_target_differs(tmp_path: 
     ):
         status = manager.start_background(host="127.0.0.1", port=9000, status_indicator=False)
 
-    mock_terminate.assert_any_call(4444)
-    mock_terminate.assert_any_call(5555)
+    mock_terminate.assert_any_call(4444, is_expected_pid=ANY)
+    mock_terminate.assert_any_call(5555, is_expected_pid=ANY)
     assert status.running is True
     assert status.pid == 7777
     assert status.host == "127.0.0.1"
@@ -264,8 +332,8 @@ def test_start_background_recovers_missing_indicator_on_darwin(tmp_path: Path, m
     ) as mock_terminate:
         status = manager.start_background(host="localhost", port=7878, status_indicator=True)
 
-    mock_terminate.assert_any_call(4444)
-    mock_terminate.assert_any_call(5555)
+    mock_terminate.assert_any_call(4444, is_expected_pid=ANY)
+    mock_terminate.assert_any_call(5555, is_expected_pid=ANY)
     mock_create_indicator_provider.assert_called_once_with(
         host="localhost",
         port=7878,
@@ -342,7 +410,7 @@ def test_start_background_indicator_start_failure_cleans_bridge_process(
             manager.start_background(host="localhost", port=7878, status_indicator=True)
 
     indicator_provider.stop.assert_called_once()
-    mock_terminate.assert_called_once_with(1234, timeout=1.0)
+    mock_terminate.assert_called_once_with(1234, timeout=1.0, is_expected_pid=ANY)
     assert state_path.exists() is False
 
 
@@ -366,8 +434,8 @@ def test_stop_terminates_service_and_indicator(tmp_path: Path) -> None:
         manager.stop()
 
     assert mock_terminate.call_count == 2
-    mock_terminate.assert_any_call(1234)
-    mock_terminate.assert_any_call(5678, timeout=1.5)
+    mock_terminate.assert_any_call(1234, is_expected_pid=ANY)
+    mock_terminate.assert_any_call(5678, timeout=1.5, is_expected_pid=ANY)
     assert state_path.exists() is False
 
 

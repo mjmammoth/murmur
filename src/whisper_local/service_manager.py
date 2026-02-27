@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import errno
+import functools
 import json
 import logging
 import os
+import shlex
 import signal
 import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Callable
 
 from whisper_local.platform import create_status_indicator_provider
 from whisper_local.service_state import (
@@ -24,6 +27,81 @@ SERVICE_READY_TIMEOUT_SECONDS = 8.0
 SERVICE_READY_POLL_SECONDS = 0.1
 
 logger = logging.getLogger(__name__)
+
+
+def _process_argv(pid: int) -> tuple[str, ...] | None:
+    proc_path = Path(f"/proc/{pid}/cmdline")
+    try:
+        raw = proc_path.read_bytes()
+    except Exception:
+        raw = b""
+    if raw:
+        return tuple(part.decode(errors="replace") for part in raw.split(b"\x00") if part)
+
+    if sys.platform == "darwin":
+        command = ["/bin/ps", "-o", "args=", "-p", str(pid)]
+    else:
+        command = ["ps", "-o", "args=", "-p", str(pid)]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+
+    raw_command = result.stdout.strip()
+    if not raw_command:
+        return None
+    try:
+        return tuple(shlex.split(raw_command))
+    except ValueError:
+        return tuple(raw_command.split())
+
+
+def _argv_contains_sequence(argv: tuple[str, ...], sequence: tuple[str, ...]) -> bool:
+    if not sequence:
+        return True
+    if len(argv) < len(sequence):
+        return False
+    for index in range(0, len(argv) - len(sequence) + 1):
+        if argv[index : index + len(sequence)] == sequence:
+            return True
+    return False
+
+
+def _argv_contains_option_value(argv: tuple[str, ...], option: str, expected: str) -> bool:
+    for index in range(0, len(argv) - 1):
+        if argv[index] == option and argv[index + 1] == expected:
+            return True
+    return False
+
+
+def _pid_matches_bridge_process(pid: int, *, host: str, port: int) -> bool:
+    argv = _process_argv(pid)
+    if argv is None:
+        return False
+    return (
+        _argv_contains_sequence(argv, ("-m", "whisper_local.cli", "bridge"))
+        and _argv_contains_option_value(argv, "--host", host)
+        and _argv_contains_option_value(argv, "--port", str(port))
+    )
+
+
+def _pid_matches_status_indicator_process(pid: int, *, host: str, port: int) -> bool:
+    argv = _process_argv(pid)
+    if argv is None:
+        return False
+    return (
+        _argv_contains_sequence(argv, ("-m", "whisper_local.status_indicator"))
+        and _argv_contains_option_value(argv, "--host", host)
+        and _argv_contains_option_value(argv, "--port", str(port))
+    )
 
 
 def _is_pid_alive(pid: int | None) -> bool:
@@ -53,10 +131,19 @@ def _wait_for_port(host: str, port: int, *, timeout: float) -> bool:
     return _is_port_reachable(host, port)
 
 
-def _terminate_pid(pid: int | None, *, timeout: float = 4.0) -> None:
+def _terminate_pid(
+    pid: int | None,
+    *,
+    timeout: float = 4.0,
+    is_expected_pid: Callable[[int], bool] | None = None,
+) -> None:
+    if pid is None or pid <= 0:
+        return
+    if is_expected_pid is not None and not is_expected_pid(pid):
+        logger.warning("Skipping signal to unexpected pid=%s", pid)
+        return
     if not _is_pid_alive(pid):
         return
-    assert pid is not None
 
     try:
         os.kill(pid, signal.SIGTERM)
@@ -136,8 +223,23 @@ class ServiceManager:
         running = pid_alive and reachable
         if stale:
             if pid_alive and not reachable:
-                _terminate_pid(state.pid)
-                _terminate_pid(state.status_indicator_pid, timeout=1.5)
+                _terminate_pid(
+                    state.pid,
+                    is_expected_pid=functools.partial(
+                        _pid_matches_bridge_process,
+                        host=state.host,
+                        port=state.port,
+                    ),
+                )
+                _terminate_pid(
+                    state.status_indicator_pid,
+                    timeout=1.5,
+                    is_expected_pid=functools.partial(
+                        _pid_matches_status_indicator_process,
+                        host=state.host,
+                        port=state.port,
+                    ),
+                )
             self.clear_state()
             return ServiceStatus(
                 running=False,
@@ -201,8 +303,22 @@ class ServiceManager:
                     current_state.host,
                     current_state.port,
                 )
-            _terminate_pid(current_state.pid)
-            _terminate_pid(current_state.status_indicator_pid)
+            _terminate_pid(
+                current_state.pid,
+                is_expected_pid=functools.partial(
+                    _pid_matches_bridge_process,
+                    host=current_state.host,
+                    port=current_state.port,
+                ),
+            )
+            _terminate_pid(
+                current_state.status_indicator_pid,
+                is_expected_pid=functools.partial(
+                    _pid_matches_status_indicator_process,
+                    host=current_state.host,
+                    port=current_state.port,
+                ),
+            )
             self.clear_state()
 
         ensure_state_directory()
@@ -228,7 +344,15 @@ class ServiceManager:
             )
 
         if not _wait_for_port(host, port, timeout=SERVICE_READY_TIMEOUT_SECONDS):
-            _terminate_pid(process.pid, timeout=1.0)
+            _terminate_pid(
+                process.pid,
+                timeout=1.0,
+                is_expected_pid=functools.partial(
+                    _pid_matches_bridge_process,
+                    host=host,
+                    port=port,
+                ),
+            )
             raise RuntimeError(f"Service failed to start on {host}:{port}")
 
         indicator_pid: int | None = None
@@ -248,7 +372,15 @@ class ServiceManager:
                     indicator_provider.stop()
                 except Exception:
                     logger.debug("Failed to clean up status indicator provider after start failure")
-                _terminate_pid(process.pid, timeout=1.0)
+                _terminate_pid(
+                    process.pid,
+                    timeout=1.0,
+                    is_expected_pid=functools.partial(
+                        _pid_matches_bridge_process,
+                        host=host,
+                        port=port,
+                    ),
+                )
                 self.clear_state()
                 raise
 
@@ -262,8 +394,24 @@ class ServiceManager:
                 )
             )
         except Exception:
-            _terminate_pid(process.pid, timeout=1.0)
-            _terminate_pid(indicator_pid, timeout=1.0)
+            _terminate_pid(
+                process.pid,
+                timeout=1.0,
+                is_expected_pid=functools.partial(
+                    _pid_matches_bridge_process,
+                    host=host,
+                    port=port,
+                ),
+            )
+            _terminate_pid(
+                indicator_pid,
+                timeout=1.0,
+                is_expected_pid=functools.partial(
+                    _pid_matches_status_indicator_process,
+                    host=host,
+                    port=port,
+                ),
+            )
             self.clear_state()
             raise
         return self.status()
@@ -273,7 +421,22 @@ class ServiceManager:
         if state is None:
             return self.status()
 
-        _terminate_pid(state.pid)
-        _terminate_pid(state.status_indicator_pid, timeout=1.5)
+        _terminate_pid(
+            state.pid,
+            is_expected_pid=functools.partial(
+                _pid_matches_bridge_process,
+                host=state.host,
+                port=state.port,
+            ),
+        )
+        _terminate_pid(
+            state.status_indicator_pid,
+            timeout=1.5,
+            is_expected_pid=functools.partial(
+                _pid_matches_status_indicator_process,
+                host=state.host,
+                port=state.port,
+            ),
+        )
         self.clear_state()
         return self.status()
