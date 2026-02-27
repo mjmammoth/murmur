@@ -95,7 +95,7 @@ jobs:
       - name: Run tests
         env:
           PYTHONPATH: src
-        run: pytest -q
+        run: pytest -q --cov-report=xml:coverage.xml
 
       - name: CLI smoke (parser/help)
         env:
@@ -115,6 +115,43 @@ jobs:
         with:
           name: ci-python-dist
           path: dist/*
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-coverage
+          path: coverage.xml
+
+  sonarcloud:
+    permissions:
+      contents: read
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: [python_checks]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-coverage
+          path: .
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7.0.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+
+      - name: SonarCloud Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@cf038b0e0cdecfa9e56c198bbb7d21d751d62c3b # v1.2.0
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
 
   brew_formula_smoke:
     permissions:
