@@ -44,27 +44,35 @@
 #### macOS / Linux
 
 ```bash
-# YOLO
 curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | bash
-# or
-brew install mjmammoth/tap/whisper.local
 ```
 
-#### Windows
-
-Download the latest `whisper-local-tui-windows-x64.tar.gz` from [Releases](https://github.com/mjmammoth/whisper.local/releases/latest), extract, and run.
-
-#### Upgrade
+<details>
+  <summary>Alternative Installation Methods</summary>
 
 ```bash
-whisper.local upgrade # upgrade to latest version
+  # or
+  brew install mjmammoth/tap/whisper.local
 ```
+</details>
+
+<details>
+  <summary>Windows</summary>
+
+  Download the latest `whisper-local-tui-windows-x64.tar.gz` from [Releases](https://github.com/mjmammoth/whisper.local/releases/latest), extract, and run.
+</details>
 
 ### Quick Start
 
 ```bash
 whisper.local tui     # guided onboarding, starts background service and opens terminal UI - useful for first-time configuration
 whisper.local start   # start background service only
+```
+
+#### Upgrade
+
+```bash
+whisper.local upgrade # upgrade to latest version
 ```
 
 ### Troubleshooting
