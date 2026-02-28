@@ -50,10 +50,9 @@ curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/instal
 <details>
   <summary>Alternative Installation Methods</summary>
 
-```bash
-  # or
+  ```bash
   brew install mjmammoth/tap/whisper.local
-```
+  ```
 </details>
 
 <details>
