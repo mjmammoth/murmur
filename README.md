@@ -7,10 +7,10 @@
 <p align="center">
   <a href="https://sonarcloud.io/summary/new_code?id=mjmammoth_whisper.local"><img src="https://sonarcloud.io/api/project_badges/measure?project=mjmammoth_whisper.local&metric=security_rating" alt="Security Rating"></a>
   <a href="https://github.com/mjmammoth/whisper.local/actions/workflows/release.yml"><img src="https://github.com/mjmammoth/whisper.local/actions/workflows/release.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/mjmammoth/whisper.local/releases/latest"><img src="https://img.shields.io/github/v/release/mjmammoth/whisper.local-blue?display_name=tag&labelColor=171717" alt="Latest Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?labelColor=171717" alt="License: Apache 2.0"></a>
-  <a href="#homebrew-v1-arm64"><img src="https://img.shields.io/badge/Homebrew-install-orange?logo=homebrew&labelColor=171717&color=FF570A" alt="Homebrew"></a>
-  <a href="https://coderabbit.ai/"><img src="https://img.shields.io/coderabbit/prs/github/mjmammoth/whisper.local?utm_source=oss&utm_medium=github&utm_campaign=mjmammoth%2Fwhisper.local&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews" alt="CodeRabbit Pull Request Reviews"></a>
+  <a href="https://github.com/mjmammoth/whisper.local/releases/latest"><img src="https://img.shields.io/github/v/release/mjmammoth/whisper.local?display_name=tag&labelColor=171717&color=0AB2FF&logo=github&style=for-the-badge" alt="Latest Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?labelColor=171717&color=0AB2FF&style=for-the-badge" alt="License: Apache 2.0"></a>
+  <a href="#homebrew-v1-arm64"><img src="https://img.shields.io/badge/Homebrew-install-orange?logo=homebrew&labelColor=171717&color=FF570A&style=for-the-badge" alt="Homebrew"></a>
+  <a href="https://coderabbit.ai/"><img src="https://img.shields.io/coderabbit/prs/github/mjmammoth/whisper.local?utm_source=oss&utm_medium=github&utm_campaign=mjmammoth%2Fwhisper.local&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews&style=for-the-badge" alt="CodeRabbit Pull Request Reviews"></a>
 </p>
 
 
@@ -27,7 +27,7 @@
 Everything runs on your machine. No cloud API, no network calls, no data collection. Your voice stays on your machine, always.
 
 > [!IMPORTANT]
-> This code in this repo has mostly been created by AI assisted workflows
+> This code in this repo has mostly been created by AI-assisted workflows
 
 ## Features
 
