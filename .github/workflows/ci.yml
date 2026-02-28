@@ -126,7 +126,7 @@ jobs:
     permissions:
       contents: read
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    needs: [python_checks]
+    needs: [python_checks, tui_build_smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -134,11 +134,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download coverage artifact
+      - name: Download Python coverage artifact
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
           name: ci-coverage
           path: .
+
+      - name: Download TUI coverage artifact
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
+        with:
+          name: ci-tui-coverage
+          path: tui/coverage
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7.0.0
@@ -372,9 +378,15 @@ jobs:
         run: bun install --frozen-lockfile --os='*' --cpu='*'
         working-directory: tui
 
-      - name: Run TUI unit tests
-        run: bun test --timeout 5000
+      - name: Run TUI unit tests with coverage
+        run: bun test --timeout 5000 --coverage
         working-directory: tui
+
+      - name: Upload TUI coverage artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: ci-tui-coverage
+          path: tui/coverage/lcov.info
 
       - name: Type check TUI
         run: bunx tsc --noEmit -p tui/tsconfig.json
