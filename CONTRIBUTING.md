@@ -70,7 +70,7 @@ pre-commit run --all-files
 pytest
 ruff check src/
 mypy src/
-cd tui && bun test --timeout 5000
+cd tui && bun test --timeout 5000 --coverage
 ```
 
 ## Security scan exceptions
@@ -84,6 +84,7 @@ Security scans fail by default. Reviewed exceptions must be explicit and documen
 
 - SonarCloud analysis and quality gate are required for pushes to `main` and same-repo PRs.
 - Fork PRs skip SonarCloud because repository secrets are unavailable.
+- Coverage on new code must be at least 70%. Both Python (`coverage.xml`) and TUI (`tui/coverage/lcov.info`) reports are fed to SonarCloud.
 
 ## Branch and pull request workflow
 
