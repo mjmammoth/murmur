@@ -146,6 +146,15 @@ jobs:
           name: ci-tui-coverage
           path: tui/coverage
 
+      - name: Normalize TUI LCOV paths for Sonar
+        run: |
+          if [ ! -f tui/coverage/lcov.info ]; then
+            echo "Missing TUI coverage report at tui/coverage/lcov.info" >&2
+            exit 1
+          fi
+          sed -i 's#^SF:src/#SF:tui/src/#' tui/coverage/lcov.info
+          grep -m 5 '^SF:' tui/coverage/lcov.info
+
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7.0.0
         env:
