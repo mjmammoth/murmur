@@ -1,5 +1,3 @@
-require "digest"
-
 class WhisperLocal < Formula
   include Language::Python::Virtualenv
 
@@ -12,6 +10,26 @@ class WhisperLocal < Formula
   depends_on "portaudio"
   depends_on "python@3.12"
   depends_on "whisper-cpp"
+
+  resource "whisper-local-tui-darwin-arm64" do
+    url "$TUI_URL_DARWIN_ARM64"
+    sha256 "$TUI_SHA256_DARWIN_ARM64"
+  end
+
+  resource "whisper-local-tui-darwin-x64" do
+    url "$TUI_URL_DARWIN_X64"
+    sha256 "$TUI_SHA256_DARWIN_X64"
+  end
+
+  resource "whisper-local-tui-linux-x64" do
+    url "$TUI_URL_LINUX_X64"
+    sha256 "$TUI_SHA256_LINUX_X64"
+  end
+
+  resource "whisper-local-tui-linux-arm64" do
+    url "$TUI_URL_LINUX_ARM64"
+    sha256 "$TUI_SHA256_LINUX_ARM64"
+  end
 
   def install
     virtualenv_create(libexec, "python3.12")
@@ -40,26 +58,14 @@ class WhisperLocal < Formula
       end
     end
 
-    tui_assets = {
+    tui_resource_names = {
       darwin: {
-        arm:   [
-          "$TUI_URL_DARWIN_ARM64",
-          "$TUI_SHA256_DARWIN_ARM64",
-        ],
-        intel: [
-          "$TUI_URL_DARWIN_X64",
-          "$TUI_SHA256_DARWIN_X64",
-        ],
+        arm:   "whisper-local-tui-darwin-arm64",
+        intel: "whisper-local-tui-darwin-x64",
       },
       linux:  {
-        arm:   [
-          "$TUI_URL_LINUX_ARM64",
-          "$TUI_SHA256_LINUX_ARM64",
-        ],
-        intel: [
-          "$TUI_URL_LINUX_X64",
-          "$TUI_SHA256_LINUX_X64",
-        ],
+        arm:   "whisper-local-tui-linux-arm64",
+        intel: "whisper-local-tui-linux-x64",
       },
     }
 
@@ -77,14 +83,13 @@ class WhisperLocal < Formula
     else
       odie "Unsupported CPU architecture for whisper-local formula"
     end
-    tui_url, tui_sha = tui_assets.fetch(platform_key).fetch(arch_key)
+    tui_resource_name = tui_resource_names.fetch(platform_key).fetch(arch_key)
     expected_binary_name = "whisper-local-tui"
 
+    tui_resource = resource(tui_resource_name)
+    tui_resource.fetch
     tui_archive = buildpath/"whisper-local-tui.tar.gz"
-    system "curl", "-fsSL", "-o", tui_archive, tui_url
-
-    actual_sha = Digest::SHA256.file(tui_archive).hexdigest
-    odie "TUI artifact SHA mismatch" if actual_sha != tui_sha
+    cp tui_resource.cached_download, tui_archive
 
     (libexec/"bin").mkpath
     extraction_marker = buildpath/"whisper-local-tui-path.txt"

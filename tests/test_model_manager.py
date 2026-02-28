@@ -610,7 +610,7 @@ def test_hf_hub_xet_disabled_during_download():
     # This is a regression test to ensure XET is disabled
     # to avoid subprocess FD issues
     assert "HF_HUB_DISABLE_XET" in os.environ
-    assert bool(os.environ["HF_HUB_DISABLE_XET"])
+    assert os.environ["HF_HUB_DISABLE_XET"] == "1"
 
 
 def test_runtime_operations_factory_returns_expected_strategies():

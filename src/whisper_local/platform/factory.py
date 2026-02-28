@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from importlib import import_module
@@ -19,6 +20,9 @@ from whisper_local.platform.providers import (
     WindowsHotkeyProvider,
     X11HotkeyProvider,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 MODIFIER_ALIASES = {
@@ -233,10 +237,12 @@ def create_hotkey_provider(
     modifiers, key = parse_hotkey_tokens(hotkey)
 
     if sys.platform == "darwin":
+        logger.info("Hotkey backend selected: macOS")
         return MacOSHotkeyProvider(hotkey=hotkey, on_press=on_press, on_release=on_release)
 
     if sys.platform.startswith("linux"):
         if _is_wayland_session():
+            logger.info("Hotkey backend selected: noop (wayland session)")
             return NoopHotkeyProvider(
                 reason=(
                     "Wayland does not guarantee global key swallowing. "
@@ -246,26 +252,31 @@ def create_hotkey_provider(
 
         hotkey_available, reason = _x11_hotkey_runtime_status()
         if hotkey_available:
+            logger.info("Hotkey backend selected: X11")
             return X11HotkeyProvider(
                 key=key,
                 modifiers=modifiers,
                 on_press=on_press,
                 on_release=on_release,
             )
+        logger.info("Hotkey backend selected: noop (X11 unavailable)")
         return NoopHotkeyProvider(reason=reason)
 
     if sys.platform in {"win32", "cygwin", "msys"}:
         hotkey_available, reason = _windows_hotkey_runtime_status()
         if hotkey_available:
+            logger.info("Hotkey backend selected: Windows")
             return WindowsHotkeyProvider(
                 key=key,
                 modifiers=modifiers,
                 on_press=on_press,
                 on_release=on_release,
             )
+        logger.info("Hotkey backend selected: noop (Windows runtime unavailable)")
         return NoopHotkeyProvider(reason=reason)
 
     capabilities = detect_platform_capabilities()
+    logger.info("Hotkey backend selected: noop (unsupported platform)")
     return NoopHotkeyProvider(reason=capabilities.hotkey_guidance)
 
 

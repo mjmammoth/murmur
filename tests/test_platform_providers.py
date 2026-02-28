@@ -246,6 +246,7 @@ def test_subprocess_status_indicator_stop():
     provider._process = mock_process
     provider.stop()
     mock_process.terminate.assert_called_once()
+    assert provider._process is None
 
 
 def test_subprocess_status_indicator_stop_timeout_kills():
@@ -256,6 +257,7 @@ def test_subprocess_status_indicator_stop_timeout_kills():
     provider._process = mock_process
     provider.stop()
     mock_process.kill.assert_called_once()
+    assert provider._process is None
 
 
 def test_subprocess_status_indicator_stop_noop():
@@ -270,6 +272,7 @@ def test_subprocess_status_indicator_stop_already_exited():
     provider._process = mock_process
     provider.stop()
     mock_process.terminate.assert_not_called()
+    assert provider._process is None
 
 
 # ---------------------------------------------------------------------------

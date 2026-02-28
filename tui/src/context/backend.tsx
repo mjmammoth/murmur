@@ -147,6 +147,15 @@ export function BackendContextProvider(props: {
     };
   }
 
+  function emitHandlers<TArgs extends unknown[]>(
+    handlers: Array<(...args: TArgs) => void>,
+    ...args: TArgs
+  ) {
+    for (const handler of [...handlers]) {
+      handler(...args);
+    }
+  }
+
   /**
    * Create a unique queue key for a model within a specific runtime.
    *
@@ -210,9 +219,7 @@ export function BackendContextProvider(props: {
    * @param level - The toast severity, either `"info"` or `"error"`
    */
   function emitToast(message: string, level: "info" | "error") {
-    for (const handler of toastHandlers) {
-      handler(message, level);
-    }
+    emitHandlers(toastHandlers, message, level);
   }
 
   /**
@@ -228,9 +235,7 @@ export function BackendContextProvider(props: {
     model: string;
     format: string;
   }) {
-    for (const handler of runtimeSwitchRequiredHandlers) {
-      handler(payload);
-    }
+    emitHandlers(runtimeSwitchRequiredHandlers, payload);
   }
 
   /**
@@ -357,19 +362,15 @@ export function BackendContextProvider(props: {
         break;
 
       case "transcript":
-        for (const handler of transcriptHandlers) {
-          handler({
-            id: message.id,
-            timestamp: message.timestamp,
-            text: message.text,
-            created_at: message.created_at,
-          });
-        }
+        emitHandlers(transcriptHandlers, {
+          id: message.id,
+          timestamp: message.timestamp,
+          text: message.text,
+          created_at: message.created_at,
+        });
         break;
       case "transcript_history":
-        for (const handler of transcriptHistoryHandlers) {
-          handler(message.entries);
-        }
+        emitHandlers(transcriptHistoryHandlers, message.entries);
         break;
 
       case "models": {
@@ -420,15 +421,11 @@ export function BackendContextProvider(props: {
         break;
 
       case "hotkey_press":
-        for (const handler of hotkeyPressHandlers) {
-          handler();
-        }
+        emitHandlers(hotkeyPressHandlers);
         break;
 
       case "hotkey_release":
-        for (const handler of hotkeyReleaseHandlers) {
-          handler();
-        }
+        emitHandlers(hotkeyReleaseHandlers);
         break;
 
       case "error":

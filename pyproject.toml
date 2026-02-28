@@ -28,6 +28,7 @@ dependencies = [
   "numpy>=1.24.0",
   "pyobjc-framework-Quartz>=9.0; sys_platform == 'darwin'",
   "python-xlib>=0.33; sys_platform == 'linux'",
+  "psutil>=5.9.0; sys_platform == 'win32'",
   "pywin32>=306; sys_platform == 'win32'",
   "pyperclip>=1.8.2",
   "sounddevice>=0.4.6",

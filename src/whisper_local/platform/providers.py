@@ -482,15 +482,26 @@ class SubprocessStatusIndicatorProvider(StatusIndicatorProvider):
         )
 
     def stop(self) -> None:
-        if self._process is None:
+        process = self._process
+        if process is None:
             return
-        if self._process.poll() is not None:
-            return
-        self._process.terminate()
         try:
-            self._process.wait(timeout=1.5)
-        except Exception:
-            self._process.kill()
+            if process.poll() is not None:
+                return
+            process.terminate()
+            try:
+                process.wait(timeout=1.5)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+                try:
+                    process.wait(timeout=1.0)
+                except Exception:
+                    pass
+        finally:
+            self._process = None
 
 
 class NoopPasteProvider(PasteProvider):

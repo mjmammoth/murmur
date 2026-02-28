@@ -38,6 +38,28 @@ def _process_argv(pid: int) -> tuple[str, ...] | None:
     if raw:
         return tuple(part.decode(errors="replace") for part in raw.split(b"\x00") if part)
 
+    if sys.platform.startswith("win"):
+        try:
+            import psutil
+        except Exception as exc:
+            logger.warning("Failed to import psutil for pid cmdline lookup (pid=%s): %s", pid, exc)
+            return None
+
+        try:
+            cmdline = psutil.Process(pid).cmdline()
+        except (psutil.AccessDenied, psutil.NoSuchProcess) as exc:
+            logger.warning("Failed to read process argv via psutil (pid=%s): %s", pid, exc)
+            return None
+        except Exception as exc:
+            logger.warning("Unexpected error reading process argv via psutil (pid=%s): %s", pid, exc)
+            return None
+
+        argv = tuple(str(part) for part in cmdline if part)
+        if not argv:
+            logger.warning("Process argv lookup returned empty command line (pid=%s)", pid)
+            return None
+        return argv
+
     if sys.platform == "darwin":
         command = ["/bin/ps", "-o", "args=", "-p", str(pid)]
     else:
@@ -85,7 +107,11 @@ def _argv_contains_option_value(argv: tuple[str, ...], option: str, expected: st
 def _pid_matches_bridge_process(pid: int, *, host: str, port: int) -> bool:
     argv = _process_argv(pid)
     if argv is None:
-        return False
+        logger.warning(
+            "Could not inspect bridge argv for pid=%s; proceeding with cleanup signaling fallback",
+            pid,
+        )
+        return True
     return (
         _argv_contains_sequence(argv, ("-m", "whisper_local.cli", "bridge"))
         and _argv_contains_option_value(argv, "--host", host)
@@ -96,7 +122,11 @@ def _pid_matches_bridge_process(pid: int, *, host: str, port: int) -> bool:
 def _pid_matches_status_indicator_process(pid: int, *, host: str, port: int) -> bool:
     argv = _process_argv(pid)
     if argv is None:
-        return False
+        logger.warning(
+            "Could not inspect status indicator argv for pid=%s; proceeding with cleanup signaling fallback",
+            pid,
+        )
+        return True
     return (
         _argv_contains_sequence(argv, ("-m", "whisper_local.status_indicator"))
         and _argv_contains_option_value(argv, "--host", host)
@@ -139,9 +169,17 @@ def _terminate_pid(
 ) -> None:
     if pid is None or pid <= 0:
         return
-    if is_expected_pid is not None and not is_expected_pid(pid):
-        logger.warning("Skipping signal to unexpected pid=%s", pid)
-        return
+    if is_expected_pid is not None:
+        try:
+            if not is_expected_pid(pid):
+                logger.warning("Skipping signal to unexpected pid=%s", pid)
+                return
+        except Exception:
+            logger.warning(
+                "Failed to validate expected pid=%s; proceeding with cleanup signaling fallback",
+                pid,
+                exc_info=True,
+            )
     if not _is_pid_alive(pid):
         return
 
@@ -366,12 +404,12 @@ class ServiceManager:
                 indicator_provider.start()
                 indicator_pid = indicator_provider.pid
             except Exception:
-                logger.warning("Status indicator failed to start; continuing without it", exc_info=True)
+                logger.exception("Failed to start status indicator provider")
                 indicator_pid = None
                 try:
                     indicator_provider.stop()
                 except Exception:
-                    logger.debug("Failed to clean up status indicator provider after start failure")
+                    logger.exception("Failed to stop status indicator provider after start failure")
 
         try:
             self.save_state(

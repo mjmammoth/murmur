@@ -88,6 +88,7 @@ def test_main_non_darwin(status_indicator_module):
         status_indicator_module, "NSApplication"
     ) as mock_ns_application:
         mock_sys.platform = "linux"
-        status_indicator_module.main()
+        return_value = status_indicator_module.main()
 
+    assert return_value is None
     mock_ns_application.sharedApplication.assert_not_called()

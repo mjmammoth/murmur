@@ -191,7 +191,7 @@ def paste_from_clipboard() -> bool:
     (System Settings → Privacy & Security → Accessibility) so osascript can simulate Command+V.
 
     Returns:
-        `true` if the paste simulation succeeded, `false` otherwise.
+        `True` if the paste simulation succeeded, `False` otherwise.
     """
     if sys.platform != "darwin":
         logger.warning("Auto paste is currently supported only on macOS")

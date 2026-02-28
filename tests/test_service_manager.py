@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import json
+import sys
 from pathlib import Path
 from unittest.mock import ANY, Mock, patch
 
@@ -567,7 +568,7 @@ def test_pid_matches_bridge_process_wrong_port():
 
 def test_pid_matches_bridge_process_no_argv():
     with patch("whisper_local.service_manager._process_argv", return_value=None):
-        assert service_manager._pid_matches_bridge_process(1234, host="localhost", port=7878) is False
+        assert service_manager._pid_matches_bridge_process(1234, host="localhost", port=7878) is True
 
 
 def test_pid_matches_status_indicator_process_true():
@@ -578,7 +579,7 @@ def test_pid_matches_status_indicator_process_true():
 
 def test_pid_matches_status_indicator_process_no_argv():
     with patch("whisper_local.service_manager._process_argv", return_value=None):
-        assert service_manager._pid_matches_status_indicator_process(1234, host="localhost", port=7878) is False
+        assert service_manager._pid_matches_status_indicator_process(1234, host="localhost", port=7878) is True
 
 
 # ---------------------------------------------------------------------------
@@ -695,6 +696,34 @@ def test_process_argv_ps_empty_output():
         with patch("whisper_local.service_manager.subprocess.run", return_value=mock_result):
             result = service_manager._process_argv(1234)
     assert result is None
+
+
+def test_process_argv_windows_uses_psutil() -> None:
+    class _FakeProcess:
+        def __init__(self, pid: int) -> None:
+            assert pid == 1234
+
+        def cmdline(self) -> list[str]:
+            return ["python", "-m", "whisper_local.cli", "bridge"]
+
+    class _FakePsutil:
+        class AccessDenied(Exception):
+            pass
+
+        class NoSuchProcess(Exception):
+            pass
+
+        Process = _FakeProcess
+
+    with patch.object(service_manager.sys, "platform", "win32"), patch(
+        "whisper_local.service_manager.Path"
+    ) as MockPath, patch.dict(sys.modules, {"psutil": _FakePsutil}):
+        mock_path = Mock()
+        mock_path.read_bytes.return_value = b""
+        MockPath.return_value = mock_path
+        result = service_manager._process_argv(1234)
+
+    assert result == ("python", "-m", "whisper_local.cli", "bridge")
 
 
 # ---------------------------------------------------------------------------

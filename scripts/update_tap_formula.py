@@ -7,6 +7,7 @@ import re
 import sys
 from pathlib import Path
 from string import Template
+from typing import Mapping
 
 
 VERSION_PATTERN = re.compile(
@@ -106,14 +107,12 @@ def _resolve_tui_assets(args: argparse.Namespace) -> dict[str, str]:
             target_url = legacy_url
         if not target_sha and legacy_sha:
             target_sha = legacy_sha
-        setattr(args, url_key, target_url)
-        setattr(args, sha_key, target_sha)
         resolved[url_key] = target_url
         resolved[sha_key] = target_sha
     return resolved
 
 
-def validate_args(args: argparse.Namespace) -> None:
+def validate_args(args: argparse.Namespace) -> dict[str, str]:
     """
     Validate parsed CLI arguments for expected formats and required values.
 
@@ -134,6 +133,9 @@ def validate_args(args: argparse.Namespace) -> None:
     Raises:
         ValueError: If any argument fails its validation check (invalid version, repository,
         wheel/tui URL suffix, or SHA256 format).
+
+    Returns:
+        dict[str, str]: Resolved per-target TUI URL/SHA mapping.
     """
     if args.version and not VERSION_PATTERN.match(args.version):
         raise ValueError(f"Invalid version: {args.version}")
@@ -141,25 +143,26 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError(f"Invalid repository value: {args.repository!r}")
     if not args.wheel_url.endswith(".whl"):
         raise ValueError(f"Expected wheel URL ending in .whl: {args.wheel_url}")
-    _resolve_tui_assets(args)
+    resolved_tui_assets = _resolve_tui_assets(args)
     for target in ("darwin_arm64", "darwin_x64", "linux_x64", "linux_arm64"):
-        target_url = str(getattr(args, f"tui_url_{target}") or "")
+        target_url = resolved_tui_assets[f"tui_url_{target}"]
         if not target_url.endswith(".tar.gz"):
             raise ValueError(
                 f"Expected TUI URL ending in .tar.gz for {target.replace('_', '-')}: {target_url}"
             )
     for label, value in (
         ("wheel-sha256", args.wheel_sha256),
-        ("tui-sha256-darwin-arm64", args.tui_sha256_darwin_arm64),
-        ("tui-sha256-darwin-x64", args.tui_sha256_darwin_x64),
-        ("tui-sha256-linux-x64", args.tui_sha256_linux_x64),
-        ("tui-sha256-linux-arm64", args.tui_sha256_linux_arm64),
+        ("tui-sha256-darwin-arm64", resolved_tui_assets["tui_sha256_darwin_arm64"]),
+        ("tui-sha256-darwin-x64", resolved_tui_assets["tui_sha256_darwin_x64"]),
+        ("tui-sha256-linux-x64", resolved_tui_assets["tui_sha256_linux_x64"]),
+        ("tui-sha256-linux-arm64", resolved_tui_assets["tui_sha256_linux_arm64"]),
     ):
         if not re.fullmatch(r"[A-Fa-f0-9]{64}", value):
             raise ValueError(f"Invalid {label}: {value}")
+    return resolved_tui_assets
 
 
-def render_formula(args: argparse.Namespace) -> str:
+def render_formula(args: argparse.Namespace, tui_assets: Mapping[str, str]) -> str:
     """
     Render a Homebrew formula by substituting placeholders in a template with values from `args`.
 
@@ -168,11 +171,8 @@ def render_formula(args: argparse.Namespace) -> str:
             - repository: value for `REPOSITORY`
             - wheel_url: value for `WHEEL_URL`
             - wheel_sha256: value for `WHEEL_SHA256`
-            - tui_url_darwin_arm64 / tui_sha256_darwin_arm64
-            - tui_url_darwin_x64 / tui_sha256_darwin_x64
-            - tui_url_linux_x64 / tui_sha256_linux_x64
-            - tui_url_linux_arm64 / tui_sha256_linux_arm64
             - template: filesystem path to the template file
+        tui_assets (Mapping[str, str]): Resolved per-target TUI URL/SHA values used for substitution.
 
     Returns:
         str: Rendered formula content with all placeholders substituted.
@@ -183,14 +183,14 @@ def render_formula(args: argparse.Namespace) -> str:
         REPOSITORY=args.repository,
         WHEEL_URL=args.wheel_url,
         WHEEL_SHA256=args.wheel_sha256,
-        TUI_URL_DARWIN_ARM64=args.tui_url_darwin_arm64,
-        TUI_SHA256_DARWIN_ARM64=args.tui_sha256_darwin_arm64,
-        TUI_URL_DARWIN_X64=args.tui_url_darwin_x64,
-        TUI_SHA256_DARWIN_X64=args.tui_sha256_darwin_x64,
-        TUI_URL_LINUX_X64=args.tui_url_linux_x64,
-        TUI_SHA256_LINUX_X64=args.tui_sha256_linux_x64,
-        TUI_URL_LINUX_ARM64=args.tui_url_linux_arm64,
-        TUI_SHA256_LINUX_ARM64=args.tui_sha256_linux_arm64,
+        TUI_URL_DARWIN_ARM64=tui_assets["tui_url_darwin_arm64"],
+        TUI_SHA256_DARWIN_ARM64=tui_assets["tui_sha256_darwin_arm64"],
+        TUI_URL_DARWIN_X64=tui_assets["tui_url_darwin_x64"],
+        TUI_SHA256_DARWIN_X64=tui_assets["tui_sha256_darwin_x64"],
+        TUI_URL_LINUX_X64=tui_assets["tui_url_linux_x64"],
+        TUI_SHA256_LINUX_X64=tui_assets["tui_sha256_linux_x64"],
+        TUI_URL_LINUX_ARM64=tui_assets["tui_url_linux_arm64"],
+        TUI_SHA256_LINUX_ARM64=tui_assets["tui_sha256_linux_arm64"],
     )
 
 
@@ -223,13 +223,13 @@ def main() -> int:
         int: Exit code 0 on success.
     """
     args = parse_args()
-    validate_args(args)
+    resolved_tui_assets = validate_args(args)
 
     tap_repo_path = Path(args.tap_repo_path).resolve()
     if not tap_repo_path.exists():
         raise FileNotFoundError(f"Tap repo path does not exist: {tap_repo_path}")
 
-    rendered_formula = render_formula(args)
+    rendered_formula = render_formula(args, resolved_tui_assets)
     output_path = write_formula(
         rendered_formula=rendered_formula,
         tap_repo_path=tap_repo_path,

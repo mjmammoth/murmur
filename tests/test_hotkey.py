@@ -1,66 +1,84 @@
 from __future__ import annotations
 
+import importlib
 import sys
 import types
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
-# Force-mock AppKit and Quartz before importing hotkey module.
-# Save originals so we can restore them after import.
+KEYCODES: dict[str, int] = {}
+MODIFIER_FLAGS: dict[str, int] = {}
+HotkeyDefinition: Any = object
 
-_fake_appkit = types.ModuleType("AppKit")
-_fake_appkit.NSEvent = MagicMock()  # type: ignore[attr-defined]
 
-_fake_quartz = types.ModuleType("Quartz")
-for _attr in (
-    "CFRunLoopAddSource", "CFRunLoopGetCurrent", "CFRunLoopRun", "CFRunLoopStop",
-    "CFMachPortCreateRunLoopSource", "CGEventGetFlags", "CGEventGetIntegerValueField",
-    "CGEventMaskBit", "CGEventTapCreate", "CGEventTapEnable",
-):
-    setattr(_fake_quartz, _attr, MagicMock())
+def _parse_hotkey_uninitialized(_hotkey: str) -> Any:
+    raise RuntimeError("hotkey module not initialized")
 
-_fake_quartz.kCGEventFlagMaskAlternate = 0x80000  # type: ignore[attr-defined]
-_fake_quartz.kCGEventFlagMaskCommand = 0x100000  # type: ignore[attr-defined]
-_fake_quartz.kCGEventFlagMaskControl = 0x40000  # type: ignore[attr-defined]
-_fake_quartz.kCGEventFlagMaskShift = 0x20000  # type: ignore[attr-defined]
-_fake_quartz.kCGEventKeyDown = 10  # type: ignore[attr-defined]
-_fake_quartz.kCGEventKeyUp = 11  # type: ignore[attr-defined]
-_fake_quartz.kCGEventTapOptionDefault = 0  # type: ignore[attr-defined]
-_fake_quartz.kCGHeadInsertEventTap = 0  # type: ignore[attr-defined]
-_fake_quartz.kCGKeyboardEventKeycode = 9  # type: ignore[attr-defined]
-_fake_quartz.kCGSessionEventTap = 1  # type: ignore[attr-defined]
-_fake_quartz.kCFRunLoopCommonModes = MagicMock()  # type: ignore[attr-defined]
 
-_saved_appkit = sys.modules.get("AppKit")
-_saved_quartz = sys.modules.get("Quartz")
-sys.modules["AppKit"] = _fake_appkit
-sys.modules["Quartz"] = _fake_quartz
+parse_hotkey: Any = _parse_hotkey_uninitialized
 
-# Force a fresh import of the hotkey module with our mocks
-_hotkey_key = "whisper_local.hotkey"
-_saved_hotkey = sys.modules.pop(_hotkey_key, None)
 
-from whisper_local.hotkey import (  # noqa: E402
-    KEYCODES,
-    MODIFIER_FLAGS,
-    HotkeyDefinition,
-    parse_hotkey,
-)
+@pytest.fixture(scope="module", autouse=True)
+def _mock_hotkey_platform_modules() -> Any:
+    _fake_appkit = types.ModuleType("AppKit")
+    _fake_appkit.NSEvent = MagicMock()  # type: ignore[attr-defined]
 
-# Restore original modules to avoid polluting other tests
-if _saved_appkit is not None:
-    sys.modules["AppKit"] = _saved_appkit
-else:
-    sys.modules.pop("AppKit", None)
-if _saved_quartz is not None:
-    sys.modules["Quartz"] = _saved_quartz
-else:
-    sys.modules.pop("Quartz", None)
-if _saved_hotkey is not None:
-    sys.modules[_hotkey_key] = _saved_hotkey
-else:
-    sys.modules.pop(_hotkey_key, None)
+    _fake_quartz = types.ModuleType("Quartz")
+    for _attr in (
+        "CFRunLoopAddSource",
+        "CFRunLoopGetCurrent",
+        "CFRunLoopRun",
+        "CFRunLoopStop",
+        "CFMachPortCreateRunLoopSource",
+        "CGEventGetFlags",
+        "CGEventGetIntegerValueField",
+        "CGEventMaskBit",
+        "CGEventTapCreate",
+        "CGEventTapEnable",
+    ):
+        setattr(_fake_quartz, _attr, MagicMock())
+
+    _fake_quartz.kCGEventFlagMaskAlternate = 0x80000  # type: ignore[attr-defined]
+    _fake_quartz.kCGEventFlagMaskCommand = 0x100000  # type: ignore[attr-defined]
+    _fake_quartz.kCGEventFlagMaskControl = 0x40000  # type: ignore[attr-defined]
+    _fake_quartz.kCGEventFlagMaskShift = 0x20000  # type: ignore[attr-defined]
+    _fake_quartz.kCGEventKeyDown = 10  # type: ignore[attr-defined]
+    _fake_quartz.kCGEventKeyUp = 11  # type: ignore[attr-defined]
+    _fake_quartz.kCGEventTapOptionDefault = 0  # type: ignore[attr-defined]
+    _fake_quartz.kCGHeadInsertEventTap = 0  # type: ignore[attr-defined]
+    _fake_quartz.kCGKeyboardEventKeycode = 9  # type: ignore[attr-defined]
+    _fake_quartz.kCGSessionEventTap = 1  # type: ignore[attr-defined]
+    _fake_quartz.kCFRunLoopCommonModes = MagicMock()  # type: ignore[attr-defined]
+
+    _saved_appkit = sys.modules.get("AppKit")
+    _saved_quartz = sys.modules.get("Quartz")
+    _hotkey_key = "whisper_local.hotkey"
+    _saved_hotkey = sys.modules.pop(_hotkey_key, None)
+    sys.modules["AppKit"] = _fake_appkit
+    sys.modules["Quartz"] = _fake_quartz
+
+    try:
+        hotkey_module = importlib.import_module(_hotkey_key)
+        globals()["KEYCODES"] = hotkey_module.KEYCODES
+        globals()["MODIFIER_FLAGS"] = hotkey_module.MODIFIER_FLAGS
+        globals()["HotkeyDefinition"] = hotkey_module.HotkeyDefinition
+        globals()["parse_hotkey"] = hotkey_module.parse_hotkey
+        yield
+    finally:
+        if _saved_appkit is not None:
+            sys.modules["AppKit"] = _saved_appkit
+        else:
+            sys.modules.pop("AppKit", None)
+        if _saved_quartz is not None:
+            sys.modules["Quartz"] = _saved_quartz
+        else:
+            sys.modules.pop("Quartz", None)
+        if _saved_hotkey is not None:
+            sys.modules[_hotkey_key] = _saved_hotkey
+        else:
+            sys.modules.pop(_hotkey_key, None)
 
 
 # ---------------------------------------------------------------------------

@@ -1,319 +1,224 @@
-import { describe, expect, test, mock } from "bun:test";
-import { createRoot, createSignal } from "solid-js";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+import type { KeyEvent } from "@opentui/core";
+import { createRoot } from "solid-js";
 
-/**
- * Tests for ExitConfirmModal component
- *
- * This component displays a modal when the user tries to exit during a model download.
- * It shows download progress and allows confirming or canceling the exit.
- */
+type ActiveModelOp = {
+  type: "pulling" | "removing";
+  model: string;
+  runtime: string;
+} | null;
+
+type DownloadProgress = {
+  model: string;
+  runtime: string;
+  percent: number;
+} | null;
+
+type JsxNode = {
+  type: unknown;
+  props?: {
+    children?: unknown;
+  };
+};
+
+const rendererToken = { name: "renderer" };
+const closeDialog = mock(() => {});
+const cancelAllModelDownloads = mock(() => {});
+const registerDismissHandler = mock(() => () => {});
+const exitApp = mock(() => {});
+
+const state: {
+  dialogData: { model?: string; runtime?: string };
+  dialogType: string | null;
+  activeModelOp: ActiveModelOp;
+  progress: DownloadProgress;
+  configRuntime: string;
+} = {
+  dialogData: {},
+  dialogType: "exit-confirm",
+  activeModelOp: null,
+  progress: null,
+  configRuntime: "faster-whisper",
+};
+
+let capturedKeyHandler: ((key: KeyEvent) => void) | null = null;
+
+const jsxRuntimeStub = {
+  Fragment: Symbol.for("Fragment"),
+  jsx(type: unknown, props: Record<string, unknown> | null) {
+    return { type, props: props ?? {} };
+  },
+  jsxs(type: unknown, props: Record<string, unknown> | null) {
+    return { type, props: props ?? {} };
+  },
+  jsxDEV(type: unknown, props: Record<string, unknown> | null) {
+    return { type, props: props ?? {} };
+  },
+};
+
+mock.module("@opentui/solid/jsx-runtime", () => jsxRuntimeStub);
+mock.module("@opentui/solid/jsx-dev-runtime", () => jsxRuntimeStub);
+mock.module("@opentui/solid", () => ({
+  useKeyHandler: (handler: (key: KeyEvent) => void) => {
+    capturedKeyHandler = handler;
+  },
+  useRenderer: () => rendererToken,
+}));
+
+mock.module("../context/theme", () => ({
+  useTheme: () => ({
+    colors: () => ({
+      backgroundPanel: "#000000",
+      borderSubtle: "#333333",
+      warning: "#ff9900",
+      textMuted: "#999999",
+      text: "#ffffff",
+      textDim: "#777777",
+      error: "#ff4444",
+      selectedText: "#111111",
+      accent: "#44aaff",
+    }),
+  }),
+}));
+
+mock.module("../context/dialog", () => ({
+  useDialog: () => ({
+    currentDialog: () => (state.dialogType ? { type: state.dialogType, data: state.dialogData } : null),
+    closeDialog,
+    registerDismissHandler,
+  }),
+}));
+
+mock.module("../context/backend", () => ({
+  useBackend: () => ({
+    activeModelOp: () => state.activeModelOp,
+    downloadProgress: () => state.progress,
+    config: () => ({ model: { runtime: state.configRuntime } }),
+    cancelAllModelDownloads,
+  }),
+}));
+
+mock.module("../util/exit", () => ({ exitApp }));
+
+const { ExitConfirmModal } = await import("./exit-confirm-modal");
+
+beforeEach(() => {
+  state.dialogData = {};
+  state.dialogType = "exit-confirm";
+  state.activeModelOp = null;
+  state.progress = null;
+  state.configRuntime = "faster-whisper";
+  capturedKeyHandler = null;
+  closeDialog.mockClear();
+  cancelAllModelDownloads.mockClear();
+  registerDismissHandler.mockClear();
+  exitApp.mockClear();
+});
+
+function collectText(node: unknown): string[] {
+  if (node === null || node === undefined || typeof node === "boolean") {
+    return [];
+  }
+  if (typeof node === "string" || typeof node === "number") {
+    return [String(node)];
+  }
+  if (Array.isArray(node)) {
+    return node.flatMap((item) => collectText(item));
+  }
+  const maybeNode = node as JsxNode;
+  if (maybeNode.props && "children" in maybeNode.props) {
+    return collectText(maybeNode.props.children);
+  }
+  return [];
+}
+
+function renderModalText(): string {
+  return createRoot((dispose) => {
+    const tree = ExitConfirmModal();
+    const text = collectText(tree).join(" ");
+    dispose();
+    return text;
+  });
+}
+
+function dispatchKey(name: string, overrides: Partial<KeyEvent> = {}): void {
+  if (!capturedKeyHandler) {
+    throw new Error("Key handler was not registered");
+  }
+  const keyEvent = {
+    name,
+    eventType: "press",
+    repeated: false,
+    ctrl: false,
+    shift: false,
+    meta: false,
+    option: false,
+    preventDefault: mock(() => {}),
+    ...overrides,
+  } as unknown as KeyEvent;
+  capturedKeyHandler(keyEvent);
+}
 
 describe("ExitConfirmModal", () => {
-  describe("modelName computation", () => {
-    test("should use explicit model from dialog data", () => {
-      createRoot((dispose) => {
-        const explicitModel = "gpt-test-model";
-        const result = explicitModel.trim();
+  test("renders warning text and active download progress", () => {
+    state.dialogData = { model: "whisper-large", runtime: "faster-whisper" };
+    state.progress = { model: "whisper-large", runtime: "faster-whisper", percent: 45.7 };
 
-        expect(result).toBe("gpt-test-model");
-        expect(result.length).toBeGreaterThan(0);
-        dispose();
-      });
-    });
+    const renderedText = renderModalText();
 
-    test("should fallback to activeModelOp when no explicit model", () => {
-      createRoot((dispose) => {
-        const activeOp = { type: "pulling" as const, model: "whisper-large" };
-
-        expect(activeOp.model).toBe("whisper-large");
-        expect(activeOp.type).toBe("pulling");
-        dispose();
-      });
-    });
-
-    test("should return placeholder when no model available", () => {
-      createRoot((dispose) => {
-        const placeholder = "selected model";
-
-        expect(placeholder).toBe("selected model");
-        dispose();
-      });
-    });
+    expect(renderedText).toContain("Download in progress");
+    expect(renderedText).toContain("whisper-large");
+    expect(renderedText).toContain("faster-whisper");
+    expect(renderedText).toContain("45% downloaded");
+    expect(renderedText).toContain("Exit now to cancel the download and clean up incomplete files?");
+    expect(registerDismissHandler).toHaveBeenCalledWith("exit-confirm", expect.any(Function));
   });
 
-  describe("progressText computation", () => {
-    test("should format progress percentage correctly", () => {
-      createRoot((dispose) => {
-        const progress = { model: "whisper-base", percent: 45.7 };
-        const percent = Math.max(0, Math.min(99, Math.floor(progress.percent)));
-        const progressText = `${percent}% downloaded`;
+  test("uses active operation model when dialog data is empty", () => {
+    state.activeModelOp = {
+      type: "pulling",
+      model: "whisper-small",
+      runtime: "whisper.cpp",
+    };
+    state.progress = { model: "whisper-small", runtime: "whisper.cpp", percent: 88.2 };
 
-        expect(progressText).toBe("45% downloaded");
-        dispose();
-      });
-    });
+    const renderedText = renderModalText();
 
-    test("should clamp progress to 0-99 range", () => {
-      createRoot((dispose) => {
-        // Test lower bound
-        let percent = Math.max(0, Math.min(99, Math.floor(-10)));
-        expect(percent).toBe(0);
-
-        // Test upper bound
-        percent = Math.max(0, Math.min(99, Math.floor(150)));
-        expect(percent).toBe(99);
-
-        // Test exact 100
-        percent = Math.max(0, Math.min(99, Math.floor(100)));
-        expect(percent).toBe(99);
-
-        dispose();
-      });
-    });
-
-    test("should return empty string when no progress", () => {
-      createRoot((dispose) => {
-        const progress = null;
-        const progressText = progress ? `${Math.floor(progress)}% downloaded` : "";
-
-        expect(progressText).toBe("");
-        dispose();
-      });
-    });
-
-    test("should return empty string when model mismatch", () => {
-      createRoot((dispose) => {
-        const progress = { model: "whisper-base", percent: 50 };
-        const modelName = "whisper-large";
-        const progressText = progress.model !== modelName ? "" : `${Math.floor(progress.percent)}% downloaded`;
-
-        expect(progressText).toBe("");
-        dispose();
-      });
-    });
+    expect(renderedText).toContain("whisper-small");
+    expect(renderedText).toContain("whisper.cpp");
+    expect(renderedText).toContain("88% downloaded");
   });
 
-  describe("cancelExit function", () => {
-    test("should signal dialog to close", () => {
-      createRoot((dispose) => {
-        let dialogClosed = false;
-        const mockCloseDialog = () => { dialogClosed = true; };
+  test("escape closes the dialog without exiting", () => {
+    renderModalText();
+    dispatchKey("escape");
 
-        mockCloseDialog();
-
-        expect(dialogClosed).toBe(true);
-        dispose();
-      });
-    });
+    expect(closeDialog).toHaveBeenCalledTimes(1);
+    expect(cancelAllModelDownloads).not.toHaveBeenCalled();
+    expect(exitApp).not.toHaveBeenCalled();
   });
 
-  describe("confirmExit function", () => {
-    test("should cancel download for valid model", () => {
-      createRoot((dispose) => {
-        const modelName: string = "whisper-base";
-        let cancelledModel = "";
-        const mockCancelDownload = (model: string) => { cancelledModel = model; };
+  test("confirm keys cancel downloads and exit", () => {
+    renderModalText();
 
-        if (modelName && modelName !== "selected model") {
-          mockCancelDownload(modelName);
-        }
+    dispatchKey("return");
+    dispatchKey("y");
+    dispatchKey("q");
+    dispatchKey("c", { ctrl: true });
 
-        expect(cancelledModel).toBe("whisper-base");
-        dispose();
-      });
-    });
-
-    test("should not cancel download for placeholder model", () => {
-      createRoot((dispose) => {
-        const modelName = "selected model";
-        let cancelledModel = "";
-        const mockCancelDownload = (model: string) => { cancelledModel = model; };
-
-        if (modelName && modelName !== "selected model") {
-          mockCancelDownload(modelName);
-        }
-
-        expect(cancelledModel).toBe("");
-        dispose();
-      });
-    });
-
-    test("should call exit function", () => {
-      createRoot((dispose) => {
-        let exitCalled = false;
-        const mockExit = () => { exitCalled = true; };
-
-        mockExit();
-
-        expect(exitCalled).toBe(true);
-        dispose();
-      });
-    });
+    expect(cancelAllModelDownloads).toHaveBeenCalledTimes(4);
+    expect(exitApp).toHaveBeenCalledTimes(4);
+    expect(exitApp).toHaveBeenCalledWith(rendererToken);
   });
 
-  describe("keyboard shortcuts", () => {
-    test("should handle escape key", () => {
-      createRoot((dispose) => {
-        const key = { name: "escape", eventType: "press", repeated: false };
+  test("ignores release and repeated key events", () => {
+    renderModalText();
 
-        expect(key.name).toBe("escape");
-        expect(key.eventType).toBe("press");
-        dispose();
-      });
-    });
+    dispatchKey("escape", { eventType: "release" as KeyEvent["eventType"] });
+    dispatchKey("y", { repeated: true });
 
-    test("should handle n key", () => {
-      createRoot((dispose) => {
-        const key = { name: "n", eventType: "press", repeated: false };
-
-        expect(key.name).toBe("n");
-        dispose();
-      });
-    });
-
-    test("should handle enter key", () => {
-      createRoot((dispose) => {
-        const key = { name: "return", eventType: "press", repeated: false };
-
-        expect(key.name).toBe("return");
-        dispose();
-      });
-    });
-
-    test("should handle y key", () => {
-      createRoot((dispose) => {
-        const key = { name: "y", eventType: "press", repeated: false };
-
-        expect(key.name).toBe("y");
-        dispose();
-      });
-    });
-
-    test("should handle q key", () => {
-      createRoot((dispose) => {
-        const key = { name: "q", eventType: "press", repeated: false };
-
-        expect(key.name).toBe("q");
-        dispose();
-      });
-    });
-
-    test("should handle ctrl+c", () => {
-      createRoot((dispose) => {
-        const key = { name: "c", ctrl: true, eventType: "press", repeated: false };
-
-        expect(key.name).toBe("c");
-        expect(key.ctrl).toBe(true);
-        dispose();
-      });
-    });
-
-    test("should ignore release events", () => {
-      createRoot((dispose) => {
-        const key = { name: "escape", eventType: "release", repeated: false };
-
-        expect(key.eventType).toBe("release");
-        dispose();
-      });
-    });
-
-    test("should ignore repeated events", () => {
-      createRoot((dispose) => {
-        const key = { name: "escape", eventType: "press", repeated: true };
-
-        expect(key.repeated).toBe(true);
-        dispose();
-      });
-    });
-  });
-
-  describe("UI layout", () => {
-    test("should have correct modal width", () => {
-      createRoot((dispose) => {
-        const width = 62;
-
-        expect(width).toBe(62);
-        dispose();
-      });
-    });
-
-    test("should display warning text", () => {
-      createRoot((dispose) => {
-        const warningText = "Download in progress";
-
-        expect(warningText).toBe("Download in progress");
-        dispose();
-      });
-    });
-
-    test("should display exit confirmation question", () => {
-      createRoot((dispose) => {
-        const confirmText = "Exit now to cancel the download and clean up incomplete files?";
-
-        expect(confirmText).toContain("cancel the download");
-        dispose();
-      });
-    });
-  });
-
-  describe("edge cases", () => {
-    test("should handle undefined progress gracefully", () => {
-      createRoot((dispose) => {
-        const progress = undefined;
-        const progressText = progress ? `${Math.floor(progress)}% downloaded` : "";
-
-        expect(progressText).toBe("");
-        dispose();
-      });
-    });
-
-    test("should handle negative progress values", () => {
-      createRoot((dispose) => {
-        const percent = Math.max(0, Math.min(99, Math.floor(-50)));
-
-        expect(percent).toBe(0);
-        dispose();
-      });
-    });
-
-    test("should handle decimal progress values", () => {
-      createRoot((dispose) => {
-        const percent = Math.floor(45.999);
-
-        expect(percent).toBe(45);
-        dispose();
-      });
-    });
-  });
-
-  describe("integration scenarios", () => {
-    test("should show progress for matching model", () => {
-      createRoot((dispose) => {
-        const modelName = "whisper-base";
-        const progress = { model: "whisper-base", percent: 75 };
-
-        const shouldShowProgress = progress && progress.model === modelName;
-        expect(shouldShowProgress).toBe(true);
-
-        if (shouldShowProgress) {
-          const percent = Math.max(0, Math.min(99, Math.floor(progress.percent)));
-          expect(percent).toBe(75);
-        }
-
-        dispose();
-      });
-    });
-
-    test("should not show progress for different model", () => {
-      createRoot((dispose) => {
-        const modelName = "whisper-large";
-        const progress = { model: "whisper-base", percent: 75 };
-
-        const shouldShowProgress = progress && progress.model === modelName;
-        expect(shouldShowProgress).toBe(false);
-
-        dispose();
-      });
-    });
+    expect(closeDialog).not.toHaveBeenCalled();
+    expect(cancelAllModelDownloads).not.toHaveBeenCalled();
+    expect(exitApp).not.toHaveBeenCalled();
   });
 });

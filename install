@@ -192,7 +192,7 @@ verify_release_signature() {
   fi
 
   local gpg_status
-  gpg_status="$(GNUPGHOME="${gpg_home}" gpg --batch --status-fd 1 --verify "${signature_path}" "${checksums_path}" 2>/dev/null)" || {
+  gpg_status="$(GNUPGHOME="${gpg_home}" gpg --batch --status-fd=1 --verify "${signature_path}" "${checksums_path}" 2>/dev/null)" || {
     echo "Error: release checksum signature verification failed" >&2
     exit 1
   }

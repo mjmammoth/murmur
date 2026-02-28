@@ -25,7 +25,7 @@ def module():
 
 def test_patch_pyte_report_device_status_when_pyte_unavailable(module) -> None:
     """Test that patch_pyte_report_device_status does nothing when pyte is not importable."""
-    with patch.dict(sys.modules, {"pyte.screens": None}):
+    with patch.dict(sys.modules, {"pyte": None, "pyte.screens": None}):
         # Should not raise any exception
         module.patch_pyte_report_device_status()
 
@@ -37,7 +37,9 @@ def test_patch_pyte_report_device_status_when_method_missing(module) -> None:
     mock_screen_cls.report_device_status = None
     mock_screens.Screen = mock_screen_cls
 
-    with patch.dict(sys.modules, {"pyte.screens": mock_screens}):
+    mock_pyte = MagicMock()
+    mock_pyte.screens = mock_screens
+    with patch.dict(sys.modules, {"pyte": mock_pyte, "pyte.screens": mock_screens}):
         # Should not raise any exception
         module.patch_pyte_report_device_status()
 
@@ -57,7 +59,9 @@ def test_patch_pyte_report_device_status_when_signature_unavailable(module) -> N
 
     mock_screens.Screen = mock_screen_cls
 
-    with patch.dict(sys.modules, {"pyte.screens": mock_screens}):
+    mock_pyte = MagicMock()
+    mock_pyte.screens = mock_screens
+    with patch.dict(sys.modules, {"pyte": mock_pyte, "pyte.screens": mock_screens}):
         with patch("inspect.signature", side_effect=TypeError("Cannot inspect")):
             # Should not raise any exception
             module.patch_pyte_report_device_status()
@@ -74,7 +78,9 @@ def test_patch_pyte_report_device_status_when_private_param_exists(module) -> No
     setattr(mock_screen_cls, "report_device_status", report_device_status)
     mock_screens.Screen = mock_screen_cls
 
-    with patch.dict(sys.modules, {"pyte.screens": mock_screens}):
+    mock_pyte = MagicMock()
+    mock_pyte.screens = mock_screens
+    with patch.dict(sys.modules, {"pyte": mock_pyte, "pyte.screens": mock_screens}):
         module.patch_pyte_report_device_status()
         # Method should remain unchanged
         instance = mock_screen_cls()

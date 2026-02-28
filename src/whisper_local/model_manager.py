@@ -224,7 +224,7 @@ def whisper_local_model_cache_paths() -> tuple[Path, ...]:
     deduped: list[Path] = []
     seen: set[Path] = set()
     for path in paths:
-        resolved = path.expanduser()
+        resolved = path.expanduser().resolve(strict=False)
         if resolved in seen:
             continue
         seen.add(resolved)
@@ -763,7 +763,7 @@ def _make_progress_tqdm(
     """
 
     class _ProgressTqdm:
-        _lock: Any = threading.Lock()
+        _lock: threading.Lock = threading.Lock()
 
         @staticmethod
         def _raise_if_cancelled() -> None:
@@ -887,11 +887,11 @@ def _make_progress_tqdm(
             pass
 
         @classmethod
-        def get_lock(cls) -> Any:
+        def get_lock(cls) -> threading.Lock:
             return cls._lock
 
         @classmethod
-        def set_lock(cls, lock: Any) -> None:
+        def set_lock(cls, lock: threading.Lock) -> None:
             cls._lock = lock
 
         def moveto(self, *args: object, **kwargs: object) -> None:

@@ -83,12 +83,12 @@ def test_version_pattern_rejects_non_canonical_versions(module):
 def test_validate_args_accepts_legacy_tui_values(module):
     args = _base_args()
 
-    module.validate_args(args)
+    resolved = module.validate_args(args)
 
-    assert args.tui_url_darwin_arm64 == args.tui_url
-    assert args.tui_url_darwin_x64 == args.tui_url
-    assert args.tui_url_linux_x64 == args.tui_url
-    assert args.tui_url_linux_arm64 == args.tui_url
+    assert resolved["tui_url_darwin_arm64"] == args.tui_url
+    assert resolved["tui_url_darwin_x64"] == args.tui_url
+    assert resolved["tui_url_linux_x64"] == args.tui_url
+    assert resolved["tui_url_linux_arm64"] == args.tui_url
 
 
 def test_validate_args_accepts_per_target_tui_values(module):
@@ -157,7 +157,8 @@ def test_render_formula_substitutes_per_target_variables(module, template_file: 
         tui_sha256_linux_arm64="4" * 64,
     )
 
-    rendered = module.render_formula(args)
+    resolved = module.validate_args(args)
+    rendered = module.render_formula(args, resolved)
 
     assert "https://example.com/package.whl" in rendered
     assert "https://example.com/darwin-arm64.tar.gz" in rendered
@@ -180,10 +181,13 @@ def test_render_formula_uses_secure_python_extraction(module) -> None:
         tui_sha256_linux_arm64="4" * 64,
     )
 
-    rendered = module.render_formula(args)
+    resolved = module.validate_args(args)
+    rendered = module.render_formula(args, resolved)
 
     assert "install_tui_binary_from_archive" in rendered
     assert 'system "tar", "-xzf"' not in rendered
+    assert 'system "curl", "-fsSL"' not in rendered
+    assert 'resource "whisper-local-tui-darwin-arm64"' in rendered
 
 
 def test_render_preview_formula_template(module) -> None:
@@ -200,7 +204,8 @@ def test_render_preview_formula_template(module) -> None:
         tui_sha256_linux_arm64="4" * 64,
     )
 
-    rendered = module.render_formula(args)
+    resolved = module.validate_args(args)
+    rendered = module.render_formula(args, resolved)
 
     assert "class WhisperLocalPreview < Formula" in rendered
     assert 'conflicts_with "whisper-local"' in rendered

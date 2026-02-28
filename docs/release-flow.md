@@ -26,7 +26,7 @@ flowchart TD
 Use canonical PEP 440 with a leading `v`:
 
 - Stable: `vX.Y.Z`
-- Post release: `vX.Y.Z.postN`
+- Post-release: `vX.Y.Z.postN`
 - Pre-release: `vX.Y.ZaN`, `vX.Y.ZbN`, `vX.Y.ZrcN`, `vX.Y.Z.devN`
 
 Rejected examples:
