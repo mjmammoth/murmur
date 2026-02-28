@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
+import json
+import runpy
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
@@ -785,3 +788,570 @@ def test_wait_for_status_ignores_non_object_json_payloads() -> None:
 
     assert status == "ready"
     assert message == "Ready"
+
+
+@patch("whisper_local.cli.subprocess.run", side_effect=RuntimeError("stty failed"))
+@patch("whisper_local.cli.sys.stdout")
+@patch("whisper_local.cli.sys.stdin")
+def test_restore_terminal_state_ignores_stty_failures(
+    mock_stdin: Mock,
+    mock_stdout: Mock,
+    mock_run: Mock,
+) -> None:
+    mock_stdin.isatty.return_value = True
+    mock_stdout.isatty.return_value = True
+
+    cli._restore_terminal_state()
+
+    mock_stdout.write.assert_called_once()
+    mock_stdout.flush.assert_called_once()
+    mock_run.assert_called_once_with(["stty", "sane"], check=False)
+
+
+@patch("whisper_local.cli.subprocess.run")
+@patch("whisper_local.cli.sys.stdout")
+@patch("whisper_local.cli.sys.stdin")
+def test_restore_terminal_state_ignores_terminal_write_failures(
+    mock_stdin: Mock,
+    mock_stdout: Mock,
+    mock_run: Mock,
+) -> None:
+    mock_stdin.isatty.return_value = True
+    mock_stdout.isatty.return_value = True
+    mock_stdout.write.side_effect = RuntimeError("stdout write failed")
+
+    cli._restore_terminal_state()
+
+    mock_run.assert_called_once_with(["stty", "sane"], check=False)
+
+
+@patch("whisper_local.cli._ensure_service_running")
+@patch("whisper_local.cli._run_tui")
+@patch("whisper_local.cli._restore_terminal_state")
+def test_run_tui_attach_handles_keyboard_interrupt(
+    mock_restore: Mock,
+    mock_run_tui: Mock,
+    mock_ensure_service: Mock,
+) -> None:
+    process = Mock()
+    process.wait.side_effect = KeyboardInterrupt
+    mock_run_tui.return_value = process
+    mock_ensure_service.return_value = Mock(host=None, port=None)
+
+    cli._run_tui_attach("localhost", 7878, status_indicator=True)
+
+    process.wait.assert_called_once()
+    mock_restore.assert_called_once()
+
+
+@patch("whisper_local.cli._ensure_service_running")
+@patch("whisper_local.cli._run_tui", side_effect=FileNotFoundError("tui binary not found"))
+@patch("whisper_local.cli._restore_terminal_state")
+def test_run_tui_attach_handles_missing_tui_binary(
+    mock_restore: Mock,
+    mock_run_tui: Mock,
+    mock_ensure_service: Mock,
+    capsys,
+) -> None:
+    mock_ensure_service.return_value = Mock(host=None, port=None)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli._run_tui_attach("localhost", 7878, status_indicator=True)
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "tui binary not found" in captured.out
+    mock_run_tui.assert_called_once_with("localhost", 7878)
+    mock_restore.assert_called_once()
+
+
+@patch("whisper_local.cli.logger")
+@patch("whisper_local.cli._run_bridge")
+@patch("whisper_local.cli.create_status_indicator_provider")
+def test_service_run_foreground_ignores_indicator_stop_failure(
+    mock_create_indicator_provider: Mock,
+    mock_run_bridge: Mock,
+    mock_logger: Mock,
+) -> None:
+    indicator_provider = Mock()
+    indicator_provider.stop.side_effect = RuntimeError("stop failed")
+    mock_create_indicator_provider.return_value = indicator_provider
+
+    cli._service_run("localhost", 7878, foreground=True, status_indicator=True)
+
+    mock_create_indicator_provider.assert_called_once_with(host="localhost", port=7878)
+    indicator_provider.start.assert_called_once()
+    indicator_provider.stop.assert_called_once()
+    mock_logger.warning.assert_not_called()
+    mock_run_bridge.assert_called_once_with("localhost", 7878, capture_logs=True)
+
+
+@patch("whisper_local.cli.ServiceManager")
+def test_service_run_background_reports_running_status(mock_service_manager: Mock, capsys) -> None:
+    manager = mock_service_manager.return_value
+    manager.start_background.return_value = Mock(running=True, stale=False, pid=42, host="h", port=10)
+
+    cli._service_run("h", 10, foreground=False, status_indicator=True)
+
+    manager.start_background.assert_called_once_with(host="h", port=10, status_indicator=True)
+    captured = capsys.readouterr()
+    assert "Service running pid=42 host=h port=10" in captured.out
+
+
+@patch("whisper_local.cli.ServiceManager")
+def test_service_run_background_reports_stale_status(mock_service_manager: Mock, capsys) -> None:
+    manager = mock_service_manager.return_value
+    manager.start_background.return_value = Mock(running=False, stale=True, pid=None, host="h", port=10)
+
+    cli._service_run("h", 10, foreground=False, status_indicator=False)
+
+    captured = capsys.readouterr()
+    assert "Service state was stale and has been cleaned up" in captured.out
+
+
+@patch("whisper_local.cli.ServiceManager")
+def test_service_run_background_reports_requested_status(mock_service_manager: Mock, capsys) -> None:
+    manager = mock_service_manager.return_value
+    manager.start_background.return_value = Mock(running=False, stale=False, pid=None, host="h", port=10)
+
+    cli._service_run("h", 10, foreground=False, status_indicator=False)
+
+    captured = capsys.readouterr()
+    assert "Service start requested" in captured.out
+
+
+@patch("whisper_local.cli.ServiceManager")
+def test_service_stop_prints_not_running_when_no_state(mock_service_manager: Mock, capsys) -> None:
+    manager = mock_service_manager.return_value
+    manager.load_state.return_value = None
+
+    cli._service_stop()
+
+    manager.stop.assert_called_once()
+    captured = capsys.readouterr()
+    assert "Service is not running" in captured.out
+
+
+@patch("whisper_local.cli.ServiceManager")
+def test_service_stop_prints_stopped_when_state_exists(mock_service_manager: Mock, capsys) -> None:
+    manager = mock_service_manager.return_value
+    manager.load_state.return_value = Mock()
+
+    cli._service_stop()
+
+    manager.stop.assert_called_once()
+    captured = capsys.readouterr()
+    assert "Service stopped" in captured.out
+
+
+@patch("whisper_local.cli.ServiceManager")
+def test_service_status_prints_running_with_indicator(mock_service_manager: Mock, capsys) -> None:
+    manager = mock_service_manager.return_value
+    manager.status.return_value = Mock(
+        running=True,
+        stale=False,
+        pid=55,
+        host="127.0.0.1",
+        port=8787,
+        status_indicator_pid=88,
+    )
+
+    cli._service_status()
+
+    captured = capsys.readouterr()
+    assert "running pid=55 host=127.0.0.1 port=8787 indicator_pid=88" in captured.out
+
+
+@patch("whisper_local.cli.ServiceManager")
+def test_service_status_prints_stale_status(mock_service_manager: Mock, capsys) -> None:
+    manager = mock_service_manager.return_value
+    manager.status.return_value = Mock(
+        running=False,
+        stale=True,
+        pid=10,
+        host="localhost",
+        port=7878,
+        status_indicator_pid=None,
+    )
+
+    cli._service_status()
+
+    captured = capsys.readouterr()
+    assert "stale (cleaned) previous_pid=10 host=localhost port=7878" in captured.out
+
+
+@patch("whisper_local.cli.ServiceManager")
+def test_service_status_prints_stopped(mock_service_manager: Mock, capsys) -> None:
+    manager = mock_service_manager.return_value
+    manager.status.return_value = Mock(
+        running=False,
+        stale=False,
+        pid=None,
+        host=None,
+        port=None,
+        status_indicator_pid=None,
+    )
+
+    cli._service_status()
+
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "stopped"
+
+
+def test_wait_for_status_returns_last_when_deadline_expires(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummyWebSocket:
+        def recv(self) -> str:
+            return "[]"
+
+    call_count = {"value": 0}
+
+    def fake_monotonic() -> float:
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            return 100.0
+        if call_count["value"] == 2:
+            return 100.05
+        return 1000.0
+
+    monkeypatch.setattr(cli.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(cli.asyncio, "wait_for", AsyncMock(return_value="[]"))
+
+    status, message = asyncio.run(
+        cli._wait_for_status(
+            DummyWebSocket(),
+            timeout_seconds=0.1,
+        )
+    )
+
+    assert status is None
+    assert message is None
+
+
+def test_wait_for_status_returns_last_when_recv_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummyWebSocket:
+        def recv(self) -> str:
+            return "{}"
+
+    wait_for_mock = AsyncMock(side_effect=TimeoutError)
+    monkeypatch.setattr(cli.asyncio, "wait_for", wait_for_mock)
+
+    status, message = asyncio.run(
+        cli._wait_for_status(
+            DummyWebSocket(),
+            timeout_seconds=1.0,
+        )
+    )
+
+    assert status is None
+    assert message is None
+
+
+def test_extract_status_update_rejects_invalid_utf8_bytes() -> None:
+    assert cli._extract_status_update(b"\xff") is None
+
+
+def test_extract_status_update_rejects_invalid_json() -> None:
+    assert cli._extract_status_update("{broken-json") is None
+
+
+def test_extract_status_update_rejects_non_status_payload() -> None:
+    assert cli._extract_status_update('{"type":"not-status","status":"ready"}') is None
+
+
+class _FakeWebSocket:
+    def __init__(self) -> None:
+        self.sent_messages: list[str] = []
+
+    async def send(self, payload: str) -> None:
+        self.sent_messages.append(payload)
+
+
+class _FakeConnectContext:
+    def __init__(self, websocket: _FakeWebSocket) -> None:
+        self._websocket = websocket
+
+    async def __aenter__(self) -> _FakeWebSocket:
+        return self._websocket
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
+def _install_fake_websockets_module(
+    monkeypatch: pytest.MonkeyPatch,
+    websocket: _FakeWebSocket,
+) -> dict[str, object]:
+    state: dict[str, object] = {}
+
+    def connect(uri: str, ping_interval: int, ping_timeout: int) -> _FakeConnectContext:
+        state["uri"] = uri
+        state["ping_interval"] = ping_interval
+        state["ping_timeout"] = ping_timeout
+        return _FakeConnectContext(websocket)
+
+    monkeypatch.setitem(sys.modules, "websockets", Mock(connect=connect))
+    return state
+
+
+def test_trigger_async_sends_start_command_and_returns_ack(monkeypatch: pytest.MonkeyPatch) -> None:
+    websocket = _FakeWebSocket()
+    connect_state = _install_fake_websockets_module(monkeypatch, websocket)
+    wait_for_status = AsyncMock(side_effect=[(None, None), ("recording", "ack")])
+
+    with patch("whisper_local.cli._wait_for_status", wait_for_status):
+        result = asyncio.run(cli._trigger_async("localhost", 7878, "start", 3.0))
+
+    assert result == "recording"
+    assert connect_state == {
+        "uri": "ws://localhost:7878",
+        "ping_interval": 10,
+        "ping_timeout": 10,
+    }
+    assert [json.loads(msg)["type"] for msg in websocket.sent_messages] == ["start_recording"]
+    assert wait_for_status.await_count == 2
+    assert wait_for_status.await_args_list[0].kwargs["timeout_seconds"] == 0.75
+    assert wait_for_status.await_args_list[1].kwargs["expected_statuses"] == {"recording"}
+
+
+def test_trigger_async_toggle_recording_sends_stop_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    websocket = _FakeWebSocket()
+    _install_fake_websockets_module(monkeypatch, websocket)
+    wait_for_status = AsyncMock(side_effect=[("recording", None), ("ready", "ack")])
+
+    with patch("whisper_local.cli._wait_for_status", wait_for_status):
+        result = asyncio.run(cli._trigger_async("localhost", 7878, "toggle", 2.0))
+
+    assert result == "ready"
+    assert [json.loads(msg)["type"] for msg in websocket.sent_messages] == ["stop_recording"]
+    assert wait_for_status.await_args_list[1].kwargs["expected_statuses"] == {
+        "transcribing",
+        "ready",
+        "error",
+    }
+
+
+def test_trigger_async_returns_immediately_when_status_already_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    websocket = _FakeWebSocket()
+    _install_fake_websockets_module(monkeypatch, websocket)
+    wait_for_status = AsyncMock(return_value=("recording", "already"))
+
+    with patch("whisper_local.cli._wait_for_status", wait_for_status):
+        result = asyncio.run(cli._trigger_async("localhost", 7878, "start", 1.0))
+
+    assert result == "recording"
+    assert websocket.sent_messages == []
+    assert wait_for_status.await_count == 1
+
+
+def test_trigger_async_timeout_raises_with_status_details(monkeypatch: pytest.MonkeyPatch) -> None:
+    websocket = _FakeWebSocket()
+    _install_fake_websockets_module(monkeypatch, websocket)
+    wait_for_status = AsyncMock(side_effect=[(None, None), (None, None)])
+
+    with patch("whisper_local.cli._wait_for_status", wait_for_status):
+        with pytest.raises(TimeoutError) as exc_info:
+            asyncio.run(cli._trigger_async("localhost", 7878, "start", 1.0))
+
+    assert "Timed out waiting for trigger acknowledgement (start)" in str(exc_info.value)
+    assert "last_status=unknown" in str(exc_info.value)
+
+
+@patch("whisper_local.cli._ensure_service_running", side_effect=RuntimeError("start failed"))
+def test_trigger_exits_when_service_start_fails(mock_ensure_service: Mock, capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli._trigger(
+            "localhost",
+            7878,
+            action="start",
+            status_indicator=True,
+            timeout_seconds=1.0,
+        )
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "failed to start service" in captured.out
+    mock_ensure_service.assert_called_once_with("localhost", 7878, status_indicator=True)
+
+
+def test_resolve_uninstall_scope_enables_all_flags_when_all_data_enabled() -> None:
+    args = argparse.Namespace(
+        remove_state=False,
+        remove_config=False,
+        remove_model_cache=False,
+        all_data=True,
+    )
+
+    remove_state, remove_config, remove_model_cache, explicit_scope = cli._resolve_uninstall_scope(args)
+
+    assert (remove_state, remove_config, remove_model_cache, explicit_scope) == (True, True, True, True)
+
+
+@patch("builtins.input", side_effect=[""])
+def test_prompt_uninstall_scope_default_choice_is_app_only(mock_input: Mock) -> None:
+    assert cli._prompt_uninstall_scope() == (False, False, False)
+    mock_input.assert_called_once()
+
+
+@patch("builtins.input", side_effect=["9", "3"])
+def test_prompt_uninstall_scope_reprompts_until_valid_choice(mock_input: Mock, capsys) -> None:
+    assert cli._prompt_uninstall_scope() == (True, True, True)
+    captured = capsys.readouterr()
+    assert "Invalid choice" in captured.out
+    assert mock_input.call_count == 2
+
+
+def test_print_uninstall_plan_includes_model_cache_when_requested(capsys) -> None:
+    cli._print_uninstall_plan(
+        remove_state=False,
+        remove_config=False,
+        remove_model_cache=True,
+    )
+
+    captured = capsys.readouterr()
+    assert "model caches under ~/.cache/huggingface/hub" in captured.out
+
+
+@patch("builtins.input", side_effect=["yes", "no"])
+def test_confirm_uninstall_accepts_yes_only(mock_input: Mock) -> None:
+    assert cli._confirm_uninstall() is True
+    assert cli._confirm_uninstall() is False
+    assert mock_input.call_count == 2
+
+
+@patch("whisper_local.uninstall.run_uninstall")
+@patch("whisper_local.cli.sys.stdout")
+@patch("whisper_local.cli.sys.stdin")
+@patch("whisper_local.cli._confirm_uninstall", return_value=False)
+def test_uninstall_interactive_cancelled_by_user_exits(
+    mock_confirm: Mock,
+    mock_stdin: Mock,
+    mock_stdout: Mock,
+    mock_run_uninstall: Mock,
+    capsys,
+) -> None:
+    mock_stdin.isatty.return_value = True
+    mock_stdout.isatty.return_value = True
+    parser = cli.build_parser()
+    args = parser.parse_args(["uninstall", "--remove-state"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli._uninstall(args)
+
+    assert exc_info.value.code == 1
+    mock_confirm.assert_called_once()
+    mock_run_uninstall.assert_not_called()
+
+
+@patch("whisper_local.model_manager.list_installed_models")
+def test_handle_models_command_list_without_runtime_variants(mock_list_models: Mock, capsys) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["models", "list"])
+    model = Mock(name="tiny")
+    model.name = "tiny"
+    model.variants = None
+    model.installed = True
+    mock_list_models.return_value = [model]
+
+    cli._handle_models_command(args)
+
+    captured = capsys.readouterr()
+    assert "tiny: installed" in captured.out
+
+
+@patch("whisper_local.model_manager.download_model")
+def test_handle_models_command_pull_default_runtime(download_model: Mock, capsys) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["models", "pull", "tiny"])
+
+    cli._handle_models_command(args)
+
+    download_model.assert_called_once_with("tiny")
+    captured = capsys.readouterr()
+    assert "Downloaded tiny" in captured.out
+
+
+@patch("whisper_local.model_manager.download_model")
+def test_handle_models_command_pull_with_runtime(download_model: Mock, capsys) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["models", "pull", "tiny", "--runtime", "whisper.cpp"])
+
+    cli._handle_models_command(args)
+
+    download_model.assert_called_once_with("tiny", runtime="whisper.cpp")
+    captured = capsys.readouterr()
+    assert "Downloaded tiny (whisper.cpp)" in captured.out
+
+
+@patch("whisper_local.model_manager.remove_model")
+def test_handle_models_command_remove_default_runtime(remove_model: Mock, capsys) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["models", "remove", "tiny"])
+
+    cli._handle_models_command(args)
+
+    remove_model.assert_called_once_with("tiny")
+    captured = capsys.readouterr()
+    assert "Removed tiny" in captured.out
+
+
+@patch("whisper_local.model_manager.remove_model")
+def test_handle_models_command_remove_with_runtime(remove_model: Mock, capsys) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["models", "remove", "tiny", "--runtime", "whisper.cpp"])
+
+    cli._handle_models_command(args)
+
+    remove_model.assert_called_once_with("tiny", runtime="whisper.cpp")
+    captured = capsys.readouterr()
+    assert "Removed tiny (whisper.cpp)" in captured.out
+
+
+@patch("whisper_local.model_manager.set_selected_model")
+def test_handle_models_command_select(set_selected_model: Mock, capsys) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["models", "select", "base"])
+
+    cli._handle_models_command(args)
+
+    set_selected_model.assert_called_once_with("base")
+    captured = capsys.readouterr()
+    assert "Selected model set to base" in captured.out
+
+
+@patch("whisper_local.cli.load_config")
+def test_handle_config_command_prints_scalar_and_nested_values(mock_load_config: Mock, capsys) -> None:
+    args = argparse.Namespace(path=None)
+    config = Mock()
+    config.to_dict.return_value = {
+        "channel": "stable",
+        "model": {"name": "small", "variant": {"runtime": "faster-whisper"}},
+    }
+    mock_load_config.return_value = config
+
+    cli._handle_config_command(args)
+
+    captured = capsys.readouterr()
+    assert "channel = stable" in captured.out
+    assert "[model]" in captured.out
+    assert "variant.runtime = faster-whisper" in captured.out
+
+
+def test_main_unknown_command_prints_help() -> None:
+    parser = Mock()
+    parser.parse_args.return_value = argparse.Namespace(command="unknown")
+
+    with patch("whisper_local.cli.build_parser", return_value=parser):
+        cli.main()
+
+    parser.print_help.assert_called_once()
+
+
+def test_cli_module_entrypoint_calls_main(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["whisper-local"])
+
+    runpy.run_path(str(Path(cli.__file__)), run_name="__main__")
+
+    captured = capsys.readouterr()
+    assert "usage:" in captured.out
