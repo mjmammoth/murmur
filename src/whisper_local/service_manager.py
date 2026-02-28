@@ -366,23 +366,12 @@ class ServiceManager:
                 indicator_provider.start()
                 indicator_pid = indicator_provider.pid
             except Exception:
-                logger.exception("Failed to start status indicator provider")
+                logger.warning("Status indicator failed to start; continuing without it", exc_info=True)
                 indicator_pid = None
                 try:
                     indicator_provider.stop()
                 except Exception:
                     logger.debug("Failed to clean up status indicator provider after start failure")
-                _terminate_pid(
-                    process.pid,
-                    timeout=1.0,
-                    is_expected_pid=functools.partial(
-                        _pid_matches_bridge_process,
-                        host=host,
-                        port=port,
-                    ),
-                )
-                self.clear_state()
-                raise
 
         try:
             self.save_state(

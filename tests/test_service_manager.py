@@ -392,7 +392,7 @@ def test_start_background_non_darwin_does_not_restart_for_missing_indicator(
     assert status is existing_status
 
 
-def test_start_background_indicator_start_failure_cleans_bridge_process(
+def test_start_background_indicator_start_failure_continues_service(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -411,12 +411,11 @@ def test_start_background_indicator_start_failure_cleans_bridge_process(
         "whisper_local.service_manager.create_status_indicator_provider",
         return_value=indicator_provider,
     ), patch("whisper_local.service_manager._terminate_pid") as mock_terminate:
-        with pytest.raises(RuntimeError, match="indicator start failed"):
-            manager.start_background(host="localhost", port=7878, status_indicator=True)
+        manager.start_background(host="localhost", port=7878, status_indicator=True)
 
     indicator_provider.stop.assert_called_once()
-    mock_terminate.assert_called_once_with(1234, timeout=1.0, is_expected_pid=ANY)
-    assert state_path.exists() is False
+    mock_terminate.assert_not_called()
+    assert state_path.exists() is True
 
 
 def test_stop_is_idempotent_when_state_missing(tmp_path: Path) -> None:

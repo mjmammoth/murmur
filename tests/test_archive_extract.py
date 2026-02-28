@@ -67,6 +67,8 @@ def test_install_tui_binary_from_archive_rejects_extra_entries(tmp_path: Path) -
             expected_binary_name="whisper-local-tui",
         )
 
+    assert not (target_dir / "whisper-local-tui.tmp").exists(), "staged temp file should be cleaned up on error"
+
 
 def test_install_tui_binary_from_archive_rejects_wrong_filename(tmp_path: Path) -> None:
     archive_path = tmp_path / "tui.tar.gz"

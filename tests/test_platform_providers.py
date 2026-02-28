@@ -228,13 +228,6 @@ def test_subprocess_status_indicator_start_darwin():
     assert provider.pid == 1234
 
 
-def test_subprocess_status_indicator_start_non_darwin():
-    provider = SubprocessStatusIndicatorProvider(host="localhost", port=7878)
-    with patch("whisper_local.platform.providers.sys.platform", "linux"):
-        provider.start()
-    assert provider._process is None
-
-
 def test_subprocess_status_indicator_start_idempotent():
     provider = SubprocessStatusIndicatorProvider(host="localhost", port=7878)
     mock_process = MagicMock()

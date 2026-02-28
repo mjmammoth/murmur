@@ -70,8 +70,11 @@ def test_candidate_rnnoise_paths_with_caskroom(tmp_path: Path, monkeypatch):
 
     paths = _candidate_rnnoise_paths()
     assert len(paths) >= 4
-    assert paths[2] == v2 / "macos-rnnoise/rnnoise.component/Contents/MacOS/rnnoise"
-    assert paths[3] == v1 / "macos-rnnoise/rnnoise.component/Contents/MacOS/rnnoise"
+    expected_v2 = v2 / "macos-rnnoise/rnnoise.component/Contents/MacOS/rnnoise"
+    expected_v1 = v1 / "macos-rnnoise/rnnoise.component/Contents/MacOS/rnnoise"
+    assert expected_v2 in paths
+    assert expected_v1 in paths
+    assert paths.index(expected_v2) < paths.index(expected_v1)
 
 
 # ---------------------------------------------------------------------------
@@ -185,10 +188,13 @@ def test_try_load_pyrnnoise_success():
 def test_close_ctypes_backend():
     sup = RNNoiseSuppressor(enabled=False)
     sup._backend = "ctypes"
-    sup._lib = MagicMock()
-    sup._state = ctypes.c_void_p(42)
+    mock_lib = MagicMock()
+    sup._lib = mock_lib
+    state = ctypes.c_void_p(42)
+    sup._state = state
     sup.available = True
     sup.close()
+    mock_lib.rnnoise_destroy.assert_called_once_with(state)
     assert sup._lib is None
     assert sup._state is None
     assert sup.available is False
@@ -334,36 +340,39 @@ def test_resolve_rnnoise_library_path_none(monkeypatch):
 # _candidate_rnnoise_paths with caskroom dirs
 # ---------------------------------------------------------------------------
 
-def test_candidate_rnnoise_paths_caskroom(tmp_path: Path):
+def test_candidate_rnnoise_paths_caskroom(tmp_path: Path, monkeypatch):
     cask_root = tmp_path / "Caskroom" / "rnnoise"
     v1 = cask_root / "1.0"
     v2 = cask_root / "2.0"
     v1.mkdir(parents=True)
     v2.mkdir(parents=True)
 
-    with patch("whisper_local.noise._candidate_rnnoise_paths", wraps=None):
-        pass  # just testing the real function with patched roots
+    _HOMEBREW_CASK = "/opt/homebrew/Caskroom/rnnoise"
 
-    # Directly test with patched cask_roots
+    original_exists = Path.exists
+    original_iterdir = Path.iterdir
 
-    def patched():
-        candidates = [
-            Path.home() / "Library/Audio/Plug-Ins/Components/rnnoise.component/Contents/MacOS/rnnoise",
-            Path("/Library/Audio/Plug-Ins/Components/rnnoise.component/Contents/MacOS/rnnoise"),
-        ]
-        cask_roots = [cask_root]
-        for root in cask_roots:
-            if not root.exists():
-                continue
-            for version_dir in sorted(root.iterdir(), reverse=True):
-                candidates.append(
-                    version_dir / "macos-rnnoise/rnnoise.component/Contents/MacOS/rnnoise"
-                )
-        return candidates
+    def patched_exists(path: Path) -> bool:
+        if str(path) == _HOMEBREW_CASK:
+            return True
+        if str(path) == "/usr/local/Caskroom/rnnoise":
+            return False
+        return original_exists(path)
 
-    paths = patched()
-    # Should have 2 base + 2 caskroom entries (v1.0 and v2.0)
-    assert len(paths) == 4
+    def patched_iterdir(path: Path):
+        if str(path) == _HOMEBREW_CASK:
+            return iter([v1, v2])
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "exists", patched_exists)
+    monkeypatch.setattr(Path, "iterdir", patched_iterdir)
+
+    paths = _candidate_rnnoise_paths()
+    # Should have 2 base + caskroom entries
+    assert len(paths) >= 4
+    expected_v2 = v2 / "macos-rnnoise/rnnoise.component/Contents/MacOS/rnnoise"
+    expected_v1 = v1 / "macos-rnnoise/rnnoise.component/Contents/MacOS/rnnoise"
+    assert expected_v2 in paths
+    assert expected_v1 in paths
     # v2.0 should come before v1.0 (reverse sorted)
-    assert "2.0" in str(paths[2])
-    assert "1.0" in str(paths[3])
+    assert paths.index(expected_v2) < paths.index(expected_v1)

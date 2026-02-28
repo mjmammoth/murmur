@@ -18,7 +18,7 @@ flowchart TD
 
   C --> H["Default install/upgrade latest -> stable"]
   D --> H
-  E --> I["Install prerelease only by explicit tag"]
+  E --> I["Install pre-release only by explicit tag"]
 ```
 
 ## Tag Policy
@@ -45,8 +45,8 @@ Rejected examples:
 ## GitHub Release Behavior
 
 - Stable and post tags publish as full releases (`prerelease=false`).
-- Pre-release tags publish as prereleases (`prerelease=true`).
-- `releases/latest` tracks the latest non-prerelease, non-draft release.
+- Pre-release tags publish as pre-releases (`prerelease=true`).
+- `releases/latest` tracks the latest non-pre-release, non-draft release.
 
 ## Homebrew Channels
 
@@ -66,7 +66,7 @@ brew install whisper-local-preview
 
 - Installer default (`install` with no tag) resolves GitHub `releases/latest`, so it stays on stable/post releases.
 - CLI upgrade default (`whisper.local upgrade`) uses the same latest stable behavior.
-- To install a prerelease explicitly, pass the tag:
+- To install a pre-release explicitly, pass the tag:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | bash -s -- v1.2.4rc1

@@ -131,8 +131,8 @@ def _extract_member_to_staged_file(
         raise ArchiveExtractionError("TUI archive member size did not match metadata")
 
 
-def _cleanup_staged_destination(*, extracted: bool, staged_destination: Path) -> None:
-    if not extracted and staged_destination.exists():
+def _cleanup_staged_destination(*, staged_destination: Path) -> None:
+    if staged_destination.exists():
         staged_destination.unlink(missing_ok=True)
 
 
@@ -164,6 +164,7 @@ def install_tui_binary_from_archive(
     total_uncompressed_bytes = 0
     extracted = False
 
+    succeeded = False
     try:
         with tarfile.open(archive_path, "r:gz") as tar_handle:
             for member in tar_handle:
@@ -187,10 +188,12 @@ def install_tui_binary_from_archive(
                     staged_destination=staged_destination,
                 )
                 extracted = True
+        succeeded = True
     except (tarfile.TarError, OSError) as exc:
         raise ArchiveExtractionError(f"Failed to open or read TUI archive: {exc}") from exc
     finally:
-        _cleanup_staged_destination(extracted=extracted, staged_destination=staged_destination)
+        if not succeeded:
+            _cleanup_staged_destination(staged_destination=staged_destination)
 
     _validate_extraction_completed(total_entries=total_entries, extracted=extracted)
 

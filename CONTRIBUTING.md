@@ -44,7 +44,6 @@ When a change affects the TUI home screenshot, regenerate the showcase before op
 ```bash
 python -m pip install --requirement scripts/requirements-tui-showcase.txt
 bun install --frozen-lockfile --cwd tui
-npm ci
 npx playwright install chromium --with-deps
 python scripts/generate_tui_showcase.py --output-format png --png-scale 2
 ```

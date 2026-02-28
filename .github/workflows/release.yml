@@ -170,7 +170,12 @@ jobs:
             exit 1
           fi
 
-          export GNUPGHOME="$(mktemp -d)"
+          GNUPGHOME="$(mktemp -d)"
+          if [ -z "${GNUPGHOME}" ] || [ ! -d "${GNUPGHOME}" ]; then
+            echo "Error: mktemp -d failed to create temporary directory" >&2
+            exit 1
+          fi
+          export GNUPGHOME
           chmod 700 "${GNUPGHOME}"
           trap 'rm -rf "${GNUPGHOME}" release-signing-private.asc' EXIT
 

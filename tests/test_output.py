@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import subprocess
+
+import pytest
 import sys
 import types
 from pathlib import Path
@@ -421,29 +423,15 @@ def test_paste_from_clipboard_file_not_found():
         assert paste_from_clipboard() is False
 
 
-def test_paste_from_clipboard_called_process_error_permission():
-    exc = subprocess.CalledProcessError(1, "osascript", stderr="not permitted")
+@pytest.mark.parametrize("side_effect", [
+    subprocess.CalledProcessError(1, "osascript", stderr="not permitted"),
+    subprocess.CalledProcessError(1, "osascript", stderr="some error"),
+    OSError("not permitted"),
+    OSError("random error"),
+], ids=["CalledProcessError-permission", "CalledProcessError-other", "OSError-permission", "OSError-other"])
+def test_paste_from_clipboard_error_paths(side_effect):
     with patch("whisper_local.output.sys.platform", "darwin"), \
-         patch("whisper_local.output.subprocess.run", side_effect=exc):
-        assert paste_from_clipboard() is False
-
-
-def test_paste_from_clipboard_called_process_error_other():
-    exc = subprocess.CalledProcessError(1, "osascript", stderr="some error")
-    with patch("whisper_local.output.sys.platform", "darwin"), \
-         patch("whisper_local.output.subprocess.run", side_effect=exc):
-        assert paste_from_clipboard() is False
-
-
-def test_paste_from_clipboard_oserror_permission():
-    with patch("whisper_local.output.sys.platform", "darwin"), \
-         patch("whisper_local.output.subprocess.run", side_effect=OSError("not permitted")):
-        assert paste_from_clipboard() is False
-
-
-def test_paste_from_clipboard_oserror_other():
-    with patch("whisper_local.output.sys.platform", "darwin"), \
-         patch("whisper_local.output.subprocess.run", side_effect=OSError("random error")):
+         patch("whisper_local.output.subprocess.run", side_effect=side_effect):
         assert paste_from_clipboard() is False
 
 

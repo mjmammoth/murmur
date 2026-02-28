@@ -81,7 +81,7 @@ class ModelTaskQueue(ABC):
             key (str): Unique identifier for the download task.
             model (str): Model name or identifier to download.
             runtime (str): Target runtime/environment for the download.
-            task (asyncio.Task | None): Optional asyncio.Task associated with this download; may be bound to the queue entry.
+            task (asyncio.Task[Any] | None): Optional asyncio.Task associated with this download; may be bound to the queue entry.
 
         Returns:
             threading.Event: An event that will be set to signal that the enqueued task has been cancelled.
@@ -172,7 +172,7 @@ class SerialModelTaskQueue(ModelTaskQueue):
             key: Identifier for the download task.
             model: Model name or identifier to download.
             runtime: Runtime identifier associated with the download.
-            task: Optional asyncio.Task representing the running download to bind to the new entry.
+            task: Optional asyncio.Task[Any] representing the running download to bind to the new entry.
 
         Returns:
             threading.Event: An event that will be set when the enqueued task is cancelled.
@@ -196,7 +196,7 @@ class SerialModelTaskQueue(ModelTaskQueue):
 
         Parameters:
             key (str): Identifier of the download entry to bind the task to.
-            task (asyncio.Task): The asyncio Task to associate with the entry.
+            task (asyncio.Task[Any]): The asyncio Task to associate with the entry.
         """
         with self._lock:
             entry = self._entries.get(key)
@@ -242,7 +242,7 @@ class SerialModelTaskQueue(ModelTaskQueue):
 
         Parameters:
             key (str): The task key to transition.
-            task (asyncio.Task | None): Optional asyncio.Task used to ensure the transition applies only to the intended entry; if None, the state change is applied regardless of the entry's bound task.
+            task (asyncio.Task[Any] | None): Optional asyncio.Task used to ensure the transition applies only to the intended entry; if None, the state change is applied regardless of the entry's bound task.
         """
         with self._lock:
             entry = self._entries.get(key)
@@ -261,7 +261,7 @@ class SerialModelTaskQueue(ModelTaskQueue):
 
         Parameters:
             key (str): Identifier of the download task to mark completed.
-            task (asyncio.Task | None): If provided, only mark the entry completed when its bound task is the same; if None, match is not required.
+            task (asyncio.Task[Any] | None): If provided, only mark the entry completed when its bound task is the same; if None, match is not required.
         """
         with self._lock:
             entry = self._entries.get(key)
@@ -280,7 +280,7 @@ class SerialModelTaskQueue(ModelTaskQueue):
 
         Parameters:
             key (str): Identifier of the tracked download task.
-            task (asyncio.Task | None): Optional task to verify before updating; if provided, the entry is updated only when it refers to the same asyncio.Task.
+            task (asyncio.Task[Any] | None): Optional task to verify before updating; if provided, the entry is updated only when it refers to the same asyncio.Task.
         """
         with self._lock:
             entry = self._entries.get(key)
@@ -299,7 +299,7 @@ class SerialModelTaskQueue(ModelTaskQueue):
 
         Parameters:
             key (str): Identifier of the download entry to cancel.
-            task (asyncio.Task | None): Optional task to match against the entry; when provided, the entry is only updated if its bound task is the same.
+            task (asyncio.Task[Any] | None): Optional task to match against the entry; when provided, the entry is only updated if its bound task is the same.
         """
         with self._lock:
             entry = self._entries.get(key)

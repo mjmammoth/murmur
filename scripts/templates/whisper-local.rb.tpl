@@ -70,21 +70,15 @@ class WhisperLocal < Formula
     else
       odie "Unsupported platform for whisper-local formula"
     end
-    arch_key = Hardware::CPU.arm? ? :arm : :intel
-    tui_url, tui_sha = tui_assets.fetch(platform_key).fetch(arch_key)
-    target_id = case [platform_key, arch_key]
-    when [:darwin, :arm]
-      "darwin-arm64"
-    when [:darwin, :intel]
-      "darwin-x64"
-    when [:linux, :arm]
-      "linux-arm64"
-    when [:linux, :intel]
-      "linux-x64"
+    arch_key = if Hardware::CPU.arm?
+      :arm
+    elsif Hardware::CPU.intel?
+      :intel
     else
-      odie "Unsupported platform architecture for whisper-local formula"
+      odie "Unsupported CPU architecture for whisper-local formula"
     end
-    expected_binary_name = target_id.start_with?("windows-") ? "whisper-local-tui.exe" : "whisper-local-tui"
+    tui_url, tui_sha = tui_assets.fetch(platform_key).fetch(arch_key)
+    expected_binary_name = "whisper-local-tui"
 
     tui_archive = buildpath/"whisper-local-tui.tar.gz"
     system "curl", "-fsSL", "-o", tui_archive, tui_url
@@ -115,7 +109,7 @@ class WhisperLocal < Formula
            tui_archive, libexec/"bin", expected_binary_name, extraction_marker
 
     tui_bin = Pathname.new(extraction_marker.read.strip)
-    chmod 0755, tui_bin unless expected_binary_name.end_with?(".exe")
+    chmod 0755, tui_bin
     (bin/"whisper-local").write_env_script(
       libexec/"bin/whisper-local", WHISPER_LOCAL_TUI_BIN: tui_bin
     )

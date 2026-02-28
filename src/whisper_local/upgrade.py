@@ -240,15 +240,94 @@ def _github_get_json(url: str) -> dict[str, object]:
     return cast(dict[str, object], payload)
 
 
-def resolve_release_assets(
-    *,
-    repository: str = DEFAULT_REPOSITORY,
-    requested_version: str | None = None,
-    target: str | None = None,
-) -> ReleaseAssetBundle:
-    normalized_tag = normalize_version_tag(requested_version)
-    target_name = target or detect_target()
+def _asset_name(asset: object) -> str:
+    if not isinstance(asset, dict):
+        return ""
+    return str(asset.get("name") or "")
 
+
+def _iter_named_assets(assets: list[object]) -> list[tuple[str, dict[str, object]]]:
+    result: list[tuple[str, dict[str, object]]] = []
+    for asset in assets:
+        if isinstance(asset, dict):
+            name = _asset_name(asset)
+            if name:
+                result.append((name, asset))
+    return result
+
+
+def _classify_assets(
+    named_assets: list[tuple[str, dict[str, object]]],
+    target_name: str,
+) -> tuple[list[dict[str, object]], dict[str, object] | None, dict[str, object] | None]:
+    wheel_assets: list[dict[str, object]] = []
+    tui_asset: dict[str, object] | None = None
+    checksums_asset: dict[str, object] | None = None
+    expected_tui = f"whisper-local-tui-{target_name}.tar.gz"
+
+    for name, asset in named_assets:
+        if name.endswith(".whl"):
+            wheel_assets.append(asset)
+        if name == expected_tui:
+            tui_asset = asset
+        if name in CHECKSUM_MANIFEST_NAMES:
+            checksums_asset = asset
+
+    return wheel_assets, tui_asset, checksums_asset
+
+
+def _find_signature_asset(
+    named_assets: list[tuple[str, dict[str, object]]],
+    checksums_name: str,
+) -> dict[str, object] | None:
+    exact_names = {f"{checksums_name}.asc", f"{checksums_name}.sig"}
+    for name, asset in named_assets:
+        if name in exact_names:
+            return asset
+
+    for name, asset in named_assets:
+        if name.lower() in {"release.asc", "release.sig"}:
+            return asset
+
+    for name, asset in named_assets:
+        lower = name.lower()
+        if lower.endswith(".asc") and "checksum" in lower:
+            return asset
+
+    return None
+
+
+def _validate_classified_assets(
+    wheel_assets: list[dict[str, object]],
+    tui_asset: dict[str, object] | None,
+    checksums_asset: dict[str, object] | None,
+    target_name: str,
+) -> None:
+    if not wheel_assets:
+        raise UpgradeError("Release is missing wheel artifact")
+    if len(wheel_assets) > 1:
+        wheel_names = ", ".join(sorted(_asset_name(a) for a in wheel_assets))
+        raise UpgradeError(
+            f"Release contains multiple wheel artifacts; unable to select automatically: {wheel_names}"
+        )
+    if tui_asset is None:
+        raise UpgradeError(f"Release is missing TUI artifact for target {target_name}")
+    if checksums_asset is None:
+        raise UpgradeError(
+            "Release is missing checksum manifest (checksums.txt/.sha256/.sha256sum)"
+        )
+
+
+def _extract_asset_fields(asset: dict[str, object]) -> tuple[str, str]:
+    name = str(asset.get("name") or "")
+    url = str(asset.get("browser_download_url") or "")
+    return name, url
+
+
+def _fetch_release_payload(
+    repository: str,
+    normalized_tag: str | None,
+) -> tuple[str, list[object]]:
     if normalized_tag is None:
         url = f"https://api.github.com/repos/{repository}/releases/latest"
     else:
@@ -268,71 +347,33 @@ def resolve_release_assets(
     if not isinstance(assets, list):
         raise UpgradeError("Release metadata has invalid assets payload")
 
-    wheel_assets: list[dict[str, object]] = []
-    tui_asset: dict[str, object] | None = None
-    checksums_asset: dict[str, object] | None = None
-    signature_asset: dict[str, object] | None = None
-    expected_tui = f"whisper-local-tui-{target_name}.tar.gz"
-    for asset in assets:
-        if not isinstance(asset, dict):
-            continue
-        asset_name = str(asset.get("name") or "")
-        if asset_name.endswith(".whl"):
-            wheel_assets.append(asset)
-        if asset_name == expected_tui:
-            tui_asset = asset
-        if asset_name in CHECKSUM_MANIFEST_NAMES:
-            checksums_asset = asset
+    return tag, assets
 
-    if not wheel_assets:
-        raise UpgradeError("Release is missing wheel artifact")
-    if len(wheel_assets) > 1:
-        wheel_names = ", ".join(sorted(str(asset.get("name") or "") for asset in wheel_assets))
-        raise UpgradeError(
-            f"Release contains multiple wheel artifacts; unable to select automatically: {wheel_names}"
-        )
-    if tui_asset is None:
-        raise UpgradeError(f"Release is missing TUI artifact for target {target_name}")
-    if checksums_asset is None:
-        raise UpgradeError(
-            "Release is missing checksum manifest (checksums.txt/.sha256/.sha256sum)"
-        )
 
-    checksums_name = str(checksums_asset.get("name") or "")
-    for asset in assets:
-        if not isinstance(asset, dict):
-            continue
-        asset_name = str(asset.get("name") or "")
-        if asset_name in {f"{checksums_name}.asc", f"{checksums_name}.sig"}:
-            signature_asset = asset
-            break
-    if signature_asset is None:
-        for asset in assets:
-            if not isinstance(asset, dict):
-                continue
-            asset_name = str(asset.get("name") or "").lower()
-            if asset_name in {"release.asc", "release.sig"}:
-                signature_asset = asset
-                break
-    if signature_asset is None:
-        for asset in assets:
-            if not isinstance(asset, dict):
-                continue
-            asset_name = str(asset.get("name") or "").lower()
-            if asset_name.endswith(".asc") and "checksum" in asset_name:
-                signature_asset = asset
-                break
+def resolve_release_assets(
+    *,
+    repository: str = DEFAULT_REPOSITORY,
+    requested_version: str | None = None,
+    target: str | None = None,
+) -> ReleaseAssetBundle:
+    normalized_tag = normalize_version_tag(requested_version)
+    target_name = target or detect_target()
+
+    tag, raw_assets = _fetch_release_payload(repository, normalized_tag)
+    named_assets = _iter_named_assets(raw_assets)
+
+    wheel_assets, tui_asset, checksums_asset = _classify_assets(named_assets, target_name)
+    _validate_classified_assets(wheel_assets, tui_asset, checksums_asset, target_name)
+
+    checksums_name = _asset_name(checksums_asset)
+    signature_asset = _find_signature_asset(named_assets, checksums_name)
     if signature_asset is None:
         raise UpgradeError("Release is missing checksum signature (.asc/.sig)")
 
-    wheel_asset = wheel_assets[0]
-    wheel_name = str(wheel_asset.get("name") or "")
-    wheel_url = str(wheel_asset.get("browser_download_url") or "")
-    tui_name = str(tui_asset.get("name") or "")
-    tui_url = str(tui_asset.get("browser_download_url") or "")
-    checksums_url = str(checksums_asset.get("browser_download_url") or "")
-    signature_name = str(signature_asset.get("name") or "")
-    signature_url = str(signature_asset.get("browser_download_url") or "")
+    wheel_name, wheel_url = _extract_asset_fields(wheel_assets[0])
+    tui_name, tui_url = _extract_asset_fields(tui_asset)  # type: ignore[arg-type]
+    _, checksums_url = _extract_asset_fields(checksums_asset)  # type: ignore[arg-type]
+    signature_name, signature_url = _extract_asset_fields(signature_asset)
 
     if not wheel_url or not tui_url or not checksums_url or not signature_url:
         raise UpgradeError("Release assets are missing download URLs")
@@ -352,7 +393,13 @@ def resolve_release_assets(
     )
 
 
-def _download_to_file(url: str, destination: Path) -> None:
+def _download_to_file(url: str, destination: Path, *, max_attempts: int = 3) -> None:
+    import logging
+    import socket
+    import time
+    import urllib.error
+
+    logger = logging.getLogger(__name__)
     request = urllib.request.Request(
         url,
         headers={
@@ -360,13 +407,24 @@ def _download_to_file(url: str, destination: Path) -> None:
             "User-Agent": "whisper-local-upgrade",
         },
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        with destination.open("wb") as handle:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                handle.write(chunk)
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                with destination.open("wb") as handle:
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        handle.write(chunk)
+            return
+        except (urllib.error.URLError, socket.timeout, OSError) as exc:
+            last_exc = exc
+            if attempt < max_attempts:
+                delay = 2 ** (attempt - 1)
+                logger.warning("Download attempt %d/%d failed: %s; retrying in %ds", attempt, max_attempts, exc, delay)
+                time.sleep(delay)
+    raise last_exc  # type: ignore[misc]
 
 
 def _run_command_or_error(command: list[str], *, env: dict[str, str] | None = None) -> str:
@@ -624,13 +682,17 @@ def run_upgrade(
                 temp_dir_base=installer_home,
             )
 
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir", str(wheel_path)],
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir", str(wheel_path)],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            except subprocess.CalledProcessError as exc:
+                details = (exc.stdout or "") + (exc.stderr or "")
+                raise UpgradeError(f"pip install failed: {details.strip()}") from exc
             target_dir = installer_home / "tui" / assets.target
             expected_binary_name = _expected_tui_binary_name(assets.target)
             try:

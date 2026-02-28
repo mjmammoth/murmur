@@ -83,15 +83,15 @@ if ! command -v python3 >/dev/null 2>&1; then
   echo "Error: python3 is required" >&2
   exit 1
 fi
-if command -v sha256sum >/dev/null 2>&1; then
-  sha256_check_cmd=(sha256sum -c)
-elif command -v shasum >/dev/null 2>&1; then
-  sha256_check_cmd=(shasum -a 256 -c)
-else
-  echo "Error: sha256sum (or shasum) is required" >&2
-  exit 1
-fi
 if [ "${VERIFY_RELEASE}" = "true" ]; then
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256_check_cmd=(sha256sum -c)
+  elif command -v shasum >/dev/null 2>&1; then
+    sha256_check_cmd=(shasum -a 256 -c)
+  else
+    echo "Error: sha256sum (or shasum) is required for release verification (use --no-verify to bypass)" >&2
+    exit 1
+  fi
   if ! command -v gpg >/dev/null 2>&1; then
     echo "Error: gpg is required for release verification (use --no-verify to bypass)" >&2
     exit 1
@@ -191,8 +191,19 @@ verify_release_signature() {
     exit 1
   fi
 
-  if ! GNUPGHOME="${gpg_home}" gpg --batch --quiet --verify "${signature_path}" "${checksums_path}" >/dev/null 2>&1; then
+  local gpg_status
+  gpg_status="$(GNUPGHOME="${gpg_home}" gpg --batch --status-fd 1 --verify "${signature_path}" "${checksums_path}" 2>/dev/null)" || {
     echo "Error: release checksum signature verification failed" >&2
+    exit 1
+  }
+  local validsig_fpr
+  validsig_fpr="$(printf '%s\n' "${gpg_status}" | awk '/^\[GNUPG:\] VALIDSIG/ { print toupper($3) }')"
+  if [ -z "${validsig_fpr}" ]; then
+    echo "Error: GPG verification did not produce a VALIDSIG status" >&2
+    exit 1
+  fi
+  if [ "${validsig_fpr}" != "${EXPECTED_SIGNING_FINGERPRINT}" ]; then
+    echo "Error: signature fingerprint ${validsig_fpr} does not match expected ${EXPECTED_SIGNING_FINGERPRINT}" >&2
     exit 1
   fi
 }

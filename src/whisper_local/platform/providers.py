@@ -136,6 +136,87 @@ class X11HotkeyProvider(HotkeyProvider):
         self._thread = None
         self._pressed = False
 
+    def _setup_grab(self) -> tuple[Any, Any, int, int, tuple[int, ...], Any]:
+        from Xlib import X as xlib_x
+        from Xlib import XK
+        from Xlib import display as xlib_display
+
+        display = xlib_display.Display()
+        self._display = display
+        root = display.screen().root
+
+        keysym = XK.string_to_keysym(_x11_keysym_name(self._key))
+        if not keysym:
+            raise RuntimeError(f"Unsupported X11 hotkey key: {self._key}")
+
+        keycode = int(display.keysym_to_keycode(keysym))
+        if keycode <= 0:
+            raise RuntimeError(f"Failed to resolve X11 keycode for: {self._key}")
+
+        modifier_mask = _x11_modifier_mask(self._modifiers, xlib_x)
+        grab_masks = (
+            0,
+            int(xlib_x.LockMask),
+            int(xlib_x.Mod2Mask),
+            int(xlib_x.LockMask | xlib_x.Mod2Mask),
+        )
+        for extra_mask in grab_masks:
+            root.grab_key(
+                keycode,
+                int(modifier_mask | extra_mask),
+                False,
+                xlib_x.GrabModeAsync,
+                xlib_x.GrabModeAsync,
+            )
+        display.flush()
+        return display, root, keycode, modifier_mask, grab_masks, xlib_x
+
+    def _poll_next_event(self, display: Any) -> Any | None:
+        try:
+            if display.pending_events() == 0:
+                select.select([display.fileno()], [], [], 0.15)
+                if self._stop_event.is_set():
+                    return None
+                if display.pending_events() == 0:
+                    return None
+            return display.next_event()
+        except Exception:
+            return None
+
+    def _handle_event(self, event: Any, keycode: int, modifier_mask: int, xlib_x: Any) -> None:
+        event_type = int(getattr(event, "type", -1))
+        detail = int(getattr(event, "detail", -1))
+        state = int(getattr(event, "state", 0))
+
+        if event_type == int(xlib_x.KeyPress):
+            if detail == keycode and self._matches_state(state, modifier_mask, xlib_x) and not self._pressed:
+                self._pressed = True
+                self._on_press()
+            return
+
+        if event_type == int(xlib_x.KeyRelease) and self._pressed:
+            if detail == keycode or (modifier_mask and not self._matches_state(state, modifier_mask, xlib_x)):
+                self._pressed = False
+                self._on_release()
+
+    def _cleanup_grab(
+        self, display: Any | None, root: Any | None, keycode: int, modifier_mask: int, grab_masks: tuple[int, ...],
+    ) -> None:
+        self._pressed = False
+        if display is not None and root is not None and keycode > 0:
+            try:
+                for extra_mask in grab_masks:
+                    root.ungrab_key(keycode, int(modifier_mask | extra_mask))
+                display.flush()
+            except Exception:
+                pass
+        if display is not None:
+            try:
+                display.close()
+            except Exception:
+                pass
+        self._display = None
+
     def _run(self) -> None:
         display = None
         root = None
@@ -143,93 +224,16 @@ class X11HotkeyProvider(HotkeyProvider):
         modifier_mask = 0
         grab_masks: tuple[int, ...] = tuple()
         try:
-            from Xlib import X as xlib_x
-            from Xlib import XK
-            from Xlib import display as xlib_display
-
-            display = xlib_display.Display()
-            self._display = display
-            root = display.screen().root
-
-            keysym = XK.string_to_keysym(_x11_keysym_name(self._key))
-            if not keysym:
-                raise RuntimeError(f"Unsupported X11 hotkey key: {self._key}")
-
-            keycode = int(display.keysym_to_keycode(keysym))
-            if keycode <= 0:
-                raise RuntimeError(f"Failed to resolve X11 keycode for: {self._key}")
-
-            modifier_mask = _x11_modifier_mask(self._modifiers, xlib_x)
-            grab_masks = (
-                0,
-                int(xlib_x.LockMask),
-                int(xlib_x.Mod2Mask),
-                int(xlib_x.LockMask | xlib_x.Mod2Mask),
-            )
-            for extra_mask in grab_masks:
-                root.grab_key(
-                    keycode,
-                    int(modifier_mask | extra_mask),
-                    False,
-                    xlib_x.GrabModeAsync,
-                    xlib_x.GrabModeAsync,
-                )
-            display.flush()
+            display, root, keycode, modifier_mask, grab_masks, xlib_x = self._setup_grab()
 
             while not self._stop_event.is_set():
-                try:
-                    if display.pending_events() == 0:
-                        select.select([display.fileno()], [], [], 0.15)
-                        if self._stop_event.is_set():
-                            break
-                        if display.pending_events() == 0:
-                            continue
-
-                    event = display.next_event()
-                except Exception:
-                    if self._stop_event.is_set():
-                        break
-                    continue
-
-                event_type = int(getattr(event, "type", -1))
-                detail = int(getattr(event, "detail", -1))
-                state = int(getattr(event, "state", 0))
-
-                if event_type == int(xlib_x.KeyPress):
-                    if detail != keycode:
-                        continue
-                    if not self._matches_state(state, modifier_mask, xlib_x):
-                        continue
-                    if not self._pressed:
-                        self._pressed = True
-                        self._on_press()
-                    continue
-
-                if event_type == int(xlib_x.KeyRelease):
-                    if self._pressed and detail == keycode:
-                        self._pressed = False
-                        self._on_release()
-                        continue
-                    if self._pressed and modifier_mask and not self._matches_state(state, modifier_mask, xlib_x):
-                        self._pressed = False
-                        self._on_release()
+                event = self._poll_next_event(display)
+                if event is not None:
+                    self._handle_event(event, keycode, modifier_mask, xlib_x)
         except Exception as exc:
             logger.error("Failed to start X11 hotkey provider: %s", exc)
         finally:
-            self._pressed = False
-            if display is not None and root is not None and keycode > 0:
-                try:
-                    for extra_mask in grab_masks:
-                        root.ungrab_key(keycode, int(modifier_mask | extra_mask))
-                    display.flush()
-                except Exception:
-                    pass
-            if display is not None:
-                try:
-                    display.close()
-                except Exception:
-                    pass
-            self._display = None
+            self._cleanup_grab(display, root, keycode, modifier_mask, grab_masks)
 
     @staticmethod
     def _matches_state(state: int, required_mask: int, xlib_x: Any) -> bool:
@@ -459,8 +463,6 @@ class SubprocessStatusIndicatorProvider(StatusIndicatorProvider):
         return self._process.pid
 
     def start(self) -> None:
-        if sys.platform != "darwin":
-            return
         if self._process is not None and self._process.poll() is None:
             return
         self._process = subprocess.Popen(

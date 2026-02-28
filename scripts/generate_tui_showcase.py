@@ -181,12 +181,11 @@ def _sanitize_termtosvg_capture(path: Path) -> None:
 
 def _is_port_available(port: int) -> bool:
     """
-    Select an available TCP port on localhost.
+    Check whether a specific TCP port is available on localhost.
 
-    Attempts to bind an ephemeral port on 127.0.0.1 and return the chosen port number. If the environment disallows binding (PermissionError), returns a pseudo-available port chosen uniformly from 20000 to 59999.
-
-    Returns:
-        bool: `true` if the port can be bound, otherwise `false`.
+    Attempts to bind to 127.0.0.1 on the given port. Returns True if the
+    bind succeeds (port is available), False otherwise. Any OSError during
+    the bind (e.g. port in use, PermissionError) causes a False return.
     """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -546,7 +545,8 @@ def _download_font(dest: Path) -> Path:
 
     tmp_path = font_path.with_suffix(".ttf.download")
     try:
-        urllib.request.urlretrieve(FONT_TTF_URL, str(tmp_path))
+        with urllib.request.urlopen(FONT_TTF_URL, timeout=30) as response, tmp_path.open("wb") as out:
+            shutil.copyfileobj(response, out)
     except Exception as exc:
         tmp_path.unlink(missing_ok=True)
         raise RuntimeError(

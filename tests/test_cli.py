@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -384,9 +384,9 @@ def test_trigger_success_prints_ack(
 
 
 @patch("whisper_local.cli._ensure_service_running")
-@patch("whisper_local.cli._trigger_async")
+@patch("whisper_local.cli._trigger_async", new_callable=AsyncMock)
 def test_trigger_uses_resolved_service_endpoint(
-    mock_trigger_async: Mock,
+    mock_trigger_async: AsyncMock,
     mock_ensure_service: Mock,
     capsys,
 ) -> None:

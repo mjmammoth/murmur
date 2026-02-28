@@ -820,7 +820,9 @@ def _make_progress_tqdm(
 
         def __iter__(self) -> Iterator[Any]:
             if self._iterable is not None:
-                yield from self._iterable
+                for item in self._iterable:
+                    _ProgressTqdm._raise_if_cancelled()
+                    yield item
             return
 
         def __len__(self) -> int:
