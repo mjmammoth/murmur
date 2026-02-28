@@ -16,6 +16,8 @@ classifiers = [
   "Intended Audience :: End Users/Desktop",
   "License :: OSI Approved :: Apache Software License",
   "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
   "Topic :: Multimedia :: Sound/Audio :: Speech",
@@ -24,7 +26,10 @@ dependencies = [
   "faster-whisper>=1.0.0",
   "huggingface-hub>=0.24.0",
   "numpy>=1.24.0",
-  "pyobjc-framework-Quartz>=9.0",
+  "pyobjc-framework-Quartz>=9.0; sys_platform == 'darwin'",
+  "python-xlib>=0.33; sys_platform == 'linux'",
+  "psutil>=5.9.0; sys_platform == 'win32'",
+  "pywin32>=306; sys_platform == 'win32'",
   "pyperclip>=1.8.2",
   "sounddevice>=0.4.6",
   "tomli-w>=1.0.0",
@@ -69,12 +74,16 @@ whisper_local = ["default_config.toml"]
 line-length = 100
 target-version = "py312"
 select = ["E", "F", "I"]
+ignore = ["E101", "E501", "I001"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 
+[tool.coverage.run]
+relative_files = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=src/whisper_local --cov-report=term-missing"
+addopts = "--cov=src/whisper_local --cov=scripts --cov-report=term-missing --cov-fail-under=65"

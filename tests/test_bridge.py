@@ -64,7 +64,18 @@ def mock_config():
     config.output.file = Mock()
     config.output.file.enabled = False
     config.output.file.path = Path('/tmp/output.txt')
+    config.history = Mock()
+    config.history.max_entries = 5000
     return config
+
+
+@pytest.fixture(autouse=True)
+def isolate_transcript_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Use an isolated transcript SQLite file for each test."""
+    monkeypatch.setattr(
+        "whisper_local.bridge.transcript_db_path",
+        lambda: tmp_path / "transcripts.sqlite3",
+    )
 
 
 def test_bridge_log_filter_blocks_websocket_handshake_errors():
@@ -339,6 +350,38 @@ def test_config_payload_includes_audio_inputs(mock_config):
     assert payload["audio_inputs"]["devices"][0]["key"] == "CoreAudio:Built-in Mic"
 
 
+def test_config_payload_includes_platform_capabilities(mock_config):
+    """Bridge config payload should include platform capability flags."""
+    server = BridgeServer(mock_config)
+    mock_config.to_dict.return_value = {"model": {"runtime": "faster-whisper"}}
+
+    payload = server._config_payload()
+
+    assert "platform_capabilities" in payload
+    caps = payload["platform_capabilities"]
+    assert "hotkey_capture" in caps
+    assert "hotkey_swallow" in caps
+    assert "status_indicator" in caps
+    assert "auto_paste" in caps
+
+
+def test_config_payload_surfaces_detected_platform_capabilities(mock_config):
+    server = BridgeServer(mock_config)
+    mock_config.to_dict.return_value = {"model": {"runtime": "faster-whisper"}}
+    server._platform_capabilities = {
+        "hotkey_capture": True,
+        "hotkey_swallow": True,
+        "status_indicator": False,
+        "auto_paste": False,
+        "hotkey_guidance": None,
+    }
+
+    payload = server._config_payload()
+
+    assert payload["platform_capabilities"]["hotkey_capture"] is True
+    assert payload["platform_capabilities"]["hotkey_swallow"] is True
+
+
 def test_set_audio_input_device_updates_recorder_and_config(mock_config):
     """Selecting input device should update config, recorder, and broadcasts."""
     server = BridgeServer(mock_config)
@@ -419,7 +462,9 @@ def test_init_components_falls_back_to_default_when_saved_device_missing(mock_co
         server, "_persist_config", return_value=None
     ), patch("whisper_local.bridge.AudioRecorder") as mock_recorder, patch(
         "whisper_local.bridge.RNNoiseSuppressor"
-    ), patch("whisper_local.bridge.VadProcessor"), patch("whisper_local.bridge.HotkeyListener"):
+    ), patch("whisper_local.bridge.VadProcessor"), patch(
+        "whisper_local.bridge.create_hotkey_provider"
+    ):
         server._init_components()
 
     assert mock_config.audio.input_device is None
@@ -488,7 +533,9 @@ def test_process_audio_auto_paste_reverts_clipboard_in_order(mock_config):
 
     with patch("whisper_local.bridge.capture_clipboard_snapshot") as mock_capture, patch(
         "whisper_local.bridge.copy_to_clipboard"
-    ) as mock_copy, patch("whisper_local.bridge.paste_from_clipboard") as mock_paste, patch(
+    ) as mock_copy, patch.object(
+        server._paste_provider, "paste_from_clipboard"
+    ) as mock_paste, patch(
         "whisper_local.bridge.restore_clipboard_snapshot"
     ) as mock_restore, patch(
         "whisper_local.bridge.asyncio.to_thread", side_effect=fake_to_thread
@@ -515,6 +562,99 @@ def test_process_audio_auto_paste_reverts_clipboard_in_order(mock_config):
         if call.args and call.args[0].get("type") == "suppress_paste_input"
     ]
     assert len(suppress_payloads) == 1
+
+
+def test_process_audio_emits_transcript_id_and_created_at(mock_config):
+    """Transcript payload should include persisted transcript metadata."""
+    server = BridgeServer(mock_config)
+    server._auto_paste = False
+    server._auto_copy = False
+    server._broadcast = AsyncMock()
+
+    mock_config.output.clipboard = False
+    mock_config.output.file.enabled = False
+    mock_config.vad.enabled = False
+
+    audio = Mock()
+    audio.size = 4
+    audio.shape = (4,)
+
+    result = Mock()
+    result.text = "hello world"
+    result.language = "en"
+
+    transcriber = Mock()
+    transcriber.transcribe.return_value = result
+    transcriber.runtime_info.return_value = {}
+
+    asyncio.run(
+        server._process_audio(
+            audio,
+            transcriber=transcriber,
+            language=None,
+            sample_rate=mock_config.audio.sample_rate,
+        )
+    )
+
+    transcript_payloads = [
+        call.args[0]
+        for call in server._broadcast.await_args_list
+        if call.args and call.args[0].get("type") == "transcript"
+    ]
+    assert len(transcript_payloads) == 1
+    payload = transcript_payloads[0]
+    assert isinstance(payload.get("id"), int)
+    assert isinstance(payload.get("created_at"), str)
+
+
+def test_process_audio_broadcasts_transcript_when_persist_fails(mock_config):
+    """Transcript broadcast should continue even when persistence raises."""
+    server = BridgeServer(mock_config)
+    server._auto_paste = False
+    server._auto_copy = False
+    server._broadcast = AsyncMock()
+
+    mock_config.output.clipboard = False
+    mock_config.output.file.enabled = False
+    mock_config.vad.enabled = False
+
+    audio = Mock()
+    audio.size = 4
+    audio.shape = (4,)
+
+    result = Mock()
+    result.text = "hello world"
+    result.language = "en"
+
+    transcriber = Mock()
+    transcriber.transcribe.return_value = result
+    transcriber.runtime_info.return_value = {}
+
+    server._transcript_store.append = Mock(side_effect=RuntimeError("sqlite write failed"))
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    with patch("whisper_local.bridge.asyncio.to_thread", side_effect=fake_to_thread):
+        asyncio.run(
+            server._process_audio(
+                audio,
+                transcriber=transcriber,
+                language=None,
+                sample_rate=mock_config.audio.sample_rate,
+            )
+        )
+
+    transcript_payloads = [
+        call.args[0]
+        for call in server._broadcast.await_args_list
+        if call.args and call.args[0].get("type") == "transcript"
+    ]
+    assert len(transcript_payloads) == 1
+    payload = transcript_payloads[0]
+    assert payload["text"] == "hello world"
+    assert "id" not in payload
+    assert "created_at" not in payload
 
 
 def test_process_audio_auto_paste_without_revert_does_not_restore(mock_config):
@@ -557,7 +697,9 @@ def test_process_audio_auto_paste_without_revert_does_not_restore(mock_config):
 
     with patch("whisper_local.bridge.capture_clipboard_snapshot") as mock_capture, patch(
         "whisper_local.bridge.copy_to_clipboard", return_value=True
-    ), patch("whisper_local.bridge.paste_from_clipboard", return_value=True), patch(
+    ), patch.object(
+        server._paste_provider, "paste_from_clipboard", return_value=True
+    ), patch(
         "whisper_local.bridge.restore_clipboard_snapshot"
     ) as mock_restore, patch("whisper_local.bridge.asyncio.to_thread", side_effect=fake_to_thread):
         asyncio.run(
@@ -613,7 +755,9 @@ def test_process_audio_auto_paste_revert_attempted_when_paste_fails(mock_config)
 
     with patch("whisper_local.bridge.capture_clipboard_snapshot", return_value=object()), patch(
         "whisper_local.bridge.copy_to_clipboard", return_value=True
-    ), patch("whisper_local.bridge.paste_from_clipboard", return_value=False), patch(
+    ), patch.object(
+        server._paste_provider, "paste_from_clipboard", return_value=False
+    ), patch(
         "whisper_local.bridge.restore_clipboard_snapshot", return_value=True
     ) as mock_restore, patch(
         "whisper_local.bridge.asyncio.to_thread", side_effect=fake_to_thread
@@ -918,6 +1062,145 @@ def test_bridge_server_active_client_count():
     assert server._active_client_count() == 2
 
 
+def test_handle_client_disconnect_does_not_stop_hotkey(mock_config):
+    """Disconnecting the last client should not disable service hotkey capture."""
+    server = BridgeServer(mock_config)
+    server.hotkey = Mock()
+    server._hotkey_started = True
+    server._model_loaded = True
+    server._send_config = AsyncMock()
+    server._send_transcript_history = AsyncMock()
+
+    class DummyWebSocket:
+        path = "/ws"
+
+        async def send(self, _payload: str) -> None:
+            return
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    asyncio.run(server._handle_client(DummyWebSocket()))
+
+    server.hotkey.stop.assert_not_called()
+    assert server._hotkey_started is True
+
+
+def test_handle_client_disconnect_cleanup_runs_once(mock_config):
+    """Disconnect cleanup and disconnect logging should run exactly once."""
+    server = BridgeServer(mock_config)
+    server._hotkey_blocked = True
+    server._send_config = AsyncMock()
+    server._send_transcript_history = AsyncMock()
+    server._handle_message = AsyncMock()
+
+    class DummyWebSocket:
+        path = "/ws"
+
+        def __init__(self) -> None:
+            self._sent_message = False
+
+        async def send(self, _payload: str) -> None:
+            return
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self._sent_message:
+                self._sent_message = True
+                return json.dumps({"type": "noop"})
+            raise RuntimeError("connection closed")
+
+    websocket = DummyWebSocket()
+
+    with patch("whisper_local.bridge.websockets.ConnectionClosed", RuntimeError), patch(
+        "whisper_local.bridge.logger"
+    ) as mock_logger:
+        asyncio.run(server._handle_client(websocket))
+
+    assert server._handle_message.await_count == 1
+    handled_websocket, handled_message = server._handle_message.await_args.args
+    assert handled_websocket is websocket
+    assert isinstance(handled_message, str)
+    assert websocket not in server.clients
+    assert websocket not in server._passive_clients
+    assert server._hotkey_blocked is False
+    disconnect_logs = [
+        call
+        for call in mock_logger.info.call_args_list
+        if call.args and str(call.args[0]).startswith("Client disconnected.")
+    ]
+    assert len(disconnect_logs) == 1
+
+
+def test_send_transcript_history_sends_history_payload(mock_config):
+    """New clients should receive transcript history payload."""
+    server = BridgeServer(mock_config)
+    server._transcript_store.append("first", timestamp="12:00:00")
+    websocket = AsyncMock()
+
+    asyncio.run(server._send_transcript_history(websocket))
+
+    websocket.send.assert_awaited_once()
+    raw_payload = websocket.send.await_args.args[0]
+    payload = json.loads(raw_payload)
+    assert payload["type"] == "transcript_history"
+    assert len(payload["entries"]) >= 1
+    assert payload["entries"][-1]["text"] == "first"
+
+
+def test_send_transcript_history_handles_history_read_failure(mock_config):
+    server = BridgeServer(mock_config)
+    server._transcript_store.history = Mock(side_effect=RuntimeError("history read failed"))
+    websocket = AsyncMock()
+
+    with patch("whisper_local.bridge.logger") as mock_logger:
+        asyncio.run(server._send_transcript_history(websocket))
+
+    websocket.send.assert_awaited_once()
+    raw_payload = websocket.send.await_args.args[0]
+    payload = json.loads(raw_payload)
+    assert payload["type"] == "transcript_history"
+    assert payload["entries"] == []
+    mock_logger.exception.assert_called_once()
+
+
+def test_handle_client_start_hotkey_failure_runs_cleanup(mock_config):
+    server = BridgeServer(mock_config)
+    server._model_loaded = True
+    server._hotkey_blocked = True
+    server._start_hotkey = Mock(side_effect=RuntimeError("hotkey start failed"))
+    server._send_config = AsyncMock()
+    server._send_transcript_history = AsyncMock()
+
+    class DummyWebSocket:
+        path = "/ws"
+
+        async def send(self, _payload: str) -> None:
+            return
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    websocket = DummyWebSocket()
+
+    with pytest.raises(RuntimeError, match="hotkey start failed"):
+        asyncio.run(server._handle_client(websocket))
+
+    assert websocket not in server.clients
+    assert websocket not in server._passive_clients
+    assert server._hotkey_blocked is False
+    server._send_config.assert_not_awaited()
+    server._send_transcript_history.assert_not_awaited()
+
+
 def test_bridge_server_installed_model_names():
     """Test _installed_model_names returns installed model names."""
     config = Mock()
@@ -1147,7 +1430,7 @@ def test_bridge_server_init_components(mock_config):
     with patch('whisper_local.bridge.AudioRecorder'), \
          patch('whisper_local.bridge.RNNoiseSuppressor'), \
          patch('whisper_local.bridge.VadProcessor'), \
-         patch('whisper_local.bridge.HotkeyListener'):
+         patch('whisper_local.bridge.create_hotkey_provider'):
 
         server._init_components()
 

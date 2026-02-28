@@ -82,7 +82,7 @@ class RNNoiseSuppressor:
 
     def _try_load_pyrnnoise(self, errors: list[str]) -> bool:
         try:
-            from pyrnnoise import RNNoise as PyRNNoise  # type: ignore
+            from pyrnnoise import RNNoise as PyRNNoise
         except Exception as exc:  # pragma: no cover - optional dependency
             errors.append(f"pyrnnoise import failed: {exc}")
             return False
@@ -188,9 +188,9 @@ def _resolve_rnnoise_library_path() -> str | None:
 def _rnnoise_library_candidates() -> list[str]:
     """
     Gather candidate filesystem or linker names for the RNNoise shared library in search order.
-    
+
     The list includes: the RNNOISE_LIB environment variable (if set), the result of ctypes.util.find_library("rnnoise") (if any), and platform-specific candidate paths returned by _candidate_rnnoise_paths(); duplicate entries are removed while preserving their original order.
-    
+
     Returns:
         list[str]: Ordered, deduplicated candidate paths or library names to try when locating the RNNoise library.
     """
@@ -220,9 +220,9 @@ def _rnnoise_library_candidates() -> list[str]:
 def _candidate_rnnoise_paths() -> list[Path]:
     """
     Return candidate filesystem paths where an RNNoise dynamic library may be installed on macOS.
-    
+
     The list includes the user's Audio Plug-Ins Components path, the system Audio Plug-Ins Components path, and any Homebrew Caskroom rnnoise installs (each resolved to the macOS RNNoise component path) appended in descending version order.
-    
+
     Returns:
         list[Path]: Ordered list of filesystem Paths to probe for an RNNoise library; earlier entries are preferred.
     """

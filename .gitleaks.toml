@@ -1,0 +1,4 @@
+title = "whisper.local gitleaks config"
+
+[extend]
+useDefault = true

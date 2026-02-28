@@ -1,13 +1,15 @@
 import {
   createSignal,
-  createEffect,
+  onCleanup,
   onMount,
+  untrack,
   type JSX,
   type Accessor,
 } from "solid-js";
 import { createContextHelper } from "./helper";
 import { useBackend } from "./backend";
 import type { TranscriptEntry, AppStatus } from "../types";
+import { mergeAndDedupeTranscripts } from "./transcriber-merge";
 
 export interface TranscriberContextValue {
   transcripts: Accessor<TranscriptEntry[]>;
@@ -46,12 +48,23 @@ export function TranscriberContextProvider(props: {
 
   // Listen for transcripts from backend
   onMount(() => {
-    backend.onTranscript((entry) => {
-      setTranscripts((prev) => {
-        const next = [...prev, entry];
-        setSelectedIndex(next.length - 1);
-        return next;
-      });
+    const disposeTranscriptHistory = backend.onTranscriptHistory((entries) => {
+      const previous = untrack(() => transcripts());
+      const next = mergeAndDedupeTranscripts(entries, previous);
+      setTranscripts(next);
+      setSelectedIndex(next.length > 0 ? next.length - 1 : -1);
+    });
+
+    const disposeTranscript = backend.onTranscript((entry) => {
+      const previous = untrack(() => transcripts());
+      const next = mergeAndDedupeTranscripts(previous, [entry]);
+      setTranscripts(next);
+      setSelectedIndex(next.length > 0 ? next.length - 1 : -1);
+    });
+
+    onCleanup(() => {
+      disposeTranscriptHistory();
+      disposeTranscript();
     });
   });
 

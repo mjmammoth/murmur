@@ -105,3 +105,30 @@ def test_save_config_omits_none_audio_input_device(tmp_path: Path) -> None:
     written = config_path.read_text(encoding="utf-8")
 
     assert "input_device" not in written
+
+
+def test_load_config_history_defaults_to_5000(tmp_path: Path) -> None:
+    """Missing history config should default max_entries to 5000."""
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("", encoding="utf-8")
+
+    config = load_config(config_path)
+
+    assert config.history.max_entries == 5000
+
+
+def test_load_config_history_max_entries_is_clamped(tmp_path: Path) -> None:
+    """history.max_entries should always be a positive integer."""
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[history]
+max_entries = 0
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.history.max_entries == 1

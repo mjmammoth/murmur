@@ -6,19 +6,82 @@ on:
   pull_request:
 
 jobs:
+  precommit_guard:
+    permissions:
+      contents: read
+    runs-on: macos-14
+    env:
+      WHISPER_LOCAL_SKIP_TUI_SHOWCASE: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
+        with:
+          bun-version: "1.2.21"
+
+      - name: Install pre-commit
+        run: python -m pip install --upgrade pip pre-commit
+
+      - name: Install TUI dependencies
+        run: bun install --frozen-lockfile --os='*' --cpu='*'
+        working-directory: tui
+
+      - name: Run pre-commit on all files
+        run: pre-commit run --all-files
+
+  python_smoke_matrix:
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: CLI smoke help
+        run: python -m whisper_local.cli --help
+
+      - name: CLI smoke status
+        run: python -m whisper_local.cli status
+
+      - name: CLI smoke trigger help
+        run: python -m whisper_local.cli trigger --help
+
   python_checks:
+    permissions:
+      contents: read
     runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
 
       - name: Install Python tooling
-        run: python -m pip install --upgrade pip build mypy pytest ruff
+        run: python -m pip install --upgrade pip build mypy pytest pytest-cov ruff
 
       - name: Install project dependencies
         run: python -m pip install -e .
@@ -32,7 +95,7 @@ jobs:
       - name: Run tests
         env:
           PYTHONPATH: src
-        run: pytest -q
+        run: pytest -q --cov-report=xml:coverage.xml
 
       - name: CLI smoke (parser/help)
         env:
@@ -48,23 +111,77 @@ jobs:
           SETUPTOOLS_SCM_PRETEND_VERSION: "0.0.0"
 
       - name: Upload Python dist artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: ci-python-dist
           path: dist/*
 
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ci-coverage
+          path: coverage.xml
+
+  sonarcloud:
+    permissions:
+      contents: read
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: [python_checks, tui_build_smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Download Python coverage artifact
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: ci-coverage
+          path: .
+
+      - name: Download TUI coverage artifact
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: ci-tui-coverage
+          path: tui/coverage
+
+      - name: Normalize TUI LCOV paths for Sonar
+        run: |
+          if [ ! -f tui/coverage/lcov.info ]; then
+            echo "Missing TUI coverage report at tui/coverage/lcov.info" >&2
+            exit 1
+          fi
+          sed -i 's#^SF:src/#SF:tui/src/#' tui/coverage/lcov.info
+          grep -m 5 '^SF:' tui/coverage/lcov.info
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7.0.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+
+      - name: SonarCloud Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@cf038b0e0cdecfa9e56c198bbb7d21d751d62c3b # v1.2.0
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+
   brew_formula_smoke:
+    permissions:
+      contents: read
     needs: [python_checks]
     runs-on: macos-14
     steps:
       - name: Download wheel artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: ci-python-dist
           path: dist
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
 
@@ -141,25 +258,27 @@ jobs:
           PY
 
   brew_formula_audit:
+    permissions:
+      contents: read
     needs: [python_checks, tui_build_smoke]
     runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
 
       - name: Download wheel artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: ci-python-dist
           path: dist
 
       - name: Download TUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: ci-tui-dist
           path: dist/tui
@@ -167,20 +286,58 @@ jobs:
       - name: Render formula and register local tap
         run: |
           WHEEL_PATH="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
-          TUI_PATH="$(find dist/tui -maxdepth 1 -type f -name '*whisper-local-tui*.tar.gz' -print -quit)"
+          TUI_DARWIN_ARM64="dist/tui/whisper-local-tui-darwin-arm64.tar.gz"
+          TUI_DARWIN_X64="dist/tui/whisper-local-tui-darwin-x64.tar.gz"
+          TUI_LINUX_X64="dist/tui/whisper-local-tui-linux-x64.tar.gz"
+          TUI_LINUX_ARM64="dist/tui/whisper-local-tui-linux-arm64.tar.gz"
 
           if [ -z "$WHEEL_PATH" ] || [ ! -f "$WHEEL_PATH" ]; then
             echo "Error: No wheel artifact found in dist/" >&2
             exit 1
           fi
-          if [ -z "$TUI_PATH" ] || [ ! -f "$TUI_PATH" ]; then
-            echo "Error: No TUI tarball found in dist/tui/" >&2
-            exit 1
-          fi
+          for file in "$TUI_DARWIN_ARM64" "$TUI_DARWIN_X64" "$TUI_LINUX_X64" "$TUI_LINUX_ARM64"; do
+            if [ ! -f "$file" ]; then
+              echo "Error: Missing TUI tarball $file" >&2
+              exit 1
+            fi
+          done
 
           WHEEL_SHA="$(shasum -a 256 "$WHEEL_PATH" | awk '{print $1}')"
-          TUI_SHA="$(shasum -a 256 "$TUI_PATH" | awk '{print $1}')"
-          VERSION="0.0.0"
+          TUI_DARWIN_ARM64_SHA="$(shasum -a 256 "$TUI_DARWIN_ARM64" | awk '{print $1}')"
+          TUI_DARWIN_X64_SHA="$(shasum -a 256 "$TUI_DARWIN_X64" | awk '{print $1}')"
+          TUI_LINUX_X64_SHA="$(shasum -a 256 "$TUI_LINUX_X64" | awk '{print $1}')"
+          TUI_LINUX_ARM64_SHA="$(shasum -a 256 "$TUI_LINUX_ARM64" | awk '{print $1}')"
+          VERSION="$(python - "$WHEEL_PATH" <<'PY'
+          import sys
+          import zipfile
+
+          wheel_path = sys.argv[1]
+          with zipfile.ZipFile(wheel_path) as wheel:
+              metadata_path = next(
+                  (
+                      member
+                      for member in wheel.namelist()
+                      if member.endswith(".dist-info/METADATA")
+                  ),
+                  None,
+              )
+              if metadata_path is None:
+                  raise SystemExit("Missing wheel METADATA file")
+
+              version_line = next(
+                  (
+                      line
+                      for line in wheel.read(metadata_path).decode("utf-8").splitlines()
+                      if line.startswith("Version: ")
+                  ),
+                  None,
+              )
+              if version_line is None:
+                  raise SystemExit("Missing Version field in wheel METADATA")
+
+              print(version_line.split(": ", 1)[1].strip())
+          PY
+          )"
 
           TAP_DIR="$(mktemp -d)"
           mkdir -p "$TAP_DIR/Formula"
@@ -189,8 +346,14 @@ jobs:
             --version "$VERSION" \
             --wheel-url "file://$PWD/$WHEEL_PATH" \
             --wheel-sha256 "$WHEEL_SHA" \
-            --tui-url "file://$PWD/$TUI_PATH" \
-            --tui-sha256 "$TUI_SHA" \
+            --tui-url-darwin-arm64 "file://$PWD/$TUI_DARWIN_ARM64" \
+            --tui-sha256-darwin-arm64 "$TUI_DARWIN_ARM64_SHA" \
+            --tui-url-darwin-x64 "file://$PWD/$TUI_DARWIN_X64" \
+            --tui-sha256-darwin-x64 "$TUI_DARWIN_X64_SHA" \
+            --tui-url-linux-x64 "file://$PWD/$TUI_LINUX_X64" \
+            --tui-sha256-linux-x64 "$TUI_LINUX_X64_SHA" \
+            --tui-url-linux-arm64 "file://$PWD/$TUI_LINUX_ARM64" \
+            --tui-sha256-linux-arm64 "$TUI_LINUX_ARM64_SHA" \
             --repository "local/whisper-local" \
             --tap-repo-path "$TAP_DIR"
 
@@ -208,19 +371,31 @@ jobs:
         run: brew audit --formula local/whisper-local-ci/whisper-local
 
   tui_build_smoke:
+    permissions:
+      contents: read
     runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
         with:
           bun-version: "1.2.21"
 
       - name: Install TUI dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --os='*' --cpu='*'
         working-directory: tui
+
+      - name: Run TUI unit tests with coverage
+        run: bun test --timeout 5000 --coverage
+        working-directory: tui
+
+      - name: Upload TUI coverage artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ci-tui-coverage
+          path: tui/coverage/lcov.info
 
       - name: Type check TUI
         run: bunx tsc --noEmit -p tui/tsconfig.json
@@ -229,14 +404,22 @@ jobs:
         run: bun run build:release
         working-directory: tui
 
-      - name: Assert TUI artifacts exist
+      - name: Assert TUI artifacts exist for all targets
         run: |
           test -f dist/tui/darwin-arm64/whisper-local-tui
+          test -f dist/tui/darwin-x64/whisper-local-tui
+          test -f dist/tui/linux-x64/whisper-local-tui
+          test -f dist/tui/linux-arm64/whisper-local-tui
+          test -f dist/tui/windows-x64/whisper-local-tui.exe
           test -f dist/tui/whisper-local-tui-darwin-arm64.tar.gz
+          test -f dist/tui/whisper-local-tui-darwin-x64.tar.gz
+          test -f dist/tui/whisper-local-tui-linux-x64.tar.gz
+          test -f dist/tui/whisper-local-tui-linux-arm64.tar.gz
+          test -f dist/tui/whisper-local-tui-windows-x64.tar.gz
           test -f dist/tui/manifest.json
 
       - name: Upload TUI artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: ci-tui-dist
           path: dist/tui/*

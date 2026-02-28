@@ -36,6 +36,9 @@ path = "~/transcripts.txt"
 theme = "dark"
 welcome_shown = false
 
+[history]
+max_entries = 5000
+
 [bridge]
 host = "localhost"
 port = 7878

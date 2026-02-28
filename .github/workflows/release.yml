@@ -6,14 +6,30 @@ on:
       - "v*"
 
 jobs:
+  classify_release:
+    runs-on: ubuntu-latest
+    outputs:
+      normalized_tag: ${{ steps.classify.outputs.normalized_tag }}
+      version_no_v: ${{ steps.classify.outputs.version_no_v }}
+      release_kind: ${{ steps.classify.outputs.release_kind }}
+      is_prerelease: ${{ steps.classify.outputs.is_prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Classify release tag
+        id: classify
+        run: python3 scripts/release_tag.py "${{ github.ref_name }}" --github-output "${GITHUB_OUTPUT}"
+
   build_python_dist:
+    needs: [classify_release]
     runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
 
@@ -24,48 +40,54 @@ jobs:
         run: python -m build
 
       - name: Upload Python dist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: python-dist
           path: dist/*
 
-  build_tui_arm64:
+  build_tui_all_targets:
+    needs: [classify_release]
     runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
         with:
           bun-version: "1.2.21"
 
       - name: Install TUI dependencies
-        run: bun install --frozen-lockfile
+        run: |
+          bun install --frozen-lockfile
+          for target in "darwin arm64" "darwin x64" "linux arm64" "linux x64" "win32 x64"; do
+            set -- $target
+            bun install --frozen-lockfile --os="$1" --cpu="$2"
+          done
         working-directory: tui
 
-      - name: Build arm64 TUI artifact
+      - name: Build multi-target TUI artifacts
         run: bun run build:release
         working-directory: tui
 
       - name: Upload TUI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: tui-dist
           path: dist/tui/*
 
   checksum_assets:
-    needs: [build_python_dist, build_tui_arm64]
+    needs: [build_python_dist, build_tui_all_targets]
     runs-on: macos-14
     steps:
       - name: Download Python dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: python-dist
           path: release-assets/python-dist
 
       - name: Download TUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: tui-dist
           path: release-assets/tui-dist
@@ -83,74 +105,161 @@ jobs:
             shasum -a 256 "${file}" >> checksums.txt
           done <<< "${FILES}"
 
+      - name: Install Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
+
+      - name: Check Syft version
+        run: ${{ steps.syft.outputs.cmd }} version
+
+      - name: Generate SBOM (SPDX JSON)
+        run: ${{ steps.syft.outputs.cmd }} dir:release-assets -o spdx-json=release-assets/sbom.spdx.json
+
       - name: Upload checksums artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: checksums
           path: release-assets/checksums.txt
 
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: sbom
+          path: release-assets/sbom.spdx.json
+
   publish_release:
-    needs: [checksum_assets]
+    needs: [checksum_assets, classify_release]
     runs-on: macos-14
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Download Python dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: python-dist
           path: release-assets/python-dist
 
       - name: Download TUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: tui-dist
           path: release-assets/tui-dist
 
       - name: Download checksums artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: checksums
           path: release-assets
 
-      - name: Publish GitHub release assets
-        uses: softprops/action-gh-release@v2
+      - name: Download SBOM artifact
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
+          name: sbom
+          path: release-assets
+
+      - name: Sign checksums manifest
+        env:
+          RELEASE_GPG_PRIVATE_KEY_B64: ${{ secrets.RELEASE_GPG_PRIVATE_KEY_B64 }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+        run: |
+          if [ -z "${RELEASE_GPG_PRIVATE_KEY_B64}" ] || [ -z "${RELEASE_GPG_PASSPHRASE}" ] || [ -z "${RELEASE_GPG_FINGERPRINT}" ]; then
+            echo "Missing release signing secrets"
+            exit 1
+          fi
+
+          GNUPGHOME="$(mktemp -d)"
+          if [ -z "${GNUPGHOME}" ] || [ ! -d "${GNUPGHOME}" ]; then
+            echo "Error: mktemp -d failed to create temporary directory" >&2
+            exit 1
+          fi
+          export GNUPGHOME
+          chmod 700 "${GNUPGHOME}"
+          trap 'rm -rf "${GNUPGHOME}" release-signing-private.asc' EXIT
+
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          raw = os.environ["RELEASE_GPG_PRIVATE_KEY_B64"]
+          Path("release-signing-private.asc").write_bytes(base64.b64decode(raw))
+          PY
+
+          gpg --batch --import release-signing-private.asc
+
+          EXPECTED_FPR="$(printf '%s' "${RELEASE_GPG_FINGERPRINT}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+          IMPORTED_FPRS="$(gpg --batch --with-colons --fingerprint | awk -F: '$1 == "fpr" { print toupper($10) }')"
+          if ! printf '%s\n' "${IMPORTED_FPRS}" | grep -Fxq "${EXPECTED_FPR}"; then
+            echo "Imported GPG key fingerprint does not match RELEASE_GPG_FINGERPRINT"
+            exit 1
+          fi
+
+          gpg \
+            --batch \
+            --yes \
+            --pinentry-mode loopback \
+            --passphrase "${RELEASE_GPG_PASSPHRASE}" \
+            --armor \
+            --detach-sign \
+            --output release-assets/checksums.txt.asc \
+            release-assets/checksums.txt
+
+          gpg --batch --verify release-assets/checksums.txt.asc release-assets/checksums.txt
+
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            release-assets/python-dist/*
+            release-assets/tui-dist/*
+            release-assets/checksums.txt
+            release-assets/checksums.txt.asc
+            release-assets/sbom.spdx.json
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          prerelease: ${{ needs.classify_release.outputs.is_prerelease == 'true' }}
           generate_release_notes: true
           files: |
             release-assets/python-dist/*
-            release-assets/tui-dist/whisper-local-tui-darwin-arm64.tar.gz
+            release-assets/tui-dist/whisper-local-tui-*.tar.gz
             release-assets/tui-dist/manifest.json
             release-assets/checksums.txt
+            release-assets/checksums.txt.asc
+            release-assets/sbom.spdx.json
 
   update_tap_formula:
-    needs: [publish_release]
+    needs: [publish_release, classify_release]
     runs-on: macos-14
     permissions:
       contents: read
     steps:
       - name: Checkout app repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
 
       - name: Download Python dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: python-dist
           path: release-assets/python-dist
 
       - name: Download TUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: tui-dist
           path: release-assets/tui-dist
 
       - name: Download checksums artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: checksums
           path: release-assets
@@ -167,34 +276,62 @@ jobs:
           fi
 
       - name: Checkout homebrew tap repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: ${{ steps.tap_repo.outputs.repository }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
+      - name: Select tap target
+        id: tap_target
+        env:
+          RELEASE_KIND: ${{ needs.classify_release.outputs.release_kind }}
+        run: |
+          if [ "${RELEASE_KIND}" = "prerelease" ]; then
+            echo "formula_path=Formula/whisper-local-preview.rb" >> "${GITHUB_OUTPUT}"
+            echo "alias_name=whisper.local-preview" >> "${GITHUB_OUTPUT}"
+            echo "alias_target=../Formula/whisper-local-preview.rb" >> "${GITHUB_OUTPUT}"
+            echo "template_path=scripts/templates/whisper-local-preview.rb.tpl" >> "${GITHUB_OUTPUT}"
+            echo "commit_label=whisper-local-preview" >> "${GITHUB_OUTPUT}"
+          else
+            echo "formula_path=Formula/whisper-local.rb" >> "${GITHUB_OUTPUT}"
+            echo "alias_name=whisper.local" >> "${GITHUB_OUTPUT}"
+            echo "alias_target=../Formula/whisper-local.rb" >> "${GITHUB_OUTPUT}"
+            echo "template_path=scripts/templates/whisper-local.rb.tpl" >> "${GITHUB_OUTPUT}"
+            echo "commit_label=whisper-local" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Render formula from release assets
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.classify_release.outputs.version_no_v }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          FORMULA_PATH: ${{ steps.tap_target.outputs.formula_path }}
+          TEMPLATE_PATH: ${{ steps.tap_target.outputs.template_path }}
         run: |
-          VERSION="${VERSION#v}"
           WHEEL_FILE="$(basename "$(ls release-assets/python-dist/*.whl | head -n 1)")"
-          TUI_FILE="whisper-local-tui-darwin-arm64.tar.gz"
+          TUI_DARWIN_ARM64="whisper-local-tui-darwin-arm64.tar.gz"
+          TUI_DARWIN_X64="whisper-local-tui-darwin-x64.tar.gz"
+          TUI_LINUX_X64="whisper-local-tui-linux-x64.tar.gz"
+          TUI_LINUX_ARM64="whisper-local-tui-linux-arm64.tar.gz"
 
           if [ -z "${WHEEL_FILE}" ] || [ ! -f "release-assets/python-dist/${WHEEL_FILE}" ]; then
             echo "Missing wheel artifact"
             exit 1
           fi
-          if [ ! -f "release-assets/tui-dist/${TUI_FILE}" ]; then
-            echo "Missing TUI artifact ${TUI_FILE}"
-            exit 1
-          fi
+          for file in "${TUI_DARWIN_ARM64}" "${TUI_DARWIN_X64}" "${TUI_LINUX_X64}" "${TUI_LINUX_ARM64}"; do
+            if [ ! -f "release-assets/tui-dist/${file}" ]; then
+              echo "Missing TUI artifact ${file}"
+              exit 1
+            fi
+          done
 
           WHEEL_SHA="$(awk -v f="python-dist/${WHEEL_FILE}" '$2==f {print $1}' release-assets/checksums.txt)"
-          TUI_SHA="$(awk -v f="tui-dist/${TUI_FILE}" '$2==f {print $1}' release-assets/checksums.txt)"
+          TUI_DARWIN_ARM64_SHA="$(awk -v f="tui-dist/${TUI_DARWIN_ARM64}" '$2==f {print $1}' release-assets/checksums.txt)"
+          TUI_DARWIN_X64_SHA="$(awk -v f="tui-dist/${TUI_DARWIN_X64}" '$2==f {print $1}' release-assets/checksums.txt)"
+          TUI_LINUX_X64_SHA="$(awk -v f="tui-dist/${TUI_LINUX_X64}" '$2==f {print $1}' release-assets/checksums.txt)"
+          TUI_LINUX_ARM64_SHA="$(awk -v f="tui-dist/${TUI_LINUX_ARM64}" '$2==f {print $1}' release-assets/checksums.txt)"
 
-          if [ -z "${WHEEL_SHA}" ] || [ -z "${TUI_SHA}" ]; then
+          if [ -z "${WHEEL_SHA}" ] || [ -z "${TUI_DARWIN_ARM64_SHA}" ] || [ -z "${TUI_DARWIN_X64_SHA}" ] || [ -z "${TUI_LINUX_X64_SHA}" ] || [ -z "${TUI_LINUX_ARM64_SHA}" ]; then
             echo "Missing checksum entry for release assets"
             exit 1
           fi
@@ -204,27 +341,38 @@ jobs:
             --version "${VERSION}" \
             --wheel-url "${BASE_URL}/${WHEEL_FILE}" \
             --wheel-sha256 "${WHEEL_SHA}" \
-            --tui-url "${BASE_URL}/${TUI_FILE}" \
-            --tui-sha256 "${TUI_SHA}" \
+            --tui-url-darwin-arm64 "${BASE_URL}/${TUI_DARWIN_ARM64}" \
+            --tui-sha256-darwin-arm64 "${TUI_DARWIN_ARM64_SHA}" \
+            --tui-url-darwin-x64 "${BASE_URL}/${TUI_DARWIN_X64}" \
+            --tui-sha256-darwin-x64 "${TUI_DARWIN_X64_SHA}" \
+            --tui-url-linux-x64 "${BASE_URL}/${TUI_LINUX_X64}" \
+            --tui-sha256-linux-x64 "${TUI_LINUX_X64_SHA}" \
+            --tui-url-linux-arm64 "${BASE_URL}/${TUI_LINUX_ARM64}" \
+            --tui-sha256-linux-arm64 "${TUI_LINUX_ARM64_SHA}" \
             --repository "${GITHUB_REPOSITORY}" \
+            --formula-path "${FORMULA_PATH}" \
+            --template "${TEMPLATE_PATH}" \
             --tap-repo-path homebrew-tap
 
       - name: Ensure tap alias exists
+        env:
+          ALIAS_NAME: ${{ steps.tap_target.outputs.alias_name }}
+          ALIAS_TARGET: ${{ steps.tap_target.outputs.alias_target }}
         run: |
           mkdir -p homebrew-tap/Aliases
-          ln -sfn ../Formula/whisper-local.rb homebrew-tap/Aliases/whisper.local
+          ln -sfn "${ALIAS_TARGET}" "homebrew-tap/Aliases/${ALIAS_NAME}"
 
       - name: Commit and push formula update
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.classify_release.outputs.version_no_v }}
+          COMMIT_LABEL: ${{ steps.tap_target.outputs.commit_label }}
         run: |
-          VERSION="${VERSION#v}"
           git -C homebrew-tap config user.name "github-actions[bot]"
           git -C homebrew-tap config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C homebrew-tap add Formula/whisper-local.rb Aliases/
+          git -C homebrew-tap add -A Formula Aliases
           if git -C homebrew-tap diff --cached --quiet; then
             echo "No formula changes to commit."
             exit 0
           fi
-          git -C homebrew-tap commit -m "whisper-local ${VERSION}"
+          git -C homebrew-tap commit -m "${COMMIT_LABEL} ${VERSION}"
           git -C homebrew-tap push

@@ -12,6 +12,9 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+coverage.xml
+tui/coverage/
 .cache/
 .DS_Store
 logs/

@@ -153,6 +153,20 @@ class UiConfig:
 
 
 @dataclass
+class HistoryConfig:
+    max_entries: int = 5000
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> HistoryConfig:
+        raw_value = data.get("max_entries", 5000)
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            parsed = 5000
+        return cls(max_entries=max(1, parsed))
+
+
+@dataclass
 class AppConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
@@ -160,6 +174,7 @@ class AppConfig:
     vad: VadConfig = field(default_factory=VadConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     ui: UiConfig = field(default_factory=UiConfig)
+    history: HistoryConfig = field(default_factory=HistoryConfig)
     auto_copy: bool = True
     auto_paste: bool = True
     auto_revert_clipboard: bool = True
@@ -243,6 +258,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         vad=VadConfig.from_dict(merged.get("vad", {})),
         output=OutputConfig.from_dict(merged.get("output", {})),
         ui=UiConfig.from_dict(merged.get("ui", {})),
+        history=HistoryConfig.from_dict(merged.get("history", {})),
         auto_copy=bool(merged.get("auto_copy", True)),
         auto_paste=bool(merged.get("auto_paste", True)),
         auto_revert_clipboard=bool(merged.get("auto_revert_clipboard", True)),

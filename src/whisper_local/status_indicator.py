@@ -6,7 +6,7 @@ import json
 import signal
 import sys
 import threading
-from typing import Any
+from typing import Any, Callable, TypeVar, cast
 
 import objc
 import websockets
@@ -24,9 +24,13 @@ from AppKit import (
 from Foundation import NSMutableAttributedString, NSObject
 from PyObjCTools import AppHelper
 
+_F = TypeVar("_F", bound=Callable[..., object])
+python_method = cast(Callable[[_F], _F], objc.python_method)
+StatusCallback = Callable[[str, str], None]
+
 
 class StatusListenerThread(threading.Thread):
-    def __init__(self, host: str, port: int, on_status) -> None:
+    def __init__(self, host: str, port: int, on_status: StatusCallback) -> None:
         super().__init__(daemon=True)
         self.host = host
         self.port = port
@@ -64,8 +68,8 @@ class StatusListenerThread(threading.Thread):
                 await asyncio.sleep(1.0)
 
 
-class MenuBarStatusApp(NSObject):
-    def initWithHost_port_(self, host: str, port: int):
+class MenuBarStatusApp(NSObject):  # type: ignore[misc]
+    def initWithHost_port_(self, host: str, port: int) -> MenuBarStatusApp | None:
         self = objc.super(MenuBarStatusApp, self).init()
         if self is None:
             return None
@@ -100,11 +104,11 @@ class MenuBarStatusApp(NSObject):
         self._set_visual("idle", self._bridge_message)
         return self
 
-    @objc.python_method
+    @python_method
     def start(self) -> None:
         self._listener.start()
 
-    @objc.python_method
+    @python_method
     def stop(self) -> None:
         self._cancel_success_timer()
         self._listener.stop()
@@ -126,7 +130,7 @@ class MenuBarStatusApp(NSObject):
         self._cancel_success_timer()
         self._set_visual(status, message)
 
-    @objc.python_method
+    @python_method
     def _schedule_success_reset(self) -> None:
         self._cancel_success_timer()
         timer = threading.Timer(2.0, lambda: AppHelper.callAfter(self._reset_to_idle_if_ready))
@@ -134,7 +138,7 @@ class MenuBarStatusApp(NSObject):
         self._success_timer = timer
         timer.start()
 
-    @objc.python_method
+    @python_method
     def _cancel_success_timer(self) -> None:
         if self._success_timer is None:
             return
@@ -146,7 +150,7 @@ class MenuBarStatusApp(NSObject):
         if self._bridge_status == "ready":
             self._set_visual("idle", self._bridge_message)
 
-    @objc.python_method
+    @python_method
     def _set_visual(self, status: str, message: str) -> None:
         if status == "recording":
             color = NSColor.systemRedColor()

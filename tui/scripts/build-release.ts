@@ -1,22 +1,31 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { devNull } from "node:os";
 import solidTransformPlugin from "@opentui/solid/bun-plugin";
 
 type PackageJson = {
   version: string;
+  dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
 };
 
-/**
- * Execute a command synchronously in a specified working directory and return its trimmed stdout.
- *
- * @param command - The executable or program to run (e.g., "git", "tar", "bun")
- * @param args - Array of command-line arguments passed to `command`
- * @param cwd - Working directory in which to run the command
- * @returns The command's standard output with leading and trailing whitespace removed
- * @throws Error if the process exits with a non-zero status; the error message includes the command and its stderr or stdout output
- */
+type BuildTarget = {
+  id: string;
+  bunTarget: string;
+  binaryName: string;
+  archiveName: string;
+};
+
+const DEFAULT_TARGET_IDS = [
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-x64",
+  "linux-arm64",
+  "windows-x64",
+] as const;
+
 function run(command: string, args: string[], cwd: string): string {
   const result = spawnSync(command, args, {
     cwd,
@@ -38,11 +47,179 @@ function run(command: string, args: string[], cwd: string): string {
   return result.stdout.trim();
 }
 
-/**
- * Builds the TUI for macOS ARM64, packages the resulting binary into a tar.gz under dist/tui, and writes a release manifest.
- *
- * The manifest contains the package version (from tui/package.json), target architecture, ISO build timestamp, git commit SHA, binary name, and tarball filename.
- */
+function parseRequestedTargets(): readonly string[] {
+  const cliArg = process.argv.find((arg) => arg.startsWith("--targets="));
+  const fromCli = cliArg ? cliArg.slice("--targets=".length) : "";
+  const fromEnv = process.env.WHISPER_LOCAL_TUI_TARGETS ?? "";
+  const raw = fromCli || fromEnv;
+  if (!raw.trim()) {
+    return DEFAULT_TARGET_IDS;
+  }
+  const parsed = Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+  if (parsed.length === 0) {
+    return DEFAULT_TARGET_IDS;
+  }
+  return parsed;
+}
+
+function resolveTargets(requested: readonly string[]): BuildTarget[] {
+  const supported = new Set(DEFAULT_TARGET_IDS);
+  const targets: BuildTarget[] = [];
+  for (const id of Array.from(new Set(requested))) {
+    if (!supported.has(id as (typeof DEFAULT_TARGET_IDS)[number])) {
+      throw new Error(`Unsupported target '${id}'. Supported targets: ${DEFAULT_TARGET_IDS.join(", ")}`);
+    }
+    const isWindows = id.startsWith("windows-");
+    const binaryName = isWindows ? "whisper-local-tui.exe" : "whisper-local-tui";
+    targets.push({
+      id,
+      bunTarget: `bun-${id}`,
+      binaryName,
+      archiveName: `whisper-local-tui-${id}.tar.gz`,
+    });
+  }
+  return targets;
+}
+
+function targetInstallPlatform(target: BuildTarget): { os: string; cpu: string } {
+  const [rawOs, rawCpu] = target.id.split("-");
+  if (!rawOs || !rawCpu) {
+    throw new Error(`Invalid build target id '${target.id}'`);
+  }
+
+  return { os: rawOs === "windows" ? "win32" : rawOs, cpu: rawCpu };
+}
+
+function targetCorePackageName(target: BuildTarget): string {
+  const platform = targetInstallPlatform(target);
+  return `@opentui/core-${platform.os}-${platform.cpu}`;
+}
+
+function isAsciiDigit(character: string): boolean {
+  return character >= "0" && character <= "9";
+}
+
+function normalizeVersionRange(versionRange: string): string {
+  const value = versionRange.trim();
+  let index = 0;
+  while (index < value.length) {
+    while (index < value.length && !isAsciiDigit(value[index]!)) {
+      index += 1;
+    }
+    if (index >= value.length) {
+      break;
+    }
+
+    const majorStart = index;
+    while (index < value.length && isAsciiDigit(value[index]!)) {
+      index += 1;
+    }
+    if (index >= value.length || value[index] !== ".") {
+      continue;
+    }
+
+    index += 1;
+    const minorStart = index;
+    while (index < value.length && isAsciiDigit(value[index]!)) {
+      index += 1;
+    }
+    if (minorStart === index || index >= value.length || value[index] !== ".") {
+      continue;
+    }
+
+    index += 1;
+    const patchStart = index;
+    while (index < value.length && isAsciiDigit(value[index]!)) {
+      index += 1;
+    }
+    if (patchStart === index) {
+      continue;
+    }
+
+    return value.slice(majorStart, index);
+  }
+
+  throw new Error(
+    `Unsupported @opentui/core version range '${versionRange}'. Expected semver-like value.`,
+  );
+}
+
+function runtimePackagePath(tuiRoot: string, packageName: string): string {
+  return resolve(tuiRoot, "node_modules", ...packageName.split("/"));
+}
+
+function runtimePackageIsPresent(tuiRoot: string, packageName: string): boolean {
+  const packagePath = runtimePackagePath(tuiRoot, packageName);
+  return (
+    existsSync(packagePath) &&
+    existsSync(resolve(packagePath, "package.json")) &&
+    existsSync(resolve(packagePath, "index.ts"))
+  );
+}
+
+async function fetchRuntimePackageTarball(
+  {
+    packageName,
+    version,
+    tuiRoot,
+  }: {
+    packageName: string;
+    version: string;
+    tuiRoot: string;
+  },
+): Promise<void> {
+  const packageSlug = packageName.includes("/") ? packageName.split("/")[1] : packageName;
+  const tarballFile = `${packageSlug}-${version}.tgz`;
+  const packageUrl = `https://registry.npmjs.org/${encodeURIComponent(packageName)}/-/${tarballFile}`;
+  const timeoutMs = 30_000;
+  const signal = AbortSignal.timeout(timeoutMs);
+  let tarballBuffer: Buffer;
+  try {
+    const response = await fetch(packageUrl, {
+      headers: { "User-Agent": "whisper-local-build-release" },
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to download ${packageName}@${version} tarball: ${response.status} ${response.statusText}`,
+      );
+    }
+    tarballBuffer = Buffer.from(await response.arrayBuffer());
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `Timed out downloading ${packageName}@${version} tarball after ${timeoutMs}ms`,
+      );
+    }
+    throw err;
+  }
+  const tempDir = resolve(tuiRoot, ".build-release-tmp");
+  mkdirSync(tempDir, { recursive: true });
+  const tarballPath = resolve(tempDir, tarballFile);
+  writeFileSync(tarballPath, tarballBuffer);
+
+  const packagePath = runtimePackagePath(tuiRoot, packageName);
+  mkdirSync(packagePath, { recursive: true });
+  try {
+    run(
+      "tar",
+      ["-xzf", tarballPath, "-C", packagePath, "--strip-components=1"],
+      tuiRoot,
+    );
+  } finally {
+    if (existsSync(tarballPath)) {
+      unlinkSync(tarballPath);
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const scriptDir = dirname(fileURLToPath(import.meta.url));
   const tuiRoot = resolve(scriptDir, "..");
@@ -57,23 +234,20 @@ async function main(): Promise<void> {
     throw new Error(`Failed to read/parse package.json at ${packageJsonPath}: ${msg}`);
   }
   if (typeof packageJson.version !== "string" || packageJson.version.trim().length === 0) {
-    throw new Error(
-      `package.json at ${packageJsonPath} is missing a valid "version" field`,
-    );
+    throw new Error(`package.json at ${packageJsonPath} is missing a valid "version" field`);
   }
 
-  const arch = "darwin-arm64";
+  const targets = resolveTargets(parseRequestedTargets());
   const distRoot = resolve(repoRoot, "dist", "tui");
-  const binDir = resolve(distRoot, arch);
-  const binPath = resolve(binDir, "whisper-local-tui");
-  const tarPath = resolve(distRoot, `whisper-local-tui-${arch}.tar.gz`);
-  const manifestPath = resolve(distRoot, "manifest.json");
+  mkdirSync(distRoot, { recursive: true });
+  const coreVersionRange =
+    packageJson.dependencies?.["@opentui/core"] ??
+    packageJson.optionalDependencies?.["@opentui/core"];
+  if (!coreVersionRange) {
+    throw new Error("package.json is missing dependency '@opentui/core'");
+  }
+  const coreVersion = normalizeVersionRange(coreVersionRange);
 
-  mkdirSync(binDir, { recursive: true });
-
-  // Step 1: Bundle with Bun.build() API so the solid JSX plugin runs.
-  // (bun build CLI does not apply bunfig.toml preload plugins.)
-  // Output to tuiRoot so step 2 can resolve dynamic native imports from node_modules.
   const bundlePath = resolve(tuiRoot, ".build-tmp.js");
   const buildResult = await Bun.build({
     entrypoints: [resolve(tuiRoot, "src/index.tsx")],
@@ -84,55 +258,126 @@ async function main(): Promise<void> {
     plugins: [solidTransformPlugin],
   });
   if (!buildResult.success) {
-    throw new Error(
-      `Bun.build() failed:\n${buildResult.logs.map(String).join("\n")}`,
-    );
+    throw new Error(`Bun.build() failed:\n${buildResult.logs.map(String).join("\n")}`);
   }
 
-  // Step 2: Compile the pre-bundled JS (no JSX left) into a standalone binary.
-  // Use BUN_CONFIG_FILE=/dev/null to prevent bunfig.toml preload from being baked in.
-  const compileResult = spawnSync(
-    "bun",
-    [
-      "build",
-      bundlePath,
-      "--compile",
-      "--production",
-      "--target=bun-darwin-arm64",
-      "--outfile",
-      binPath,
-    ],
-    {
-      cwd: tuiRoot,
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf-8",
-      env: { ...process.env, BUN_CONFIG_FILE: "/dev/null" },
-    },
-  );
-  unlinkSync(bundlePath);
-  if (compileResult.status !== 0) {
-    throw new Error(
-      `Compile failed: bun build --compile\n${compileResult.stderr || compileResult.stdout}`,
-    );
-  }
-  chmodSync(binPath, 0o755);
+  try {
+    for (const target of targets) {
+      const binDir = resolve(distRoot, target.id);
+      const binPath = resolve(binDir, target.binaryName);
+      const archivePath = resolve(distRoot, target.archiveName);
+      const installPlatform = targetInstallPlatform(target);
+      const runtimePackageName = targetCorePackageName(target);
 
-  run("tar", ["-czf", tarPath, "-C", binDir, "whisper-local-tui"], repoRoot);
+      mkdirSync(binDir, { recursive: true });
+
+      // `@opentui/core` uses optional target packages. Re-run install with the
+      // target platform so the matching runtime package is present before compile.
+      run(
+        "bun",
+        [
+          "install",
+          "--frozen-lockfile",
+          "--no-save",
+          "--force",
+          `--os=${installPlatform.os}`,
+          `--cpu=${installPlatform.cpu}`,
+          `${runtimePackageName}@${coreVersion}`,
+        ],
+        tuiRoot,
+      );
+      if (!runtimePackageIsPresent(tuiRoot, runtimePackageName)) {
+        await fetchRuntimePackageTarball({
+          packageName: runtimePackageName,
+          version: coreVersion,
+          tuiRoot,
+        });
+      }
+      if (!runtimePackageIsPresent(tuiRoot, runtimePackageName)) {
+        throw new Error(
+          `Missing required runtime package after install/fallback for target ${target.id}: ${runtimePackageName}`,
+        );
+      }
+
+      const compileResult = spawnSync(
+        "bun",
+        [
+          "build",
+          bundlePath,
+          "--compile",
+          "--production",
+          `--target=${target.bunTarget}`,
+          "--outfile",
+          binPath,
+        ],
+        {
+          cwd: tuiRoot,
+          stdio: ["ignore", "pipe", "pipe"],
+          encoding: "utf-8",
+          env: { ...process.env, BUN_CONFIG_FILE: devNull },
+        },
+      );
+      if (compileResult.error) {
+        const errorCode = (compileResult.error as NodeJS.ErrnoException).code;
+        const codeSuffix = errorCode ? ` (${String(errorCode)})` : "";
+        throw new Error(
+          `Compile failed to start for ${target.id}: bun build --compile\n${compileResult.error.message}${codeSuffix}` +
+            (compileResult.stderr || compileResult.stdout
+              ? `\n${compileResult.stderr || compileResult.stdout}`
+              : ""),
+        );
+      }
+      if (compileResult.status !== 0) {
+        throw new Error(
+          `Compile failed for ${target.id}: bun build --compile\n${compileResult.stderr || compileResult.stdout}`,
+        );
+      }
+      if (!target.id.startsWith("windows-")) {
+        chmodSync(binPath, 0o755);
+      }
+
+      run("tar", ["-czf", archivePath, "-C", binDir, target.binaryName], repoRoot);
+      const archiveEntries = run("tar", ["-tzf", archivePath], repoRoot)
+        .split(/\r?\n/)
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+      if (archiveEntries.length !== 1 || archiveEntries[0] !== target.binaryName) {
+        throw new Error(
+          `Archive contract violation for ${target.id}: expected exactly one root entry ` +
+            `'${target.binaryName}', got [${archiveEntries.join(", ")}]`,
+        );
+      }
+    }
+  } finally {
+    if (existsSync(bundlePath)) {
+      try {
+        unlinkSync(bundlePath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          console.warn(`Warning: failed to clean up bundle at ${bundlePath}: ${err}`);
+        }
+      }
+    }
+  }
 
   const gitSha = run("git", ["rev-parse", "HEAD"], repoRoot);
+  const manifestPath = resolve(distRoot, "manifest.json");
   const manifest = {
     name: "whisper-local-tui",
     version: packageJson.version,
-    arch,
     build_timestamp: new Date().toISOString(),
     git_sha: gitSha,
-    binary: "whisper-local-tui",
-    tarball: `whisper-local-tui-${arch}.tar.gz`,
+    artifacts: targets.map((target) => ({
+      target: target.id,
+      binary: target.binaryName,
+      archive: target.archiveName,
+    })),
   };
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-  // Short success output for logs.
-  process.stdout.write(`Built ${tarPath}\n`);
+  process.stdout.write(
+    `Built TUI artifacts: ${targets.map((item) => item.archiveName).join(", ")}\n`,
+  );
 }
 
 await main();

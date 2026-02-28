@@ -5,6 +5,13 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+      - id: detect-private-key
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
@@ -21,6 +28,23 @@ repos:
           - types-requests
         pass_filenames: false
 
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        files: ^scripts/.*\.sh$
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.7
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks
+        args: [--config=.gitleaks.toml]
+
   - repo: local
     hooks:
       - id: tui-typecheck
@@ -34,9 +58,3 @@ repos:
         language: system
         pass_filenames: false
         files: ^scripts/(templates/whisper-local\.rb\.tpl|update_tap_formula\.py)$
-      - id: tui-showcase-refresh
-        name: TUI showcase refresh
-        entry: scripts/precommit_tui_showcase.sh
-        language: system
-        pass_filenames: false
-        files: ^(tui/|scripts/(generate_tui_showcase\.py|termtosvg_compat\.py)|README\.md)$

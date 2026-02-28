@@ -1,1 +1,6 @@
 preload = ["@opentui/solid/preload"]
+
+[test]
+coverageReporter = ["text", "lcov"]
+coverageDir = "coverage"
+coverageSkipTestFiles = true

@@ -200,7 +200,7 @@ def _default_input_device_index() -> int | None:
     return index
 
 
-def _hostapi_name(raw_hostapis: Iterable[dict], hostapi_index: int) -> str:
+def _hostapi_name(raw_hostapis: Iterable[dict[str, object]], hostapi_index: int) -> str:
     hostapis = list(raw_hostapis)
     if hostapi_index < 0 or hostapi_index >= len(hostapis):
         return "Unknown Host API"

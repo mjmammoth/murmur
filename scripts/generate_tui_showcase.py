@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
-import random
 import re
 import shutil
 import socket
@@ -19,7 +19,14 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 THEMES = ["dark", "catppuccin-mocha", "light"]
-CAPTURE_GEOMETRY = "120x32"
+THEME_CAPTURE_PORTS = {
+    "dark": 18787,
+    "catppuccin-mocha": 18788,
+    "light": 18789,
+}
+# The mock backend emits exactly four demo transcript entries.
+MIN_TRANSCRIPT_ITEMS = 4
+CAPTURE_GEOMETRY = "100x28"
 DEFAULT_CAPTURE_SECONDS = 4.0
 README_START = "<!-- tui-showcase:start -->"
 README_END = "<!-- tui-showcase:end -->"
@@ -27,13 +34,29 @@ OUTPUT_SVG = "svg"
 OUTPUT_PNG = "png"
 DEFAULT_PNG_SCALE = 2.0
 FONT_FAMILY = "'JetBrainsMono Nerd Font Mono', 'JetBrainsMono Nerd Font', 'JetBrains Mono', monospace"
-FONT_TTF_URL = "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf"
+FONT_TTF_URL = (
+    "https://raw.githubusercontent.com/ryanoasis/nerd-fonts/"
+    "ae57d27445e9d85db49fc917c5276c5d249109c8/"
+    "patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf"
+)
+FONT_TTF_SHA256 = "f01031f40e48dc29e1112e6b0b0450a2c6cd097f3f35cfff05c55cb311f8034c"
+
+
+def _secure_temp_root(repo_root: Path) -> Path:
+    temp_root = repo_root / ".tmp" / "showcase"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        temp_root.chmod(0o700)
+    except OSError:
+        # Windows may not support POSIX chmod semantics; best effort is enough here.
+        pass
+    return temp_root
 
 
 def _clear_capture_target(path: Path) -> None:
     """
     Ensure the given filesystem path is removed if it exists.
-    
+
     If `path` is a directory, remove it and its contents recursively; if it is a file or symlink, unlink it. Do nothing when the path does not exist.
     """
     if not path.exists():
@@ -47,13 +70,13 @@ def _clear_capture_target(path: Path) -> None:
 def _resolve_svg_capture(path: Path) -> Path:
     """
     Resolve a path pointing to a rendered SVG file or a directory containing SVG frames and return the best SVG to use.
-    
+
     Parameters:
         path (Path): A file path to an SVG or a directory containing termtosvg-generated SVG files.
-    
+
     Returns:
         Path: The resolved SVG file to use. If `path` is a file, it is returned unchanged. If `path` is a directory, returns the preferred SVG frame (prefer frames that indicate readiness and contain a populated item count; otherwise the most recent SVG).
-    
+
     Raises:
         FileNotFoundError: If `path` is neither an existing SVG file nor a directory containing any SVG files.
     """
@@ -64,28 +87,29 @@ def _resolve_svg_capture(path: Path) -> Path:
         candidates = [candidate for candidate in path.rglob("*.svg") if candidate.is_file()]
         if candidates:
             candidates.sort(key=lambda candidate: candidate.name)
-            # Prefer the earliest frame with content and maximal item count.
-            # This avoids selecting teardown tail frames.
+            # Prefer frames with more transcript items and expected ready/model markers.
             best_candidate: Path | None = None
-            best_score: int | None = None
+            best_score: tuple[int, int, int, int] | None = None
             best_index = 10**9
             for index, candidate in enumerate(candidates):
                 text = candidate.read_text(encoding="utf-8", errors="ignore")
-                if "Ready" not in text or "large-v3-turbo" not in text:
-                    continue
-                items_match = re.search(r"(\d+)\s+items?", text)
-                item_count = int(items_match.group(1)) if items_match else 0
+                item_count = _extract_transcript_item_count(text)
+                score = (
+                    item_count,
+                    1 if "Ready" in text else 0,
+                    1 if "large-v3-turbo" in text else 0,
+                    1 if "Transcripts" in text else 0,
+                )
                 if (
                     best_score is None
-                    or item_count > best_score
-                    or (item_count == best_score and index < best_index)
+                    or score > best_score
+                    or (score == best_score and index < best_index)
                 ):
                     best_candidate = candidate
-                    best_score = item_count
+                    best_score = score
                     best_index = index
             if best_candidate is not None:
                 return best_candidate
-            # Fallback to latest frame if no fully-populated snapshot was found.
             return candidates[-1]
 
     raise FileNotFoundError(
@@ -94,12 +118,43 @@ def _resolve_svg_capture(path: Path) -> Path:
     )
 
 
+def _extract_transcript_item_count(text: str) -> int:
+    """
+    Extract the largest "<n> item(s)" count from text using a linear scan.
+    """
+    max_items = 0
+    marker = " item"
+    search_from = 0
+
+    while True:
+        marker_index = text.find(marker, search_from)
+        if marker_index == -1:
+            break
+
+        end = marker_index - 1
+        while end >= 0 and text[end].isspace():
+            end -= 1
+
+        start = end
+        while start >= 0 and text[start].isdigit():
+            start -= 1
+
+        if start < end:
+            count = int(text[start + 1 : end + 1])
+            if count > max_items:
+                max_items = count
+
+        search_from = marker_index + len(marker)
+
+    return max_items
+
+
 def _sanitize_termtosvg_svg(path: Path) -> None:
     """
     Remove text-decoration="underline" attributes from an SVG file in-place.
-    
+
     Reads the SVG at `path`, strips any occurrences of the `text-decoration="underline"` attribute, and overwrites the file only if changes were made.
-    
+
     Parameters:
         path (Path): Path to the SVG file to sanitize.
     """
@@ -112,7 +167,7 @@ def _sanitize_termtosvg_svg(path: Path) -> None:
 def _sanitize_termtosvg_capture(path: Path) -> None:
     """
     Apply termtosvg-specific sanitization to an SVG file or to all SVG files contained in a directory.
-    
+
     Modifies matching files in place to remove or adjust attributes in termtosvg-generated SVGs that may cause rendering issues (for example, removing underline text decoration).
     """
     if path.is_dir():
@@ -124,35 +179,58 @@ def _sanitize_termtosvg_capture(path: Path) -> None:
         _sanitize_termtosvg_svg(path)
 
 
-def _pick_port() -> int:
+def _is_port_available(port: int) -> bool:
     """
-    Select an available TCP port on localhost.
-    
-    Attempts to bind an ephemeral port on 127.0.0.1 and return the chosen port number. If the environment disallows binding (PermissionError), returns a pseudo-available port chosen uniformly from 20000 to 59999.
-    
-    Returns:
-        int: A port number to use for local TCP listeners.
+    Check whether a specific TCP port is available on localhost.
+
+    Attempts to bind to 127.0.0.1 on the given port. Returns True if the
+    bind succeeds (port is available), False otherwise. Any OSError during
+    the bind (e.g. port in use, PermissionError) causes a False return.
     """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind(("127.0.0.1", 0))
-            return int(sock.getsockname()[1])
-    except PermissionError:
-        # Some restricted environments disallow local binds during port probing.
-        return random.randint(20000, 59999)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", port))
+            return True
+    except OSError:
+        return False
+
+
+def _pick_capture_port(theme: str) -> int:
+    """
+    Pick a deterministic available TCP port for a theme capture run.
+
+    The function starts from a theme-specific preferred port and scans forward
+    to find an available local port.
+
+    Parameters:
+        theme (str): Theme name being captured.
+
+    Returns:
+        int: An available local TCP port.
+
+    Raises:
+        RuntimeError: If no port is available in the probe range.
+    """
+    base_port = THEME_CAPTURE_PORTS.get(theme, 18790)
+    for offset in range(100):
+        candidate = base_port + offset
+        if _is_port_available(candidate):
+            return candidate
+    raise RuntimeError(f"Could not find available capture port for theme '{theme}'.")
 
 
 def _wait_for_server(port: int, timeout: float = 5.0, interval: float = 0.1) -> bool:
     """
     Poll the localhost HTTP endpoint on the given port until a server responds or the timeout elapses.
-    
+
     This function considers any HTTP response (including HTTP errors) as confirmation that the server is up.
-    
+
     Parameters:
         port (int): TCP port on 127.0.0.1 to poll.
         timeout (float): Maximum number of seconds to wait before giving up.
         interval (float): Seconds to wait between polling attempts.
-    
+
     Returns:
         `true` if a response was received before the timeout elapsed, `false` otherwise.
     """
@@ -173,10 +251,10 @@ def _wait_for_server(port: int, timeout: float = 5.0, interval: float = 0.1) -> 
 def _start_mock_backend(repo_root: Path, theme: str, port: int) -> subprocess.Popen[str]:
     """
     Start a mock demo backend process serving the specified theme on localhost at the given port.
-    
+
     Returns:
         subprocess.Popen[str]: The started backend process.
-    
+
     Raises:
         RuntimeError: If the `bun` executable is not found on PATH.
         RuntimeError: If the backend fails to start within the readiness timeout or exits prematurely.
@@ -219,10 +297,10 @@ def _start_mock_backend(repo_root: Path, theme: str, port: int) -> subprocess.Po
 def _stop_process(process: subprocess.Popen[str] | None) -> None:
     """
     Terminate a running subprocess if it is still active, waiting briefly for it to exit.
-    
+
     Parameters:
         process (subprocess.Popen[str] | None): The subprocess to stop; ignored if `None` or already exited.
-    
+
     Description:
         Sends SIGTERM to the process and waits up to 5 seconds for it to exit. If the process does not exit within that time, it is forcibly killed and a short final wait is performed. No exception is raised for a `None` or already-terminated process.
     """
@@ -241,12 +319,12 @@ def _stop_process(process: subprocess.Popen[str] | None) -> None:
 def _looks_blank_capture(svg_path: Path) -> bool:
     """
     Detects whether an SVG capture appears blank.
-    
+
     Considers a capture blank when the file contains fewer than 10 `<text>` elements.
-    
+
     Parameters:
     	svg_path (Path): Path to the SVG file to inspect.
-    
+
     Returns:
     	`true` if the SVG contains fewer than 10 `<text>` elements, `false` otherwise.
     """
@@ -263,17 +341,17 @@ def run_capture_termtosvg(
 ) -> Path:
     """
     Capture a TUI session for a given theme using a mock backend and produce a rendered SVG file.
-    
+
     Parameters:
         repo_root (Path): Repository root directory containing the TUI and helper scripts.
         theme (str): Theme name to run in the mock backend (e.g., "dark", "light").
         port (int): TCP port for the mock backend to bind.
         svg_path (Path): Target file or directory path where the termtosvg output will be written.
         capture_seconds (float): Duration, in seconds, to record the TUI session.
-    
+
     Returns:
         rendered_svg (Path): Path to the resolved, sanitized SVG file containing the captured frame.
-    
+
     Raises:
         RuntimeError: If Bun is not found on PATH, the termtosvg compatibility runner is missing,
                       termtosvg exits with a non-zero code, the capture contains a JSX runtime resolution error,
@@ -301,6 +379,9 @@ def run_capture_termtosvg(
 
     _clear_capture_target(svg_path)
     capture_env = os.environ.copy()
+    capture_env.setdefault("TZ", "UTC")
+    capture_env.setdefault("LANG", "C.UTF-8")
+    capture_env.setdefault("LC_ALL", "C.UTF-8")
     capture_env["WHISPER_LOCAL_TUI_CAPTURE_SECONDS"] = f"{capture_seconds:.2f}"
     server = _start_mock_backend(repo_root=repo_root, theme=theme, port=port)
     try:
@@ -356,21 +437,27 @@ def run_capture_termtosvg(
             "Blank capture frame detected (only cursor/empty terminal). "
             "This usually means termtosvg exited too early."
         )
+    item_count = _extract_transcript_item_count(svg_text)
+    if item_count < MIN_TRANSCRIPT_ITEMS:
+        raise RuntimeError(
+            "Incomplete capture frame detected "
+            f"(items={item_count}, expected>={MIN_TRANSCRIPT_ITEMS})."
+        )
     return rendered_svg
 
 
 def _svg_dimensions(svg_text: str) -> tuple[int, int]:
     """
     Determine the pixel width and height of an SVG document.
-    
+
     Parses the SVG text and returns integer dimensions extracted from the `viewBox`
     if present and valid; otherwise falls back to the `width` and `height`
     attributes. If numeric values cannot be determined, returns default dimensions
     (960 by 546). Returned values are at least 1.
-    
+
     Parameters:
         svg_text (str): The full SVG document as a string.
-    
+
     Returns:
         tuple[int, int]: A (width, height) pair in pixels.
     """
@@ -401,12 +488,12 @@ def _extract_svg_canvas_color(svg_text: str) -> str:
     # the actual theme canvas color better than termtosvg's default `.background`.
     """
     Extract the primary canvas fill color from an SVG capture.
-    
+
     Searches the SVG text for the first rectangle drawn at the top-left (origin) and returns its `fill` value, which represents the frame's canvas color. If no such rectangle is found, returns the default dark color "#0c0c0c".
-    
+
     Parameters:
         svg_text (str): Full SVG document text to inspect.
-    
+
     Returns:
         str: The canvas color as found in the SVG (e.g. "#282828"), or "#0c0c0c" if not detected.
     """
@@ -419,46 +506,77 @@ def _extract_svg_canvas_color(svg_text: str) -> str:
     return "#0c0c0c"
 
 
+def _sha256_file(path: Path) -> str:
+    """
+    Return the SHA-256 hash of a file as a lowercase hexadecimal string.
+
+    Parameters:
+        path (Path): The file path to hash.
+
+    Returns:
+        str: The SHA-256 digest in hex form.
+    """
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _download_font(dest: Path) -> Path:
     """
     Ensure the JetBrains Mono Nerd Font is present in the destination directory and return its file path.
-    
+
     Parameters:
         dest (Path): Directory to store or locate the cached font file.
-    
+
     Returns:
         Path: Path to the JetBrains Mono Nerd Font TTF file.
-    
+
     Raises:
-        RuntimeError: If downloading the font fails.
+        RuntimeError: If downloading the font fails or the downloaded payload checksum does not match the pinned digest.
     """
     font_path = dest / "JetBrainsMonoNerdFontMono-Regular.ttf"
-    if font_path.exists():
-        return font_path
     dest.mkdir(parents=True, exist_ok=True)
+    if font_path.exists():
+        if _sha256_file(font_path) == FONT_TTF_SHA256:
+            return font_path
+        font_path.unlink()
+
+    tmp_path = font_path.with_suffix(".ttf.download")
     try:
-        urllib.request.urlretrieve(FONT_TTF_URL, str(font_path))
+        with urllib.request.urlopen(FONT_TTF_URL, timeout=30) as response, tmp_path.open("wb") as out:
+            shutil.copyfileobj(response, out)
     except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
         raise RuntimeError(
-            f"Failed to download font from {FONT_TTF_URL} to {font_path}: {exc}"
+            f"Failed to download font from {FONT_TTF_URL} to {tmp_path}: {exc}"
         ) from exc
+    downloaded_sha = _sha256_file(tmp_path)
+    if downloaded_sha != FONT_TTF_SHA256:
+        tmp_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            "Downloaded font checksum mismatch. "
+            f"expected={FONT_TTF_SHA256} actual={downloaded_sha}"
+        )
+    tmp_path.replace(font_path)
     return font_path
 
 
 def render_svg_to_png(svg_path: Path, png_path: Path, png_scale: float, repo_root: Path) -> None:
     """
     Render an SVG file to a PNG image using headless Chromium via Playwright.
-    
+
     Renders svg_path into png_path at a given raster scale by loading the SVG into a temporary HTML page
     that embeds a bundled JetBrains Mono Nerd Font so Chromium can rasterize text consistently across environments.
     The function writes temporary helper files into repo_root during rendering and removes them on completion.
-    
+
     Parameters:
         svg_path (Path): Path to the source SVG file to render.
         png_path (Path): Destination path for the generated PNG image; parent directories are created as needed.
         png_scale (float): Raster scale (device pixel ratio) to apply; values less than 1.0 are treated as 1.0.
         repo_root (Path): Repository root used to cache fonts and to place temporary render files.
-    
+
     Raises:
         RuntimeError: If Node.js is not found on PATH, Playwright rendering fails (non-zero exit), or the PNG output is not produced.
     """
@@ -564,9 +682,9 @@ const {{ chromium }} = require('playwright');
 def compose_stacked_svg(theme_svgs: list[tuple[str, Path]], output_path: Path) -> None:
     """
     Compose a single stacked SVG that visually arranges per-theme SVG captures.
-    
+
     Creates a composite SVG at output_path that stacks the provided theme SVGs with a staggered, framed layout. Ordering places non-"dark" themes (preserving the order in THEMES) first, appends "dark" last if present, then any remaining themes. All frames are scaled to a common target width (the smallest input width), each frame is drawn on a rectangle using the frame's canvas color, and the original SVG content is embedded as an image for each frame.
-    
+
     Parameters:
         theme_svgs (list[tuple[str, Path]]): List of (theme_name, svg_path) pairs to include in the composition.
         output_path (Path): Destination path for the generated stacked SVG file.
@@ -627,9 +745,9 @@ def compose_stacked_svg(theme_svgs: list[tuple[str, Path]], output_path: Path) -
 def update_readme(readme_path: Path, image_path: Path) -> None:
     """
     Update or insert a TUI showcase image block in the given README file.
-    
+
     If the README already contains the README_START and README_END markers, the function replaces the existing block between them with a new image reference using image_path (POSIX path used in the markdown). If the markers are not present, the function inserts a new "## TUI Showcase" section containing the image block immediately before the "## Install (pip)" anchor if found, otherwise appends the section at the end of the file. The README file is rewritten only when its content would change.
-    
+
     Parameters:
         readme_path (Path): Path to the README file to update.
         image_path (Path): Path to the image to reference in the README; converted to a POSIX path for the markdown link.
@@ -662,9 +780,9 @@ def update_readme(readme_path: Path, image_path: Path) -> None:
 def main() -> int:
     """
     Generate per-theme TUI showcase image(s) and update the repository README with the generated asset.
-    
+
     Captures a TUI frame for each configured theme, composes those captures into a stacked showcase image (SVG), optionally rasterizes to PNG, writes the final asset(s) into the configured assets directory, and replaces or inserts the showcase block in the README.
-    
+
     Returns:
         int: Exit code (0 on success).
     """
@@ -716,7 +834,10 @@ def main() -> int:
     final_svg = assets_dir / "tui-home-themes.svg"
     final_png = assets_dir / "tui-home-themes.png"
 
-    with tempfile.TemporaryDirectory(prefix="whisper-local-showcase-") as temp_dir:
+    with tempfile.TemporaryDirectory(
+        prefix="whisper-local-showcase-",
+        dir=str(_secure_temp_root(repo_root)),
+    ) as temp_dir:
         capture_dir = Path(temp_dir)
         theme_svgs: list[tuple[str, Path]] = []
         for theme in THEMES:
@@ -729,7 +850,7 @@ def main() -> int:
                     rendered_svg = run_capture_termtosvg(
                         repo_root=repo_root,
                         theme=theme,
-                        port=_pick_port(),
+                        port=_pick_capture_port(theme),
                         svg_path=svg_path,
                         capture_seconds=capture_seconds,
                     )
@@ -742,6 +863,7 @@ def main() -> int:
                     if (
                         "EADDRINUSE" in message
                         or "Blank capture frame detected" in message
+                        or "Incomplete capture frame detected" in message
                     ):
                         capture_seconds = min(capture_seconds + 1.0, 10.0)
                         continue

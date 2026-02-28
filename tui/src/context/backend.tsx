@@ -67,10 +67,11 @@ export interface BackendContextValue {
   send: (message: ClientMessage) => boolean;
   requestConfigFile: () => void;
   requestCapabilities: () => void;
-  onTranscript: (handler: (entry: TranscriptEntry) => void) => void;
-  onHotkeyPress: (handler: () => void) => void;
-  onHotkeyRelease: (handler: () => void) => void;
-  onToast: (handler: (message: string, level: "info" | "error") => void) => void;
+  onTranscriptHistory: (handler: (entries: TranscriptEntry[]) => void) => () => void;
+  onTranscript: (handler: (entry: TranscriptEntry) => void) => () => void;
+  onHotkeyPress: (handler: () => void) => () => void;
+  onHotkeyRelease: (handler: () => void) => () => void;
+  onToast: (handler: (message: string, level: "info" | "error") => void) => () => void;
   onRuntimeSwitchRequired: (
     handler: (payload: { runtime: RuntimeName; model: string; format: string }) => void,
   ) => () => void;
@@ -128,12 +129,32 @@ export function BackendContextProvider(props: {
 
   // Event handlers
   const transcriptHandlers: ((entry: TranscriptEntry) => void)[] = [];
+  const transcriptHistoryHandlers: ((entries: TranscriptEntry[]) => void)[] = [];
   const hotkeyPressHandlers: (() => void)[] = [];
   const hotkeyReleaseHandlers: (() => void)[] = [];
   const toastHandlers: ((message: string, level: "info" | "error") => void)[] = [];
   const runtimeSwitchRequiredHandlers: (
     (payload: { runtime: RuntimeName; model: string; format: string }) => void
   )[] = [];
+
+  function registerHandler<T>(handlers: T[], handler: T): () => void {
+    handlers.push(handler);
+    return () => {
+      const index = handlers.indexOf(handler);
+      if (index >= 0) {
+        handlers.splice(index, 1);
+      }
+    };
+  }
+
+  function emitHandlers<TArgs extends unknown[]>(
+    handlers: Array<(...args: TArgs) => void>,
+    ...args: TArgs
+  ) {
+    for (const handler of [...handlers]) {
+      handler(...args);
+    }
+  }
 
   /**
    * Create a unique queue key for a model within a specific runtime.
@@ -198,9 +219,7 @@ export function BackendContextProvider(props: {
    * @param level - The toast severity, either `"info"` or `"error"`
    */
   function emitToast(message: string, level: "info" | "error") {
-    for (const handler of toastHandlers) {
-      handler(message, level);
-    }
+    emitHandlers(toastHandlers, message, level);
   }
 
   /**
@@ -216,9 +235,7 @@ export function BackendContextProvider(props: {
     model: string;
     format: string;
   }) {
-    for (const handler of runtimeSwitchRequiredHandlers) {
-      handler(payload);
-    }
+    emitHandlers(runtimeSwitchRequiredHandlers, payload);
   }
 
   /**
@@ -345,9 +362,15 @@ export function BackendContextProvider(props: {
         break;
 
       case "transcript":
-        for (const handler of transcriptHandlers) {
-          handler({ timestamp: message.timestamp, text: message.text });
-        }
+        emitHandlers(transcriptHandlers, {
+          id: message.id,
+          timestamp: message.timestamp,
+          text: message.text,
+          created_at: message.created_at,
+        });
+        break;
+      case "transcript_history":
+        emitHandlers(transcriptHistoryHandlers, message.entries);
         break;
 
       case "models": {
@@ -398,15 +421,11 @@ export function BackendContextProvider(props: {
         break;
 
       case "hotkey_press":
-        for (const handler of hotkeyPressHandlers) {
-          handler();
-        }
+        emitHandlers(hotkeyPressHandlers);
         break;
 
       case "hotkey_release":
-        for (const handler of hotkeyReleaseHandlers) {
-          handler();
-        }
+        emitHandlers(hotkeyReleaseHandlers);
         break;
 
       case "error":
@@ -766,15 +785,19 @@ export function BackendContextProvider(props: {
   }
 
   function onTranscript(handler: (entry: TranscriptEntry) => void) {
-    transcriptHandlers.push(handler);
+    return registerHandler(transcriptHandlers, handler);
+  }
+
+  function onTranscriptHistory(handler: (entries: TranscriptEntry[]) => void) {
+    return registerHandler(transcriptHistoryHandlers, handler);
   }
 
   function onHotkeyPress(handler: () => void) {
-    hotkeyPressHandlers.push(handler);
+    return registerHandler(hotkeyPressHandlers, handler);
   }
 
   function onHotkeyRelease(handler: () => void) {
-    hotkeyReleaseHandlers.push(handler);
+    return registerHandler(hotkeyReleaseHandlers, handler);
   }
 
   /**
@@ -783,7 +806,7 @@ export function BackendContextProvider(props: {
    * @param handler - Function called with the toast `message` and its `level` (`"info"` or `"error"`)
    */
   function onToast(handler: (message: string, level: "info" | "error") => void) {
-    toastHandlers.push(handler);
+    return registerHandler(toastHandlers, handler);
   }
 
   /**
@@ -795,13 +818,7 @@ export function BackendContextProvider(props: {
   function onRuntimeSwitchRequired(
     handler: (payload: { runtime: RuntimeName; model: string; format: string }) => void,
   ) {
-    runtimeSwitchRequiredHandlers.push(handler);
-    return () => {
-      const index = runtimeSwitchRequiredHandlers.indexOf(handler);
-      if (index >= 0) {
-        runtimeSwitchRequiredHandlers.splice(index, 1);
-      }
-    };
+    return registerHandler(runtimeSwitchRequiredHandlers, handler);
   }
 
   onMount(() => {
@@ -843,6 +860,7 @@ export function BackendContextProvider(props: {
     send,
     requestConfigFile,
     requestCapabilities,
+    onTranscriptHistory,
     onTranscript,
     onHotkeyPress,
     onHotkeyRelease,

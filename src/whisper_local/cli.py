@@ -2,58 +2,109 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
-import os
-import shutil
-import signal
 import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
+from typing import Any, TYPE_CHECKING, TypeAlias
 
+from whisper_local import __version__
 from whisper_local.config import SUPPORTED_RUNTIMES, load_config
+from whisper_local.platform import create_status_indicator_provider
+from whisper_local.service_manager import ServiceManager
 from whisper_local.tui_runtime import resolve_tui_runtime
+
+if TYPE_CHECKING:
+    from whisper_local.service_state import ServiceStatus
+    from websockets.asyncio.client import ClientConnection
+    from websockets.legacy.client import WebSocketClientProtocol
+
+    WebSocketClientType: TypeAlias = ClientConnection | WebSocketClientProtocol
+else:
+    WebSocketClientType = Any
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-WHISPER_CPP_BINARIES = ("whisper-cli", "whisper-cpp", "main")
+
+NO_STATUS_INDICATOR_AUTOSTART_HELP = (
+    "Disable macOS menu bar status indicator while auto-starting service"
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """
-    Builds the top-level command-line argument parser for the application.
-    
-    The parser includes these subcommands:
-    - run: start the combined bridge and TypeScript TUI (with options for host, port, and disabling the macOS status indicator).
-    - bridge: start only the WebSocket bridge (host and port options).
-    - tui: start only the TypeScript TUI (host and port options).
-    - models: manage models with subcommands `list`, `pull <name>`, `remove <name>`, and `select|set-default <name>`.
-    - config: show configuration (optional --path).
-    
-    Returns:
-        argparse.ArgumentParser: A configured parser ready to parse the application's CLI.
-    """
     parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     subparsers = parser.add_subparsers(dest="command")
 
-    run_parser = subparsers.add_parser("run", help="Start the TUI (bridge + TypeScript frontend)")
+    # Deprecated alias: preserve for compatibility, but behavior now matches `tui`.
+    run_parser = subparsers.add_parser("run", help="[Deprecated] Attach TUI to service")
     run_parser.add_argument("--host", default="localhost", help="Bridge host")
     run_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
     run_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
-        help="Disable macOS menu bar status indicator",
+        help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
     )
 
     bridge_parser = subparsers.add_parser("bridge", help="Start only the WebSocket bridge server")
     bridge_parser.add_argument("--host", default="localhost", help="Bridge host")
     bridge_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    bridge_parser.add_argument("--capture-logs", action="store_true", help=argparse.SUPPRESS)
 
-    tui_parser = subparsers.add_parser("tui", help="Start only the TypeScript TUI (requires bridge)")
+    tui_parser = subparsers.add_parser(
+        "tui",
+        help="Attach the TypeScript TUI to the service (auto-starts service if needed)",
+    )
     tui_parser.add_argument("--host", default="localhost", help="Bridge host")
     tui_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    tui_parser.add_argument(
+        "--no-status-indicator",
+        action="store_true",
+        help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
+    )
+
+    start_parser = subparsers.add_parser("start", help="Start service")
+    start_parser.add_argument("--host", default="localhost", help="Bridge host")
+    start_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    start_parser.add_argument(
+        "--foreground",
+        action="store_true",
+        help="Run service in foreground (blocks current terminal)",
+    )
+    start_parser.add_argument(
+        "--no-status-indicator",
+        action="store_true",
+        help="Disable macOS menu bar status indicator",
+    )
+
+    subparsers.add_parser("stop", help="Stop service")
+    subparsers.add_parser("status", help="Show service status")
+
+    trigger_parser = subparsers.add_parser(
+        "trigger",
+        help="Control recording without opening TUI",
+    )
+    trigger_parser.add_argument("action", choices=("start", "stop", "toggle"))
+    trigger_parser.add_argument("--host", default="localhost", help="Bridge host")
+    trigger_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    trigger_parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=3.0,
+        help="Max time to wait for trigger status acknowledgement",
+    )
+    trigger_parser.add_argument(
+        "--no-status-indicator",
+        action="store_true",
+        help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
+    )
 
     models_parser = subparsers.add_parser("models", help="Manage models")
     models_sub = models_parser.add_subparsers(dest="models_command")
@@ -87,82 +138,69 @@ def build_parser() -> argparse.ArgumentParser:
     config_parser = subparsers.add_parser("config", help="Show config")
     config_parser.add_argument("--path", type=Path)
 
+    upgrade_parser = subparsers.add_parser(
+        "upgrade",
+        help="Upgrade whisper.local (auto-upgrade only for installer-managed installs)",
+    )
+    upgrade_parser.add_argument(
+        "--version",
+        help="Upgrade to a specific release tag (example: v0.2.0). Defaults to latest.",
+    )
+
+    uninstall_parser = subparsers.add_parser(
+        "uninstall",
+        help="Uninstall whisper.local (auto-uninstall only for installer-managed installs)",
+    )
+    uninstall_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+    uninstall_parser.add_argument(
+        "--remove-state",
+        action="store_true",
+        help="Remove ~/.local/state/whisper.local during uninstall",
+    )
+    uninstall_parser.add_argument(
+        "--remove-config",
+        action="store_true",
+        help="Remove ~/.config/whisper.local during uninstall",
+    )
+    uninstall_parser.add_argument(
+        "--remove-model-cache",
+        action="store_true",
+        help="Remove whisper.local model caches under ~/.cache/huggingface",
+    )
+    uninstall_parser.add_argument(
+        "--all-data",
+        action="store_true",
+        help="Equivalent to --remove-state --remove-config --remove-model-cache",
+    )
+
+    subparsers.add_parser("version", help="Print installed whisper.local version")
+
     return parser
 
 
-def _ensure_runtime_dependencies() -> None:
-    """
-    Ensure required runtime dependencies for local speech transcription are installed.
-    
-    If verification fails, prints the error message and exits the process with status code 1.
-    """
-    for binary in WHISPER_CPP_BINARIES:
-        if shutil.which(binary) is not None:
-            return
-    print("Error: whisper.cpp is required but not installed. Install with: brew install whisper-cpp")
-    sys.exit(1)
-
-
 def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
-    """Run the bridge server."""
-    _ensure_runtime_dependencies()
     from whisper_local.bridge import run_bridge
+
     config = load_config()
     run_bridge(config, host, port, capture_logs=capture_logs)
 
 
-def _run_tui(host: str, port: int) -> subprocess.Popen:
-    """
-    Start the external TUI process using the resolved TUI runtime and bind it to the given host and port.
-    
-    Returns:
-        subprocess.Popen: The subprocess running the TUI.
-    """
+def _run_tui(host: str, port: int) -> subprocess.Popen[bytes]:
     runtime = resolve_tui_runtime(cli_file=__file__)
     logger.info("Starting TUI runtime mode=%s", runtime.mode)
     cmd = [*runtime.command, "--host", host, "--port", str(port)]
     return subprocess.Popen(cmd, cwd=str(runtime.cwd) if runtime.cwd else None)
 
 
-def _start_status_indicator(host: str, port: int) -> subprocess.Popen | None:
-    """
-    Start the macOS menu bar status indicator sidecar.
-    
-    Attempts to launch the status indicator as a subprocess and returns the process handle. If the current platform is not macOS or the process fails to start, returns `None`.
-     
-    Returns:
-        subprocess.Popen: The started status indicator process.
-        `None` if the indicator was not started (for example, not running on macOS or process launch failed).
-    """
-    if sys.platform != "darwin":
-        return None
-
-    cmd = [
-        sys.executable,
-        "-m",
-        "whisper_local.status_indicator",
-        "--host",
-        host,
-        "--port",
-        str(port),
-    ]
-    try:
-        return subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        return None
-
-
 def _restore_terminal_state() -> None:
-    """Best-effort terminal recovery in parent process."""
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return
 
     try:
-        # Disable common mouse tracking modes, restore cursor, and reset attributes.
         sys.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?25h\x1b[0m")
         sys.stdout.flush()
     except Exception:
@@ -174,227 +212,485 @@ def _restore_terminal_state() -> None:
         pass
 
 
-def _run_combined(host: str, port: int, status_indicator: bool = True) -> None:
-    """
-    Start and coordinate the bridge server and the TypeScript TUI, managing their lifecycle and cleanup.
-    
-    Starts the bridge in a background thread, launches the TUI as a subprocess, optionally starts the platform status indicator (macOS only), and ensures graceful shutdown, error handling, and terminal state restoration on exit.
-    
-    Parameters:
-        host (str): Network interface or hostname used by both the bridge and the TUI.
-        port (int): TCP port used by both the bridge and the TUI.
-        status_indicator (bool): If True, attempt to start the platform status indicator; may be ignored on non‑macOS platforms.
-    """
-    _ensure_runtime_dependencies()
+def _ensure_service_running(host: str, port: int, *, status_indicator: bool) -> ServiceStatus:
+    manager = ServiceManager()
+    return manager.ensure_running(host=host, port=port, status_indicator=status_indicator)
 
-    # Validate config early, before we suppress stderr
+
+def _run_tui_attach(host: str, port: int, *, status_indicator: bool) -> None:
     try:
-        config = load_config()
-    except Exception as e:
-        print(f"Error loading config: {e}")
-        sys.exit(1)
+        service_status = _ensure_service_running(host, port, status_indicator=status_indicator)
+    except Exception as exc:
+        print(f"Error: failed to start service: {exc}")
+        raise SystemExit(1)
 
-    # Capture the real stderr before redirecting, so we can restore it on fatal errors
-    real_stderr = sys.stderr
+    resolved_host = service_status.host or host
+    resolved_port = service_status.port if service_status.port is not None else port
 
-    # Suppress all stderr/stdout from the bridge thread - the TUI owns the terminal.
-    # Logs are routed through WebSocket and displayed in the TUI's log panel.
-    logging.getLogger().handlers.clear()
-    logging.getLogger().addHandler(logging.NullHandler())
-
-    # Redirect Python's stderr to devnull so stray prints don't corrupt the TUI
-    devnull = open(os.devnull, "w")
-    sys.stderr = devnull
-
-    # Track bridge state/errors
-    bridge_server = None
-    bridge_error: list[Exception] = []
-    status_indicator_process: subprocess.Popen | None = None
-    tui_process: subprocess.Popen | None = None
-    interrupted = False
-    previous_sigint = signal.getsignal(signal.SIGINT)
-
-    def _bridge_target() -> None:
-        nonlocal bridge_server
-        try:
-            from whisper_local.bridge import BridgeServer
-
-            bridge_server = BridgeServer(config)
-            asyncio.run(bridge_server.start(host, port, capture_logs=True))
-        except Exception as e:
-            bridge_error.append(e)
-        finally:
-            if bridge_server is not None:
-                bridge_server.shutdown()
-
-    # Start bridge in a thread with log capture enabled
-    bridge_thread = threading.Thread(target=_bridge_target, daemon=True)
-    bridge_thread.start()
-
-    # Wait for bridge to start, checking for early failures
-    time.sleep(0.5)
-
-    if bridge_error:
-        sys.stderr = real_stderr
-        print(f"Bridge failed to start: {bridge_error[0]}", file=real_stderr)
-        sys.exit(1)
-
-    if status_indicator:
-        status_indicator_process = _start_status_indicator(host, port)
-
-    # Start TUI
     try:
-        tui_process = _run_tui(host, port)
+        tui_process = _run_tui(resolved_host, resolved_port)
         tui_process.wait()
     except KeyboardInterrupt:
-        interrupted = True
-    except FileNotFoundError as e:
-        sys.stderr = real_stderr
-        print(f"Error: {e}", file=real_stderr)
-        sys.exit(1)
+        pass
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}")
+        raise SystemExit(1)
     finally:
-        if interrupted:
-            try:
-                signal.signal(signal.SIGINT, signal.SIG_IGN)
-            except Exception:
-                pass
+        _restore_terminal_state()
 
-        if tui_process is not None and tui_process.poll() is None:
-            tui_process.terminate()
+
+def _service_run(host: str, port: int, *, foreground: bool, status_indicator: bool) -> None:
+    if foreground:
+        indicator_provider = None
+        indicator_started = False
+        if status_indicator:
+            indicator_provider = create_status_indicator_provider(host=host, port=port)
             try:
-                tui_process.wait(timeout=1.0)
+                indicator_provider.start()
+                indicator_started = True
             except Exception:
+                logger.warning("Failed to start status indicator", exc_info=True)
+        try:
+            _run_bridge(host, port, capture_logs=True)
+        finally:
+            if indicator_provider is not None and indicator_started:
                 try:
-                    tui_process.kill()
+                    indicator_provider.stop()
                 except Exception:
                     pass
+        return
 
-        if status_indicator_process is not None:
-            status_indicator_process.terminate()
-            try:
-                status_indicator_process.wait(timeout=1.0)
-            except Exception:
-                pass
+    manager = ServiceManager()
+    status = manager.start_background(host=host, port=port, status_indicator=status_indicator)
+    if status.running:
+        print(f"Service running pid={status.pid} host={status.host} port={status.port}")
+    elif status.stale:
+        print("Service state was stale and has been cleaned up")
+    else:
+        print("Service start requested")
 
-        if bridge_server is not None:
-            bridge_server.shutdown()
-            bridge_thread.join(timeout=2.5)
-            if bridge_thread.is_alive():
-                logger.warning("Bridge thread still alive after graceful shutdown window; forcing loop stop")
-                loop = bridge_server._loop
-                if loop and not loop.is_closed():
-                    loop.call_soon_threadsafe(loop.stop)
-                bridge_thread.join(timeout=1.5)
-                if bridge_thread.is_alive():
-                    logger.warning("Bridge thread still alive after forced loop stop")
+
+def _service_stop() -> None:
+    manager = ServiceManager()
+    before = manager.load_state()
+    manager.stop()
+    if before is None:
+        print("Service is not running")
+    else:
+        print("Service stopped")
+
+
+def _service_status() -> None:
+    manager = ServiceManager()
+    status = manager.status()
+    if status.running:
+        indicator = (
+            f" indicator_pid={status.status_indicator_pid}"
+            if status.status_indicator_pid is not None
+            else ""
+        )
+        print(f"running pid={status.pid} host={status.host} port={status.port}{indicator}")
+        return
+    if status.stale:
+        print(f"stale (cleaned) previous_pid={status.pid} host={status.host} port={status.port}")
+        return
+    print("stopped")
+
+
+async def _wait_for_status(
+    websocket: WebSocketClientType,
+    *,
+    timeout_seconds: float,
+    expected_statuses: set[str] | None = None,
+) -> tuple[str | None, str | None]:
+    deadline = time.monotonic() + max(0.1, timeout_seconds)
+    last_status: str | None = None
+    last_message: str | None = None
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return last_status, last_message
+        try:
+            raw = await asyncio.wait_for(websocket.recv(), timeout=remaining)
+        except TimeoutError:
+            return last_status, last_message
+
+        status_update = _extract_status_update(raw)
+        if status_update is None:
+            continue
+
+        last_status, last_message = status_update
+        if expected_statuses is None or last_status in expected_statuses:
+            return last_status, last_message
+
+
+def _extract_status_update(raw: str | bytes) -> tuple[str | None, str | None] | None:
+    if isinstance(raw, bytes):
+        try:
+            raw = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("type") != "status":
+        return None
+
+    status = str(payload.get("status", ""))
+    last_status = status or None
+    status_message = payload.get("message")
+    last_message = status_message if isinstance(status_message, str) else None
+    return last_status, last_message
+
+
+async def _trigger_async(host: str, port: int, action: str, timeout_seconds: float) -> str:
+    import websockets
+
+    uri = f"ws://{host}:{port}"
+    async with websockets.connect(uri, ping_interval=10, ping_timeout=10) as websocket:
+        initial_status, _ = await _wait_for_status(
+            websocket,
+            timeout_seconds=min(max(timeout_seconds, 0.1), 0.75),
+        )
+        current_status = initial_status or ""
+
+        effective = action
+        if action == "toggle":
+            effective = "stop" if current_status == "recording" else "start"
+
+        expected_statuses = (
+            {"recording"}
+            if effective == "start"
+            else {"transcribing", "ready", "error"}
+        )
+        if current_status in expected_statuses:
+            return current_status
+
+        message_type = "start_recording" if effective == "start" else "stop_recording"
+        await websocket.send(json.dumps({"type": message_type}))
+
+        ack_status, ack_message = await _wait_for_status(
+            websocket,
+            timeout_seconds=timeout_seconds,
+            expected_statuses=expected_statuses,
+        )
+        if ack_status in expected_statuses:
+            return str(ack_status)
+
+        last_status = ack_status or current_status or "unknown"
+        last_message = ack_message or "no status message"
+        raise TimeoutError(
+            f"Timed out waiting for trigger acknowledgement ({effective}); "
+            f"last_status={last_status}; last_message={last_message}"
+        )
+
+
+def _trigger(
+    host: str,
+    port: int,
+    *,
+    action: str,
+    status_indicator: bool,
+    timeout_seconds: float,
+) -> None:
+    try:
+        service_status = _ensure_service_running(host, port, status_indicator=status_indicator)
+    except Exception as exc:
+        print(f"Error: failed to start service: {exc}")
+        raise SystemExit(1)
+
+    resolved_host = service_status.host or host
+    resolved_port = service_status.port if service_status.port is not None else port
+
+    try:
+        ack_status = asyncio.run(_trigger_async(resolved_host, resolved_port, action, timeout_seconds))
+        print(f"Trigger acknowledged: status={ack_status}")
+    except TimeoutError as exc:
+        print(f"Error: trigger command timed out: {exc}")
+        raise SystemExit(2)
+    except Exception as exc:
+        print(f"Error: trigger command failed: {exc}")
+        raise SystemExit(1)
+
+
+def _upgrade(*, requested_version: str | None) -> None:
+    from whisper_local.upgrade import UpgradeActionRequired, UpgradeError, run_upgrade
+
+    try:
+        result = run_upgrade(requested_version=requested_version)
+    except UpgradeActionRequired as exc:
+        print(str(exc))
+        raise SystemExit(2)
+    except UpgradeError as exc:
+        print(f"Error: {exc}")
+        raise SystemExit(1)
+
+    print(
+        f"Upgraded whisper.local {result.previous_version} -> {result.new_version} "
+        f"({result.tag})"
+    )
+    if result.restarted_service:
+        print("Service was running and has been restarted.")
+
+
+def _resolve_uninstall_scope(args: argparse.Namespace) -> tuple[bool, bool, bool, bool]:
+    remove_state = bool(getattr(args, "remove_state", False))
+    remove_config = bool(getattr(args, "remove_config", False))
+    remove_model_cache = bool(getattr(args, "remove_model_cache", False))
+    if bool(getattr(args, "all_data", False)):
+        remove_state = True
+        remove_config = True
+        remove_model_cache = True
+    explicit_scope = any([remove_state, remove_config, remove_model_cache, bool(getattr(args, "all_data", False))])
+    return remove_state, remove_config, remove_model_cache, explicit_scope
+
+
+def _prompt_uninstall_scope() -> tuple[bool, bool, bool]:
+    print("Select uninstall scope:")
+    print("  1) App/runtime only")
+    print("  2) App/runtime + local state/config")
+    print("  3) App/runtime + local state/config + model cache")
+    while True:
+        choice = input("Choice [1-3] (default: 1): ").strip() or "1"
+        if choice == "1":
+            return False, False, False
+        if choice == "2":
+            return True, True, False
+        if choice == "3":
+            return True, True, True
+        print("Invalid choice. Enter 1, 2, or 3.")
+
+
+def _print_uninstall_plan(*, remove_state: bool, remove_config: bool, remove_model_cache: bool) -> None:
+    print("Uninstall plan:")
+    print("  - Remove installer launchers and runtime under ~/.local/share/whisper.local")
+    if remove_state:
+        print("  - Remove ~/.local/state/whisper.local")
+    if remove_config:
+        print("  - Remove ~/.config/whisper.local")
+    if remove_model_cache:
+        print("  - Remove whisper.local model caches under ~/.cache/huggingface/hub")
+
+
+def _confirm_uninstall() -> bool:
+    response = input("Proceed with uninstall? [y/N]: ").strip().lower()
+    return response in {"y", "yes"}
+
+
+def _uninstall(args: argparse.Namespace) -> None:
+    from whisper_local.uninstall import (
+        UninstallActionRequired,
+        UninstallError,
+        UninstallOptions,
+        run_uninstall,
+    )
+
+    remove_state, remove_config, remove_model_cache, explicit_scope = _resolve_uninstall_scope(args)
+    tty_session = sys.stdin.isatty() and sys.stdout.isatty()
+    assume_yes = bool(getattr(args, "yes", False))
+
+    if not assume_yes and not tty_session and not explicit_scope:
+        print(
+            "Error: non-interactive uninstall requires --yes or explicit scope flags "
+            "(--remove-state/--remove-config/--remove-model-cache/--all-data).",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+    if tty_session and not assume_yes:
+        if not explicit_scope:
+            remove_state, remove_config, remove_model_cache = _prompt_uninstall_scope()
+        _print_uninstall_plan(
+            remove_state=remove_state,
+            remove_config=remove_config,
+            remove_model_cache=remove_model_cache,
+        )
+        if not _confirm_uninstall():
+            print("Uninstall cancelled.")
+            raise SystemExit(1)
+
+    options = UninstallOptions(
+        remove_state=remove_state,
+        remove_config=remove_config,
+        remove_model_cache=remove_model_cache,
+    )
+
+    try:
+        result = run_uninstall(options=options)
+    except UninstallActionRequired as exc:
+        print(str(exc))
+        raise SystemExit(2)
+    except UninstallError as exc:
+        print(f"Error: {exc}")
+        raise SystemExit(1)
+
+    if result.removed_paths:
+        print("Removed paths:")
+        for path in result.removed_paths:
+            print(f"  - {path}")
+    else:
+        print("No files were removed.")
+
+    if result.warnings:
+        print("Warnings:")
+        for warning in result.warnings:
+            print(f"  - {warning}")
+
+    if result.failed_paths:
+        print("Failed to remove:")
+        for failure in result.failed_paths:
+            print(f"  - {failure.path}: {failure.reason}")
+        raise SystemExit(1)
+
+    print("Uninstall complete.")
+
+
+def _print_version() -> None:
+    print(__version__)
+
+
+def _handle_models_command(args: argparse.Namespace) -> None:
+    from whisper_local.model_manager import (
+        download_model,
+        list_installed_models,
+        remove_model,
+        set_selected_model,
+    )
+
+    if args.models_command is None:
+        print(
+            "Error: No subcommand provided for 'models'. Use --help for options.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+    if args.models_command == "list":
+        for model in list_installed_models():
+            variants = getattr(model, "variants", None)
+            if isinstance(variants, dict):
+                fw_variant = variants.get("faster-whisper")
+                cpp_variant = variants.get("whisper.cpp")
+                fw_state = "installed" if fw_variant and fw_variant.installed else "available"
+                wcpp_state = "installed" if cpp_variant and cpp_variant.installed else "available"
+                print(f"{model.name}: faster-whisper={fw_state}, whisper.cpp={wcpp_state}")
+            else:
+                state = "installed" if bool(getattr(model, "installed", False)) else "available"
+                print(f"{model.name}: {state}")
+        return
+
+    if args.models_command == "pull":
+        if args.runtime == "faster-whisper":
+            download_model(args.name)
+            print(f"Downloaded {args.name}")
         else:
-            bridge_thread.join(timeout=1.0)
+            download_model(args.name, runtime=args.runtime)
+            print(f"Downloaded {args.name} ({args.runtime})")
+        return
 
-        sys.stderr = real_stderr
-        _restore_terminal_state()
-        devnull.close()
-        if interrupted:
-            try:
-                signal.signal(signal.SIGINT, previous_sigint)
-            except Exception:
-                pass
+    if args.models_command == "remove":
+        if args.runtime == "faster-whisper":
+            remove_model(args.name)
+            print(f"Removed {args.name}")
+        else:
+            remove_model(args.name, runtime=args.runtime)
+            print(f"Removed {args.name} ({args.runtime})")
+        return
+
+    if args.models_command in ("select", "set-default"):
+        set_selected_model(args.name)
+        print(f"Selected model set to {args.name}")
+        return
+
+
+def _handle_config_command(args: argparse.Namespace) -> None:
+    config = load_config(args.path)
+    for section, values in config.to_dict().items():
+        if not isinstance(values, dict):
+            print(f"{section} = {values}")
+            continue
+        print(f"[{section}]")
+        for key, value in values.items():
+            if isinstance(value, dict):
+                for sub_key, sub_value in value.items():
+                    print(f"{key}.{sub_key} = {sub_value}")
+            else:
+                print(f"{key} = {value}")
 
 
 def main() -> None:
-    """
-    Parse CLI arguments and dispatch the selected subcommand to run the application's components.
-    
-    Recognizes these subcommands:
-    - run (default): start the TypeScript TUI stack (supports host, port, and status-indicator toggle).
-    - bridge: start the bridge server on a given host and port.
-    - tui: start the TUI subprocess and wait for it; restores terminal state on exit.
-    - models: manage models with subcommands `list`, `pull <name>`, `remove <name>`, and `select|set-default <name>`.
-    - config: load and print configuration sections and values from an optional path.
-    
-    Performs terminal restoration where applicable and prints or exits on fatal runtime errors.
-    """
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.command is None or args.command == "run":
-        host = getattr(args, "host", "localhost")
-        port = getattr(args, "port", 7878)
-        no_status_indicator = getattr(args, "no_status_indicator", False)
-        _run_combined(host, port, status_indicator=not no_status_indicator)
+    if args.command is None:
+        parser.print_help()
+        return
+
+    if args.command == "run":
+        print("Warning: 'run' is deprecated; use 'tui' instead.", file=sys.stderr)
+        _run_tui_attach(
+            args.host,
+            args.port,
+            status_indicator=not args.no_status_indicator,
+        )
+        return
+
+    if args.command == "start":
+        _service_run(
+            args.host,
+            args.port,
+            foreground=args.foreground,
+            status_indicator=not args.no_status_indicator,
+        )
+        return
+
+    if args.command == "stop":
+        _service_stop()
+        return
+
+    if args.command == "status":
+        _service_status()
         return
 
     if args.command == "bridge":
-        _run_bridge(args.host, args.port)
+        _run_bridge(args.host, args.port, capture_logs=bool(getattr(args, "capture_logs", False)))
         return
 
     if args.command == "tui":
-        try:
-            tui_process = _run_tui(args.host, args.port)
-            tui_process.wait()
-        except KeyboardInterrupt:
-            pass
-        except FileNotFoundError as e:
-            print(f"Error: {e}")
-            sys.exit(1)
-        finally:
-            _restore_terminal_state()
+        _run_tui_attach(args.host, args.port, status_indicator=not args.no_status_indicator)
+        return
+
+    if args.command == "trigger":
+        _trigger(
+            args.host,
+            args.port,
+            action=args.action,
+            status_indicator=not args.no_status_indicator,
+            timeout_seconds=float(args.timeout_seconds),
+        )
         return
 
     if args.command == "models":
-        from whisper_local.model_manager import (
-            download_model,
-            list_installed_models,
-            remove_model,
-            set_selected_model,
-        )
-
-        if args.models_command == "list":
-            for model in list_installed_models():
-                variants = getattr(model, "variants", None)
-                if isinstance(variants, dict):
-                    fw_variant = variants.get("faster-whisper")
-                    cpp_variant = variants.get("whisper.cpp")
-                    fw_state = "installed" if fw_variant and fw_variant.installed else "available"
-                    wcpp_state = "installed" if cpp_variant and cpp_variant.installed else "available"
-                    print(f"{model.name}: faster-whisper={fw_state}, whisper.cpp={wcpp_state}")
-                else:
-                    state = "installed" if bool(getattr(model, "installed", False)) else "available"
-                    print(f"{model.name}: {state}")
-            return
-        if args.models_command == "pull":
-            if args.runtime == "faster-whisper":
-                download_model(args.name)
-                print(f"Downloaded {args.name}")
-            else:
-                download_model(args.name, runtime=args.runtime)
-                print(f"Downloaded {args.name} ({args.runtime})")
-            return
-        if args.models_command == "remove":
-            if args.runtime == "faster-whisper":
-                remove_model(args.name)
-                print(f"Removed {args.name}")
-            else:
-                remove_model(args.name, runtime=args.runtime)
-                print(f"Removed {args.name} ({args.runtime})")
-            return
-        if args.models_command in ("select", "set-default"):
-            set_selected_model(args.name)
-            print(f"Selected model set to {args.name}")
-            return
+        _handle_models_command(args)
+        return
 
     if args.command == "config":
-        config = load_config(args.path)
-        for section, values in config.to_dict().items():
-            if not isinstance(values, dict):
-                print(f"{section} = {values}")
-                continue
-            print(f"[{section}]")
-            for key, value in values.items():
-                if isinstance(value, dict):
-                    for sub_key, sub_value in value.items():
-                        print(f"{key}.{sub_key} = {sub_value}")
-                else:
-                    print(f"{key} = {value}")
+        _handle_config_command(args)
+        return
+
+    if args.command == "upgrade":
+        _upgrade(requested_version=getattr(args, "version", None))
+        return
+
+    if args.command == "uninstall":
+        _uninstall(args)
+        return
+
+    if args.command == "version":
+        _print_version()
         return
 
     parser.print_help()

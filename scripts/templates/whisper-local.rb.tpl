@@ -7,14 +7,28 @@ class WhisperLocal < Formula
   sha256 "$WHEEL_SHA256"
   license "MIT"
 
-  depends_on arch: :arm64
   depends_on "portaudio"
   depends_on "python@3.12"
   depends_on "whisper-cpp"
 
-  resource "whisper-local-tui" do
-    url "$TUI_URL"
-    sha256 "$TUI_SHA256"
+  resource "whisper-local-tui-darwin-arm64" do
+    url "$TUI_URL_DARWIN_ARM64"
+    sha256 "$TUI_SHA256_DARWIN_ARM64"
+  end
+
+  resource "whisper-local-tui-darwin-x64" do
+    url "$TUI_URL_DARWIN_X64"
+    sha256 "$TUI_SHA256_DARWIN_X64"
+  end
+
+  resource "whisper-local-tui-linux-x64" do
+    url "$TUI_URL_LINUX_X64"
+    sha256 "$TUI_SHA256_LINUX_X64"
+  end
+
+  resource "whisper-local-tui-linux-arm64" do
+    url "$TUI_URL_LINUX_ARM64"
+    sha256 "$TUI_SHA256_LINUX_ARM64"
   end
 
   def install
@@ -23,36 +37,84 @@ class WhisperLocal < Formula
     wheel_name = cached_download.basename.to_s.sub(/\A[0-9a-f]{64}--/i, "")
     wheel_path = buildpath/wheel_name
     cp cached_download, wheel_path
-    # Install wheel with dependencies from PyPI (venv.pip_install uses --no-deps)
+
     system "python3.12", "-m", "pip", "--python=#{libexec}/bin/python",
            "install", "--no-cache-dir", wheel_path
 
-    # Pre-set bundled dylib IDs to the path Homebrew's post-install expects,
-    # so its relinking step finds them already correct and skips them.
-    # Some pip wheel dylibs (e.g. PyAV's FFmpeg libs) have Mach-O headers
-    # too small for the long opt-prefix path.  Stripping the informational
-    # LC_SOURCE_VERSION load command frees enough header space.
-    Dir.glob(libexec/"lib/python3.12/site-packages/**/*.dylib", File::FNM_DOTMATCH) do |dylib|
-      chmod 0644, dylib
-      rel = Pathname.new(dylib).relative_path_from(prefix)
-      target_id = "#{opt_prefix}/#{rel}"
+    if OS.mac?
+      # Pre-set bundled dylib IDs to the path Homebrew's post-install expects,
+      # so its relinking step finds them already correct and skips them.
+      Dir.glob(libexec/"lib/python3.12/site-packages/**/*.dylib", File::FNM_DOTMATCH) do |dylib|
+        chmod 0644, dylib
+        rel = Pathname.new(dylib).relative_path_from(prefix)
+        target_id = "#{opt_prefix}/#{rel}"
 
-      # Strip code signature so header edits don't invalidate it.
-      quiet_system "codesign", "--remove-signature", dylib
-      # Remove LC_SOURCE_VERSION (16 bytes) to widen header padding.
-      mv "#{dylib}.tmp", dylib if quiet_system "vtool", "-remove-source-version",
-                                                         "-output", "#{dylib}.tmp", dylib
+        quiet_system "codesign", "--remove-signature", dylib
+        mv "#{dylib}.tmp", dylib if quiet_system "vtool", "-remove-source-version",
+                                                           "-output", "#{dylib}.tmp", dylib
 
-      MachO::Tools.change_dylib_id(dylib, target_id)
-      system "codesign", "--force", "--sign", "-", dylib
+        MachO::Tools.change_dylib_id(dylib, target_id)
+        system "codesign", "--force", "--sign", "-", dylib
+      end
     end
 
-    resource("whisper-local-tui").stage do
-      (libexec/"bin").install "whisper-local-tui"
-    end
-    chmod 0755, libexec/"bin/whisper-local-tui"
+    tui_resource_names = {
+      darwin: {
+        arm:   "whisper-local-tui-darwin-arm64",
+        intel: "whisper-local-tui-darwin-x64",
+      },
+      linux:  {
+        arm:   "whisper-local-tui-linux-arm64",
+        intel: "whisper-local-tui-linux-x64",
+      },
+    }
 
-    tui_bin = libexec/"bin/whisper-local-tui"
+    platform_key = if OS.mac?
+      :darwin
+    elsif OS.linux?
+      :linux
+    else
+      odie "Unsupported platform for whisper-local formula"
+    end
+    arch_key = if Hardware::CPU.arm?
+      :arm
+    elsif Hardware::CPU.intel?
+      :intel
+    else
+      odie "Unsupported CPU architecture for whisper-local formula"
+    end
+    tui_resource_name = tui_resource_names.fetch(platform_key).fetch(arch_key)
+    expected_binary_name = "whisper-local-tui"
+
+    tui_resource = resource(tui_resource_name)
+    tui_resource.fetch
+    tui_archive = buildpath/"whisper-local-tui.tar.gz"
+    cp tui_resource.cached_download, tui_archive
+
+    (libexec/"bin").mkpath
+    extraction_marker = buildpath/"whisper-local-tui-path.txt"
+    extraction_script = <<~PY
+      from pathlib import Path
+      import sys
+
+      from whisper_local.archive_extract import install_tui_binary_from_archive
+
+      archive_path = Path(sys.argv[1])
+      target_dir = Path(sys.argv[2])
+      expected_binary_name = sys.argv[3]
+      marker_path = Path(sys.argv[4])
+      installed = install_tui_binary_from_archive(
+          archive_path=archive_path,
+          target_dir=target_dir,
+          expected_binary_name=expected_binary_name,
+      )
+      marker_path.write_text(str(installed), encoding="utf-8")
+    PY
+    system libexec/"bin/python", "-c", extraction_script,
+           tui_archive, libexec/"bin", expected_binary_name, extraction_marker
+
+    tui_bin = Pathname.new(extraction_marker.read.strip)
+    chmod 0755, tui_bin
     (bin/"whisper-local").write_env_script(
       libexec/"bin/whisper-local", WHISPER_LOCAL_TUI_BIN: tui_bin
     )
@@ -65,18 +127,21 @@ class WhisperLocal < Formula
 
   def caveats
     <<~EOS
-      whisper.local requires macOS microphone + input monitoring permissions.
-      Grant permissions in System Settings > Privacy & Security.
+      whisper.local can run as a background service:
+        whisper.local start
+        whisper.local status
+        whisper.local tui
+
+      On Wayland, global key swallowing may be unavailable.
+      Bind a desktop shortcut to:
+        whisper.local trigger toggle
 
       First run downloads the selected model and may take a few minutes.
-
-      Optional RNNoise support:
-        brew install --cask rnnoise
     EOS
   end
 
   test do
     assert_match "usage", shell_output("#{bin}/whisper-local --help")
-    assert_match "bridge", shell_output("#{bin}/whisper-local bridge --help")
+    assert_match "Service", shell_output("#{bin}/whisper-local status")
   end
 end

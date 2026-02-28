@@ -8,7 +8,7 @@ import sys
 def patch_pyte_report_device_status() -> None:
     """
     Patch pyte.screens.Screen.report_device_status to drop an unsupported 'private' keyword argument when present.
-    
+
     If pyte or the Screen.report_device_status method is unavailable, or if the method already accepts a `private` parameter, the function leaves nothing changed. Otherwise it replaces the method with a wrapper that removes the `private` keyword from kwargs before delegating to the original implementation.
     """
 
@@ -35,7 +35,7 @@ def patch_pyte_report_device_status() -> None:
     def patched(self, *args, **kwargs):
         """
         Wrapper for Screen.report_device_status that removes an unsupported `private` keyword from kwargs before calling the original method.
-        
+
         Returns:
             The value returned by the original `report_device_status` implementation.
         """
@@ -48,9 +48,9 @@ def patch_pyte_report_device_status() -> None:
 def main() -> int:
     """
     Run compatibility patch then invoke termtosvg's main entry point and return an appropriate process exit code.
-    
+
     Applies a compatibility patch to pyte (if needed), attempts to import and call termtosvg.main.main, and maps its outcomes to conventional process exit codes: returns the integer result returned by termtosvg when it is an int; if termtosvg raises SystemExit, returns 0 when the exit code is None, the integer code when it is an int, or 1 for non-integer codes; returns 2 if importing or running termtosvg fails.
-    
+
     Returns:
         int: Process-style exit code as described above.
     """

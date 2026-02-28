@@ -7,17 +7,15 @@ import json
 import logging
 import os
 import shlex
-import shutil
 import sys
 import threading
 from datetime import datetime
 from pathlib import Path
 from time import monotonic
-from typing import Any
+from typing import Any, Coroutine
 from urllib.parse import parse_qs, unquote, urlparse
 
 import websockets
-from websockets.server import WebSocketServerProtocol
 
 from whisper_local import __version__
 from whisper_local.audio import (
@@ -37,7 +35,6 @@ from whisper_local.config import (
     normalize_runtime_name,
     save_config,
 )
-from whisper_local.hotkey import HotkeyListener, parse_hotkey
 from whisper_local.model_manager import (
     RUNTIME_NAMES,
     DownloadCancelledError,
@@ -55,14 +52,22 @@ from whisper_local.output import (
     append_to_file,
     capture_clipboard_snapshot,
     copy_to_clipboard,
-    paste_from_clipboard,
     restore_clipboard_snapshot,
 )
+from whisper_local.platform import (
+    create_hotkey_provider,
+    create_paste_provider,
+    detect_platform_capabilities,
+    validate_hotkey,
+)
+from whisper_local.service_state import transcript_db_path
+from whisper_local.transcript_store import TranscriptRecord, TranscriptStore
 from whisper_local.vad import VadProcessor
+
+WebSocketServerProtocol = Any
 
 logger = logging.getLogger(__name__)
 
-WHISPER_CPP_BINARIES = ("whisper-cli", "whisper-cpp", "main")
 MAX_DROP_FILES = 32
 MAX_DROP_FILE_BYTES = 512 * 1024 * 1024
 MAX_DROP_AUDIO_SECONDS = 4 * 60 * 60
@@ -141,6 +146,8 @@ class BridgeServer:
         self._hotkey_blocked = False
         self._status = "initializing"
         self._status_message = "Initializing..."
+        self._host = "localhost"
+        self._port = 7878
         self._model_loaded = False
         self._first_run_setup_required = False
         self._hotkey_started = False
@@ -161,25 +168,39 @@ class BridgeServer:
         self._startup_audio_notice_level = "info"
         self._shutdown_requested = threading.Event()
 
-        self._background_tasks: set[asyncio.Task] = set()
-        self._model_tasks: dict[str, asyncio.Task] = {}
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._model_tasks: dict[str, asyncio.Task[Any]] = {}
         self._download_queue = SerialModelTaskQueue()
+        self._platform_capabilities = detect_platform_capabilities().to_dict()
+        self._paste_provider = create_paste_provider()
+
+        history_max_entries = 5000
+        history_config = getattr(config, "history", None)
+        if history_config is not None:
+            try:
+                history_max_entries = max(1, int(getattr(history_config, "max_entries", 5000)))
+            except (TypeError, ValueError):
+                history_max_entries = 5000
+        self._transcript_store = TranscriptStore(
+            transcript_db_path(),
+            max_entries=history_max_entries,
+        )
 
         # Audio/transcription components (initialized lazily)
         self.recorder: AudioRecorder | None = None
         self.noise: RNNoiseSuppressor | None = None
         self.vad: VadProcessor | None = None
         self.transcriber: Any | None = None
-        self.hotkey: HotkeyListener | None = None
+        self.hotkey: Any | None = None
 
-    def _spawn_task(self, coro) -> asyncio.Task:
+    def _spawn_task(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
         """Create a background task and prevent it from being garbage-collected."""
         task = asyncio.create_task(coro)
         self._background_tasks.add(task)
         task.add_done_callback(self._on_task_done)
         return task
 
-    def _on_task_done(self, task: asyncio.Task) -> None:
+    def _on_task_done(self, task: asyncio.Task[Any]) -> None:
         """Clean up a finished background task and surface any unhandled exception."""
         self._background_tasks.discard(task)
         if not task.cancelled():
@@ -187,7 +208,11 @@ class BridgeServer:
             if exc is not None:
                 logger.error("Background task failed: %s", exc)
 
-    def _spawn_model_task(self, name: str, coro) -> asyncio.Task:
+    def _spawn_model_task(
+        self,
+        name: str,
+        coro: Coroutine[Any, Any, Any],
+    ) -> asyncio.Task[Any]:
         """
         Start and track a named background task for model operations.
 
@@ -206,7 +231,7 @@ class BridgeServer:
         task = self._spawn_task(coro)
         self._model_tasks[name] = task
 
-        def _cleanup(_t: asyncio.Task) -> None:
+        def _cleanup(_t: asyncio.Task[Any]) -> None:
             """
             Remove the tracked model task entry when the completed task matches the recorded task for that model.
 
@@ -354,8 +379,8 @@ class BridgeServer:
             capture_logs (bool): If true, install a WebSocket log handler to forward log records to connected clients.
         """
         self._loop = asyncio.get_event_loop()
-
-        self._ensure_whisper_cpp_installed()
+        self._host = host
+        self._port = port
 
         if capture_logs:
             self._install_log_handler()
@@ -395,7 +420,7 @@ class BridgeServer:
         self.vad = VadProcessor(
             enabled=self.config.vad.enabled, aggressiveness=self.config.vad.aggressiveness
         )
-        self.hotkey = HotkeyListener(
+        self.hotkey = create_hotkey_provider(
             self.config.hotkey.key,
             on_press=self._handle_hotkey_press,
             on_release=self._handle_hotkey_release,
@@ -416,20 +441,6 @@ class BridgeServer:
             device=self.config.model.device,
             compute_type=self.config.model.compute_type,
             model_path=self.config.model.path,
-        )
-
-    def _ensure_whisper_cpp_installed(self) -> None:
-        """
-        Ensure that a whisper.cpp binary is available on the system PATH.
-
-        Raises:
-            RuntimeError: If none of the expected whisper.cpp binaries are found; the error message suggests installing via Homebrew.
-        """
-        for binary in WHISPER_CPP_BINARIES:
-            if shutil.which(binary) is not None:
-                return
-        raise RuntimeError(
-            "whisper.cpp is required but not installed. Install with: brew install whisper-cpp"
         )
 
     def _detect_runtime_capabilities(self, selected_runtime: str | None = None) -> dict[str, Any]:
@@ -765,7 +776,7 @@ class BridgeServer:
 
     async def _process_audio(
         self,
-        audio,
+        audio: Any,
         *,
         transcriber: Any | None = None,
         language: str | None = None,
@@ -859,9 +870,24 @@ class BridgeServer:
                 return final_status, final_message
 
             timestamp = datetime.now().strftime("%H:%M:%S")
-            await self._broadcast(
-                {"type": "transcript", "timestamp": timestamp, "text": result.text}
-            )
+            stored: TranscriptRecord | None = None
+            try:
+                stored = await asyncio.to_thread(
+                    self._transcript_store.append,
+                    result.text,
+                    timestamp=timestamp,
+                )
+            except Exception as exc:
+                logger.exception("Failed to persist transcript history entry: %s", exc)
+            transcript_payload: dict[str, Any] = {
+                "type": "transcript",
+                "timestamp": timestamp,
+                "text": result.text,
+            }
+            if stored is not None:
+                transcript_payload["id"] = stored.id
+                transcript_payload["created_at"] = stored.created_at
+            await self._broadcast(transcript_payload)
 
             # Handle output
             copied_to_clipboard = True
@@ -885,7 +911,9 @@ class BridgeServer:
                         await self._broadcast(
                             {"type": "suppress_paste_input", "duration_ms": AUTO_PASTE_INPUT_SUPPRESS_MS}
                         )
-                        pasted = await asyncio.to_thread(paste_from_clipboard)
+                        pasted = await asyncio.to_thread(
+                            self._paste_provider.paste_from_clipboard
+                        )
                         if should_revert_clipboard and clipboard_snapshot_available:
                             if pasted:
                                 await asyncio.sleep(AUTO_REVERT_CLIPBOARD_DELAY_MS / 1000)
@@ -1028,6 +1056,31 @@ class BridgeServer:
             *[client.send(data) for client in self.clients], return_exceptions=True
         )
 
+    @staticmethod
+    def _serialize_transcript_record(record: TranscriptRecord) -> dict[str, Any]:
+        return {
+            "id": record.id,
+            "text": record.text,
+            "timestamp": record.timestamp,
+            "created_at": record.created_at,
+        }
+
+    async def _send_transcript_history(self, websocket: WebSocketServerProtocol) -> None:
+        try:
+            records = await asyncio.to_thread(self._transcript_store.history)
+            entries = [self._serialize_transcript_record(item) for item in records]
+        except Exception:
+            logger.exception("Failed to load transcript history during client initialization")
+            entries = []
+        await websocket.send(
+            json.dumps(
+                {
+                    "type": "transcript_history",
+                    "entries": entries,
+                }
+            )
+        )
+
     async def _handle_client(self, websocket: WebSocketServerProtocol) -> None:
         """Handle a single client connection."""
         self.clients.add(websocket)
@@ -1041,17 +1094,14 @@ class BridgeServer:
             len(self._passive_clients),
         )
 
-        # Keep global hotkey capture active only while a client is connected.
-        if self._model_loaded and self._has_active_clients():
-            self._start_hotkey()
-
-        # Send current state
-        await websocket.send(
-            json.dumps({"type": "status", "status": self._status, "message": self._status_message})
-        )
-        await self._send_config(websocket)
-
         try:
+            if self._model_loaded:
+                self._start_hotkey()
+            await websocket.send(
+                json.dumps({"type": "status", "status": self._status, "message": self._status_message})
+            )
+            await self._send_config(websocket)
+            await self._send_transcript_history(websocket)
             async for message in websocket:
                 await self._handle_message(websocket, message)
         except websockets.ConnectionClosed:
@@ -1059,9 +1109,6 @@ class BridgeServer:
         finally:
             self.clients.discard(websocket)
             self._passive_clients.discard(websocket)
-            if not self._has_active_clients() and self.hotkey and self._hotkey_started:
-                self.hotkey.stop()
-                self._hotkey_started = False
             if not self.clients:
                 self._hotkey_blocked = False
             logger.info(
@@ -1072,7 +1119,7 @@ class BridgeServer:
             )
 
     async def _handle_message(
-        self, websocket: WebSocketServerProtocol, message: str
+        self, websocket: WebSocketServerProtocol, message: str | bytes
     ) -> None:
         """
         Dispatch a JSON-encoded control message from a client to the appropriate bridge handler.
@@ -1084,6 +1131,8 @@ class BridgeServer:
             message (str): A JSON-encoded message string that must include a top-level "type" field and any type-specific payload.
         """
         try:
+            if isinstance(message, bytes):
+                message = message.decode("utf-8", errors="replace")
             data = json.loads(message)
             msg_type = data.get("type")
 
@@ -2048,7 +2097,7 @@ class BridgeServer:
         """
         Load a new transcriber from the current model configuration and atomically replace the active transcriber.
 
-        This updates internal state to mark a model as loaded, clears first-run setup, refreshes cached runtime capabilities, and — if there are active clients — (re)starts the hotkey listener. Ongoing transcription jobs continue using the transcriber instance they captured before this swap; new recordings use the updated transcriber. If no recording or transcribing jobs remain, the server status is set to "ready".
+        This updates internal state to mark a model as loaded, clears first-run setup, refreshes cached runtime capabilities, and (re)starts the hotkey listener. Ongoing transcription jobs continue using the transcriber instance they captured before this swap; new recordings use the updated transcriber. If no recording or transcribing jobs remain, the server status is set to "ready".
         """
         async with self._model_reload_lock:
             next_transcriber = await asyncio.get_event_loop().run_in_executor(
@@ -2060,8 +2109,7 @@ class BridgeServer:
             self._model_loaded = True
             self._first_run_setup_required = False
             self._refresh_runtime_capabilities(force=True)
-            if self._has_active_clients():
-                self._start_hotkey()
+            self._start_hotkey()
             if not self._recording and self._transcribing_jobs <= 0:
                 await self._set_status("ready", "Ready")
 
@@ -2939,7 +2987,7 @@ class BridgeServer:
             return
 
         try:
-            parse_hotkey(hotkey)
+            validate_hotkey(hotkey)
         except ValueError as exc:
             await self._broadcast(
                 {"type": "toast", "message": f"Invalid hotkey: {exc}", "level": "error"}
@@ -2956,7 +3004,7 @@ class BridgeServer:
                 self._hotkey_started = False
 
             self.config.hotkey.key = hotkey
-            self.hotkey = HotkeyListener(
+            self.hotkey = create_hotkey_provider(
                 self.config.hotkey.key,
                 on_press=self._handle_hotkey_press,
                 on_release=self._handle_hotkey_release,
@@ -3230,7 +3278,7 @@ class BridgeServer:
             dict[str, Any]: Serialized configuration payload including bridge info and flags such as `auto_copy`, `auto_paste`, `auto_revert_clipboard`, `first_run_setup_required`, `runtime` capabilities, and `audio_inputs` diagnostics.
         """
         config_dict = self.config.to_dict()
-        config_dict["bridge"] = {"host": "localhost", "port": 7878}
+        config_dict["bridge"] = {"host": self._host, "port": self._port}
         config_dict["auto_copy"] = self._auto_copy
         config_dict["auto_paste"] = self._auto_paste
         config_dict["auto_revert_clipboard"] = self._auto_revert_clipboard
@@ -3238,6 +3286,7 @@ class BridgeServer:
         config_dict["runtime"] = self._runtime_capabilities
         config_dict["audio_inputs"] = self._audio_inputs_payload()
         config_dict["version"] = __version__
+        config_dict["platform_capabilities"] = dict(self._platform_capabilities)
         return config_dict
 
     def shutdown(self) -> None:
