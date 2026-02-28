@@ -409,6 +409,10 @@ def test_start_background_indicator_start_failure_continues_service(
     with patch("whisper_local.service_manager.subprocess.Popen", return_value=process), patch(
         "whisper_local.service_manager._wait_for_port", return_value=True
     ), patch(
+        "whisper_local.service_manager._is_pid_alive", return_value=True
+    ), patch(
+        "whisper_local.service_manager._is_port_reachable", return_value=True
+    ), patch(
         "whisper_local.service_manager.create_status_indicator_provider",
         return_value=indicator_provider,
     ), patch("whisper_local.service_manager._terminate_pid") as mock_terminate:
