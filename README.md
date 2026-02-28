@@ -20,11 +20,10 @@
 
 ### How it works
 
-1. **Hit F3** (or your custom hotkey) from any app — system-wide, no focus switching
-2. **Speak** — audio is captured, noise-suppressed, and transcribed locally by Whisper
+1. **Onboard in the TUI** — download a Whisper model, configure settings
+2. **Hit the hotkey** (F3 by default) from any anywhere — system-wide, no focus switching
+2. **Speak** — audio is captured, transcribed locally by Whisper
 3. **Text appears** — transcription auto-pastes into your active app, or copies to clipboard
-
-Everything runs on your machine. No cloud API, no network calls, no data collection. Your voice stays on your machine, always.
 
 > [!IMPORTANT]
 > The code in this repo has mostly been created by AI-assisted workflows
@@ -39,13 +38,13 @@ Everything runs on your machine. No cloud API, no network calls, no data collect
 - **Terminal UI** built with OpenTUI + SolidJS — configure settings, transcript history
 - **Pluggable runtimes** — faster-whisper (CPU/CUDA) or whisper.cpp (CPU/Metal GPU on macOS)
 - **Model management** — download, remove, and select OpenAI Whisper models from tiny to large-v3-turbo
-- **macOS menu bar indicator** — status dot shows recording / transcribing / idle state
+- **menu bar indicator** — status dot shows recording / transcribing / idle state
 - Optional **Noise suppression** (RNNoise) and **voice activity detection** (VAD)
 - **File transcription** — drag-and-drop or paste audio file paths
 
 ### Installation
 
-#### Linux / MacOS
+#### macOS / Linux
 
 ```bash
 # YOLO
@@ -63,25 +62,21 @@ Download the latest `whisper-local-tui-windows-x64.tar.gz` from [Releases](https
 ```bash
 whisper.local upgrade # upgrade to latest version
 ```
-```
-```
 
-## Quick Start
+### Quick Start
 
 ```bash
 whisper.local tui     # guided onboarding, starts background service and opens terminal UI - useful for first-time configuration
 whisper.local start   # start background service only
 ```
 
-Press **F3** from any app to record. Configure hotkey, models, and settings from the TUI.
+### Troubleshooting
 
-## Troubleshooting
-
-### macOS permissions
+#### macOS permissions
 
 Global hotkeys require **Input Monitoring** and auto-paste requires **Accessibility** permission for your terminal. Grant both in `System Settings` → `Privacy & Security`, then restart whisper.local.
 
-### Common issues
+#### Common issues
 
 - **Hotkey does nothing** — grant Input Monitoring permission (see above)
 - **Auto-paste fails** — grant Accessibility permission (see above)
