@@ -8,7 +8,6 @@
   <a href="https://github.com/mjmammoth/whisper.local/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/mjmammoth/whisper.local/ci.yml?style=for-the-badge&labelColor=171717&branch=main" alt="CI"></a>
   <a href="https://github.com/mjmammoth/whisper.local/releases/latest"><img src="https://img.shields.io/github/v/release/mjmammoth/whisper.local?display_name=tag&labelColor=171717&color=0AB2FF&logo=github&style=for-the-badge&label=Version" alt="Latest Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?labelColor=171717&color=0AB2FF&style=for-the-badge" alt="License: Apache 2.0"></a>
-  <a href="#homebrew-v1-arm64"><img src="https://img.shields.io/badge/Homebrew-install-orange?logo=homebrew&labelColor=171717&color=FF570A&style=for-the-badge" alt="Homebrew"></a>
   <a href="https://coderabbit.ai/"><img src="https://img.shields.io/coderabbit/prs/github/mjmammoth/whisper.local?utm_source=oss&utm_medium=github&utm_campaign=mjmammoth%2Fwhisper.local&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews&style=for-the-badge" alt="CodeRabbit Pull Request Reviews"></a>
 </p>
 
