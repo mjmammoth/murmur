@@ -25,9 +25,6 @@
 2. **Speak** — audio is captured, transcribed locally by Whisper
 3. **Text appears** — transcription auto-pastes into your active app, or copies to clipboard
 
-> [!IMPORTANT]
-> The code in this repo has mostly been created by AI-assisted workflows
-
 ### Features
 
 - **100% local & private** — no cloud, no telemetry, no network calls
@@ -83,3 +80,6 @@ Global hotkeys require **Input Monitoring** and auto-paste requires **Accessibil
 - **No model selected** — run `whisper.local models pull small && whisper.local models select small`
 - **PortAudio / input device errors** — check microphone selection and macOS microphone permissions
 - **Wayland** — global key swallow isn't guaranteed; bind `whisper.local trigger toggle` to a desktop shortcut instead
+
+> [!IMPORTANT]
+> The code in this repo has mostly been created by AI-assisted workflows
