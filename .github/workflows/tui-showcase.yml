@@ -2,15 +2,6 @@ name: tui-showcase
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - "README.md"
-      - "docs/assets/tui-home-themes.png"
-      - "tui/src/**"
-      - "tui/scripts/mock-demo-backend.ts"
-      - "scripts/generate_tui_showcase.py"
-      - "scripts/termtosvg_compat.py"
-      - "scripts/requirements-tui-showcase.txt"
   push:
     branches: [main]
     paths:
@@ -29,20 +20,20 @@ jobs:
       TZ: UTC
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.12"
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
         with:
           bun-version: "1.2.21"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
         with:
           node-version: "22.11.0"
 
@@ -61,22 +52,7 @@ jobs:
       - name: Generate showcase
         run: python scripts/generate_tui_showcase.py --output-format png --png-scale 2
 
-      - name: Check showcase drift (pull requests)
-        if: github.event_name == 'pull_request'
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- README.md docs/assets/tui-home-themes.png; then
-            echo "Showcase is up to date."
-            exit 0
-          fi
-          echo "TUI showcase drift detected. Regenerate and commit these files:" >&2
-          echo "  - README.md" >&2
-          echo "  - docs/assets/tui-home-themes.png" >&2
-          git --no-pager diff -- README.md docs/assets/tui-home-themes.png
-          exit 1
-
       - name: Commit and push if changed
-        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"

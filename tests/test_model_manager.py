@@ -184,11 +184,10 @@ def test_get_installed_model_path_multiple_snapshots(tmp_path: Path, monkeypatch
     snapshot1 = snapshot_dir / "old"
     _write_complete_snapshot(snapshot1)
 
-    import time
-    time.sleep(0.01)
-
     snapshot2 = snapshot_dir / "new"
     _write_complete_snapshot(snapshot2)
+    snapshot1_mtime = snapshot1.stat().st_mtime
+    os.utime(snapshot2, (snapshot1_mtime + 1, snapshot1_mtime + 1))
 
     result = get_installed_model_path("tiny")
     # Should return the newer snapshot
@@ -610,7 +609,8 @@ def test_hf_hub_xet_disabled_during_download():
     """Test that HF_HUB_DISABLE_XET is set during download."""
     # This is a regression test to ensure XET is disabled
     # to avoid subprocess FD issues
-    assert "HF_HUB_DISABLE_XET" in os.environ or True  # Set by module init
+    assert "HF_HUB_DISABLE_XET" in os.environ
+    assert bool(os.environ["HF_HUB_DISABLE_XET"])
 
 
 def test_runtime_operations_factory_returns_expected_strategies():
@@ -689,3 +689,171 @@ def test_whisper_cpp_progress_uses_incremental_cache_delta():
     # 200 bytes transferred over a 1000-byte expected file should report 20%.
     assert 20 in progress_updates
     assert 99 not in progress_updates
+
+
+# ---------------------------------------------------------------------------
+# _make_progress_tqdm
+# ---------------------------------------------------------------------------
+
+def test_make_progress_tqdm_iterable_mode():
+    updates: list[int] = []
+    cls = model_manager._make_progress_tqdm(updates.append)
+    items = ["a", "b", "c"]
+    instance = cls(items, name="test")
+    assert list(instance) == items
+    assert len(instance) == 3
+
+
+def test_make_progress_tqdm_update_emits_callback():
+    updates: list[int] = []
+    cls = model_manager._make_progress_tqdm(updates.append, expected_total_bytes=1000)
+    instance = cls(total=1000, name="huggingface_hub.snapshot_download")
+    instance.update(500)
+    assert 50 in updates
+    instance.update(500)
+    assert 100 in updates
+
+
+def test_make_progress_tqdm_reset():
+    updates: list[int] = []
+    cls = model_manager._make_progress_tqdm(updates.append, expected_total_bytes=1000)
+    instance = cls(total=1000, name="huggingface_hub.snapshot_download")
+    instance.update(500)
+    instance.reset(total=2000)
+    assert instance.n == pytest.approx(0.0)
+    assert instance.total == pytest.approx(2000.0)
+
+
+def test_make_progress_tqdm_refresh():
+    updates: list[int] = []
+    cls = model_manager._make_progress_tqdm(updates.append, expected_total_bytes=1000)
+    instance = cls(total=1000, name="huggingface_hub.snapshot_download")
+    instance.update(100)
+    instance.refresh()  # should not raise
+
+
+def test_make_progress_tqdm_cancel_check():
+    cls = model_manager._make_progress_tqdm(lambda x: None, cancel_check=lambda: True)
+    with pytest.raises(DownloadCancelledError):
+        cls(name="test")
+
+
+def test_make_progress_tqdm_context_manager():
+    updates: list[int] = []
+    cls = model_manager._make_progress_tqdm(updates.append)
+    with cls(name="test"):
+        pass  # should not raise
+
+
+def test_make_progress_tqdm_noop_methods():
+    cls = model_manager._make_progress_tqdm(lambda x: None)
+    instance = cls(name="test")
+    instance.set_description("desc")
+    instance.set_postfix(x=1)
+    instance.set_postfix_str("s")
+    instance.clear()
+    instance.display()
+    instance.moveto(0)
+    instance.unpause()
+    instance.close()
+
+
+def test_make_progress_tqdm_get_set_lock():
+    cls = model_manager._make_progress_tqdm(lambda x: None)
+    lock = cls.get_lock()
+    assert lock is not None
+    new_lock = threading.Lock()
+    cls.set_lock(new_lock)
+    assert cls.get_lock() is new_lock
+
+
+def test_make_progress_tqdm_non_download_bar_update_ignored():
+    updates: list[int] = []
+    cls = model_manager._make_progress_tqdm(updates.append, expected_total_bytes=1000)
+    instance = cls(total=100, name="other")
+    instance.update(50)
+    # Non-download bars don't emit progress
+    assert 50 not in updates
+
+
+# ---------------------------------------------------------------------------
+# _resolve_repo_file_size_bytes
+# ---------------------------------------------------------------------------
+
+@patch("whisper_local.model_manager.HfApi")
+def test_resolve_repo_file_size_bytes_match(mock_hf_api):
+    mock_sibling = Mock()
+    mock_sibling.rfilename = "model.bin"
+    mock_sibling.size = 5000
+    mock_info = Mock()
+    mock_info.siblings = [mock_sibling]
+    mock_hf_api.return_value.model_info.return_value = mock_info
+
+    result = model_manager._resolve_repo_file_size_bytes("test/repo", "model.bin")
+    assert result == 5000
+
+
+@patch("whisper_local.model_manager.HfApi")
+def test_resolve_repo_file_size_bytes_no_match(mock_hf_api):
+    mock_sibling = Mock()
+    mock_sibling.rfilename = "other.bin"
+    mock_sibling.size = 5000
+    mock_info = Mock()
+    mock_info.siblings = [mock_sibling]
+    mock_hf_api.return_value.model_info.return_value = mock_info
+
+    result = model_manager._resolve_repo_file_size_bytes("test/repo", "model.bin")
+    assert result is None
+
+
+@patch("whisper_local.model_manager.HfApi")
+def test_resolve_repo_file_size_bytes_api_error(mock_hf_api):
+    mock_hf_api.return_value.model_info.side_effect = Exception("API error")
+    result = model_manager._resolve_repo_file_size_bytes("test/repo", "model.bin")
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# whisper_cpp_model_filename
+# ---------------------------------------------------------------------------
+
+def test_whisper_cpp_model_filename_valid():
+    assert model_manager.whisper_cpp_model_filename("tiny") == "ggml-tiny.bin"
+    assert model_manager.whisper_cpp_model_filename("large-v3") == "ggml-large-v3.bin"
+
+
+def test_whisper_cpp_model_filename_unknown():
+    with pytest.raises(ValueError, match="Unknown model"):
+        model_manager.whisper_cpp_model_filename("nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# normalize_model_runtime
+# ---------------------------------------------------------------------------
+
+def test_normalize_model_runtime_default():
+    assert model_manager.normalize_model_runtime(None) == "faster-whisper"
+
+
+def test_normalize_model_runtime_whisper_cpp():
+    assert model_manager.normalize_model_runtime("whisper.cpp") == "whisper.cpp"
+
+
+def test_normalize_model_runtime_faster_whisper():
+    assert model_manager.normalize_model_runtime("faster-whisper") == "faster-whisper"
+
+
+# ---------------------------------------------------------------------------
+# model_variant_format
+# ---------------------------------------------------------------------------
+
+def test_model_variant_format_faster_whisper():
+    assert model_manager.model_variant_format("faster-whisper") == "ctranslate2"
+
+
+def test_model_variant_format_whisper_cpp():
+    assert model_manager.model_variant_format("whisper.cpp") == "ggml"
+
+
+def test_model_variant_format_none():
+    assert model_manager.model_variant_format(None) == "ctranslate2"

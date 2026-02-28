@@ -78,6 +78,9 @@ python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 
+[tool.coverage.run]
+relative_files = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=src/whisper_local --cov-report=term-missing"
+addopts = "--cov=src/whisper_local --cov=scripts --cov-report=term-missing --cov-fail-under=65"

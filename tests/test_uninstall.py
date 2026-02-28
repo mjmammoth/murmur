@@ -204,3 +204,257 @@ def test_run_uninstall_collects_removal_failures(tmp_path: Path, monkeypatch: py
 
     assert result.failed_paths
     assert result.failed_paths[0].path == installer_home
+
+
+# ---------------------------------------------------------------------------
+# _remove_path edge cases
+# ---------------------------------------------------------------------------
+
+def test_remove_path_file(tmp_path: Path) -> None:
+    f = tmp_path / "testfile"
+    f.write_text("hello")
+    removed: list[Path] = []
+    failed: list[uninstall.RemovalFailure] = []
+    uninstall._remove_path(f, removed_paths=removed, failed_paths=failed)
+    assert f in removed
+    assert not f.exists()
+
+
+def test_remove_path_directory(tmp_path: Path) -> None:
+    d = tmp_path / "testdir"
+    d.mkdir()
+    (d / "child").write_text("x")
+    removed: list[Path] = []
+    failed: list[uninstall.RemovalFailure] = []
+    uninstall._remove_path(d, removed_paths=removed, failed_paths=failed)
+    assert d in removed
+
+
+def test_remove_path_nonexistent(tmp_path: Path) -> None:
+    missing = tmp_path / "missing"
+    removed: list[Path] = []
+    failed: list[uninstall.RemovalFailure] = []
+    uninstall._remove_path(missing, removed_paths=removed, failed_paths=failed)
+    assert len(removed) == 0
+    assert len(failed) == 0
+
+
+def test_remove_path_failure(tmp_path: Path) -> None:
+    f = tmp_path / "testfile"
+    f.write_text("hello")
+    removed: list[Path] = []
+    failed: list[uninstall.RemovalFailure] = []
+    with patch.object(Path, "unlink", side_effect=PermissionError("denied")):
+        uninstall._remove_path(f, removed_paths=removed, failed_paths=failed)
+    assert len(failed) == 1
+    assert failed[0].path == f
+
+
+# ---------------------------------------------------------------------------
+# _looks_like_installer_launcher
+# ---------------------------------------------------------------------------
+
+def test_looks_like_installer_launcher_symlink(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper.local"
+    installer_home.mkdir()
+    target = installer_home / "bin" / "whisper.local"
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/bin/bash")
+    link = tmp_path / "launcher"
+    link.symlink_to(target)
+    assert uninstall._looks_like_installer_launcher(link, installer_home) is True
+
+
+def test_looks_like_installer_launcher_script_content(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper.local"
+    installer_home.mkdir()
+    script = tmp_path / "launcher"
+    script.write_text(f"#!/bin/bash\n{installer_home}/venv/bin/python -m whisper_local.cli \"$@\"")
+    assert uninstall._looks_like_installer_launcher(script, installer_home) is True
+
+
+def test_looks_like_installer_launcher_not_file(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper.local"
+    installer_home.mkdir()
+    d = tmp_path / "notfile"
+    d.mkdir()
+    assert uninstall._looks_like_installer_launcher(d, installer_home) is False
+
+
+# ---------------------------------------------------------------------------
+# _path_is_within
+# ---------------------------------------------------------------------------
+
+def test_path_is_within_true(tmp_path: Path) -> None:
+    child = tmp_path / "a" / "b"
+    assert uninstall._path_is_within(child, tmp_path) is True
+
+
+def test_path_is_within_false(tmp_path: Path) -> None:
+    other = Path("/some/other/path")
+    assert uninstall._path_is_within(other, tmp_path) is False
+
+
+# ---------------------------------------------------------------------------
+# _guidance_command_for_channel
+# ---------------------------------------------------------------------------
+
+def test_guidance_command_homebrew() -> None:
+    assert "brew" in uninstall._guidance_command_for_channel("homebrew")
+
+
+def test_guidance_command_pip() -> None:
+    assert "pip" in uninstall._guidance_command_for_channel("pip")
+
+
+# ---------------------------------------------------------------------------
+# _path_exists_or_symlink
+# ---------------------------------------------------------------------------
+
+def test_path_exists_or_symlink_exists(tmp_path: Path) -> None:
+    f = tmp_path / "exists"
+    f.write_text("hi")
+    assert uninstall._path_exists_or_symlink(f) is True
+
+
+def test_path_exists_or_symlink_missing(tmp_path: Path) -> None:
+    assert uninstall._path_exists_or_symlink(tmp_path / "missing") is False
+
+
+def test_path_exists_or_symlink_broken_symlink(tmp_path: Path) -> None:
+    link = tmp_path / "broken_link"
+    link.symlink_to(tmp_path / "nonexistent_target")
+    assert uninstall._path_exists_or_symlink(link) is True
+
+
+# ---------------------------------------------------------------------------
+# run_uninstall — exception wrapping
+# ---------------------------------------------------------------------------
+
+def test_run_uninstall_wraps_unexpected_exception(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper.local"
+    venv_dir = installer_home / "venv" / "bin"
+    venv_dir.mkdir(parents=True)
+    python_exe = venv_dir / "python"
+    python_exe.write_text("#!/usr/bin/env python", encoding="utf-8")
+
+    _write_manifest(installer_home, [])
+
+    with patch(
+        "whisper_local.uninstall._run_installer_uninstall",
+        side_effect=RuntimeError("unexpected"),
+    ):
+        with pytest.raises(uninstall.UninstallError, match="Uninstall failed"):
+            uninstall.run_uninstall(
+                options=uninstall.UninstallOptions(),
+                installer_home=installer_home,
+                executable=str(python_exe),
+            )
+
+
+# ---------------------------------------------------------------------------
+# _run_installer_uninstall — service stop failure
+# ---------------------------------------------------------------------------
+
+def test_run_installer_uninstall_service_stop_failure(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper.local"
+    installer_home.mkdir()
+
+    manager = Mock()
+    manager.stop.side_effect = RuntimeError("stop failed")
+
+    result = uninstall._run_installer_uninstall(
+        options=uninstall.UninstallOptions(),
+        installer_home=installer_home,
+        service_manager=manager,
+    )
+    assert any("Failed to stop" in w for w in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# _run_installer_uninstall — model cache resolution error
+# ---------------------------------------------------------------------------
+
+def test_run_installer_uninstall_model_cache_error(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper.local"
+    installer_home.mkdir()
+
+    with patch("whisper_local.uninstall.whisper_local_model_cache_paths", side_effect=Exception("fail")):
+        result = uninstall._run_installer_uninstall(
+            options=uninstall.UninstallOptions(remove_model_cache=True),
+            installer_home=installer_home,
+            service_manager=Mock(),
+        )
+    assert any("Failed to resolve model cache" in w for w in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# _looks_like_installer_launcher — read error
+# ---------------------------------------------------------------------------
+
+def test_looks_like_installer_launcher_read_error(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper.local"
+    installer_home.mkdir()
+    f = tmp_path / "launcher"
+    f.write_text("content")
+    with patch.object(Path, "read_text", side_effect=PermissionError("denied")):
+        assert uninstall._looks_like_installer_launcher(f, installer_home) is False
+
+
+def test_run_uninstall_propagates_action_required(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper.local"
+    venv_dir = installer_home / "venv" / "bin"
+    venv_dir.mkdir(parents=True)
+    python_exe = venv_dir / "python"
+    python_exe.write_text("#!/usr/bin/env python", encoding="utf-8")
+
+    _write_manifest(installer_home, [])
+
+    with patch(
+        "whisper_local.uninstall._run_installer_uninstall",
+        side_effect=uninstall.UninstallActionRequired(channel="homebrew", command="brew uninstall"),
+    ):
+        with pytest.raises(uninstall.UninstallActionRequired):
+            uninstall.run_uninstall(
+                options=uninstall.UninstallOptions(),
+                installer_home=installer_home,
+                executable=str(python_exe),
+            )
+
+
+def test_run_uninstall_propagates_uninstall_error(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper.local"
+    venv_dir = installer_home / "venv" / "bin"
+    venv_dir.mkdir(parents=True)
+    python_exe = venv_dir / "python"
+    python_exe.write_text("#!/usr/bin/env python", encoding="utf-8")
+
+    _write_manifest(installer_home, [])
+
+    with patch(
+        "whisper_local.uninstall._run_installer_uninstall",
+        side_effect=uninstall.UninstallError("specific error"),
+    ):
+        with pytest.raises(uninstall.UninstallError, match="specific error"):
+            uninstall.run_uninstall(
+                options=uninstall.UninstallOptions(),
+                installer_home=installer_home,
+                executable=str(python_exe),
+            )
+
+
+# ---------------------------------------------------------------------------
+# _looks_like_installer_launcher — symlink resolve exception
+# ---------------------------------------------------------------------------
+
+def test_looks_like_installer_launcher_symlink_resolve_error(tmp_path: Path) -> None:
+    installer_home = tmp_path / "whisper.local"
+    installer_home.mkdir()
+    link = tmp_path / "link"
+    target = installer_home / "bin" / "whisper.local"
+    target.parent.mkdir(parents=True)
+    target.write_text("x")
+    link.symlink_to(target)
+
+    with patch.object(Path, "resolve", side_effect=OSError("resolve failed")):
+        assert uninstall._looks_like_installer_launcher(link, installer_home) is False

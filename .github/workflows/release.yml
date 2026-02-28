@@ -15,7 +15,7 @@ jobs:
       is_prerelease: ${{ steps.classify.outputs.is_prerelease }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Classify release tag
         id: classify
@@ -26,10 +26,10 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.12"
 
@@ -40,7 +40,7 @@ jobs:
         run: python -m build
 
       - name: Upload Python dist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: python-dist
           path: dist/*
@@ -50,10 +50,10 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
         with:
           bun-version: "1.2.21"
 
@@ -71,7 +71,7 @@ jobs:
         working-directory: tui
 
       - name: Upload TUI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: tui-dist
           path: dist/tui/*
@@ -81,13 +81,13 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Download Python dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
           name: python-dist
           path: release-assets/python-dist
 
       - name: Download TUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
           name: tui-dist
           path: release-assets/tui-dist
@@ -105,34 +105,58 @@ jobs:
             shasum -a 256 "${file}" >> checksums.txt
           done <<< "${FILES}"
 
+      - name: Install Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@28d71544de8eaf1b958d335707167c5f783590ad
+
+      - name: Check Syft version
+        run: ${{ steps.syft.outputs.cmd }} version
+
+      - name: Generate SBOM (SPDX JSON)
+        run: ${{ steps.syft.outputs.cmd }} dir:release-assets -o spdx-json=release-assets/sbom.spdx.json
+
       - name: Upload checksums artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: checksums
           path: release-assets/checksums.txt
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: sbom
+          path: release-assets/sbom.spdx.json
 
   publish_release:
     needs: [checksum_assets, classify_release]
     runs-on: macos-14
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Download Python dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
           name: python-dist
           path: release-assets/python-dist
 
       - name: Download TUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
           name: tui-dist
           path: release-assets/tui-dist
 
       - name: Download checksums artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
           name: checksums
+          path: release-assets
+
+      - name: Download SBOM artifact
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
+        with:
+          name: sbom
           path: release-assets
 
       - name: Sign checksums manifest
@@ -180,8 +204,18 @@ jobs:
 
           gpg --batch --verify release-assets/checksums.txt.asc release-assets/checksums.txt
 
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32
+        with:
+          subject-path: |
+            release-assets/python-dist/*
+            release-assets/tui-dist/*
+            release-assets/checksums.txt
+            release-assets/checksums.txt.asc
+            release-assets/sbom.spdx.json
+
       - name: Publish GitHub release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           prerelease: ${{ needs.classify_release.outputs.is_prerelease == 'true' }}
           generate_release_notes: true
@@ -191,6 +225,7 @@ jobs:
             release-assets/tui-dist/manifest.json
             release-assets/checksums.txt
             release-assets/checksums.txt.asc
+            release-assets/sbom.spdx.json
 
   update_tap_formula:
     needs: [publish_release, classify_release]
@@ -199,27 +234,27 @@ jobs:
       contents: read
     steps:
       - name: Checkout app repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.12"
 
       - name: Download Python dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
           name: python-dist
           path: release-assets/python-dist
 
       - name: Download TUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
           name: tui-dist
           path: release-assets/tui-dist
 
       - name: Download checksums artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
           name: checksums
           path: release-assets
@@ -236,7 +271,7 @@ jobs:
           fi
 
       - name: Checkout homebrew tap repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           repository: ${{ steps.tap_repo.outputs.repository }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
