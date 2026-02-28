@@ -76,15 +76,17 @@ def test_run_pip_audit_script_reads_ignore_file_lines(run_pip_audit_script: Path
 def test_run_pip_audit_script_strips_comments(run_pip_audit_script: Path) -> None:
     """Test that script strips comments from ignore file."""
     content = run_pip_audit_script.read_text(encoding="utf-8")
-    # Should handle lines starting with #
-    assert "#" in content
+    # Should strip trailing comments using bash parameter expansion
+    assert '${line%%#*}' in content
 
 
 def test_run_pip_audit_script_handles_empty_lines(run_pip_audit_script: Path) -> None:
     """Test that script handles empty lines in ignore file."""
     content = run_pip_audit_script.read_text(encoding="utf-8")
-    # Should check for non-empty lines
-    assert "-n" in content or "xargs" in content
+    # Should guard against empty lines with a non-empty test before appending
+    assert '[[ -n "${line}" ]]' in content
+    # Should trim whitespace from lines (via xargs)
+    assert "xargs" in content
 
 
 def test_run_pip_audit_script_respects_python_env_var(run_pip_audit_script: Path) -> None:

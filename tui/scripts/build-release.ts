@@ -8,6 +8,7 @@ import solidTransformPlugin from "@opentui/solid/bun-plugin";
 type PackageJson = {
   version: string;
   dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
 };
 
 type BuildTarget = {
@@ -239,7 +240,9 @@ async function main(): Promise<void> {
   const targets = resolveTargets(parseRequestedTargets());
   const distRoot = resolve(repoRoot, "dist", "tui");
   mkdirSync(distRoot, { recursive: true });
-  const coreVersionRange = packageJson.dependencies?.["@opentui/core"];
+  const coreVersionRange =
+    packageJson.dependencies?.["@opentui/core"] ??
+    packageJson.optionalDependencies?.["@opentui/core"];
   if (!coreVersionRange) {
     throw new Error("package.json is missing dependency '@opentui/core'");
   }
@@ -314,6 +317,16 @@ async function main(): Promise<void> {
           env: { ...process.env, BUN_CONFIG_FILE: devNull },
         },
       );
+      if (compileResult.error) {
+        const errorCode = (compileResult.error as NodeJS.ErrnoException).code;
+        const codeSuffix = errorCode ? ` (${String(errorCode)})` : "";
+        throw new Error(
+          `Compile failed to start for ${target.id}: bun build --compile\n${compileResult.error.message}${codeSuffix}` +
+            (compileResult.stderr || compileResult.stdout
+              ? `\n${compileResult.stderr || compileResult.stdout}`
+              : ""),
+        );
+      }
       if (compileResult.status !== 0) {
         throw new Error(
           `Compile failed for ${target.id}: bun build --compile\n${compileResult.stderr || compileResult.stdout}`,
@@ -341,7 +354,7 @@ async function main(): Promise<void> {
         unlinkSync(bundlePath);
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-          throw err;
+          console.warn(`Warning: failed to clean up bundle at ${bundlePath}: ${err}`);
         }
       }
     }

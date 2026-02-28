@@ -821,13 +821,7 @@ export function BackendContextProvider(props: {
   function onRuntimeSwitchRequired(
     handler: (payload: { runtime: RuntimeName; model: string; format: string }) => void,
   ) {
-    runtimeSwitchRequiredHandlers.push(handler);
-    return () => {
-      const index = runtimeSwitchRequiredHandlers.indexOf(handler);
-      if (index >= 0) {
-        runtimeSwitchRequiredHandlers.splice(index, 1);
-      }
-    };
+    return registerHandler(runtimeSwitchRequiredHandlers, handler);
   }
 
   onMount(() => {

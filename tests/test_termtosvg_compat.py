@@ -83,25 +83,22 @@ def test_patch_pyte_report_device_status_when_private_param_exists(module) -> No
 
 def test_patch_pyte_report_device_status_applies_wrapper(module) -> None:
     """Test that patch wrapper logic strips 'private' parameter."""
-    # Test the wrapper logic directly by simulating what patch_pyte_report_device_status does
     original_called_with = []
 
-    def original(self, *args, **kwargs):
+    def original_report(self, *args, **kwargs):
         original_called_with.append((args, kwargs))
         return "original_result"
 
-    # Create the patched wrapper (same logic as in patch_pyte_report_device_status)
-    def patched(self, *args, **kwargs):
-        kwargs.pop("private", None)
-        return original(self, *args, **kwargs)
+    mock_screens = MagicMock()
+    mock_screen_cls = type("Screen", (), {"report_device_status": original_report})
+    mock_screens.Screen = mock_screen_cls
 
-    # Test that private is stripped
-    class MockSelf:
-        pass
+    with patch.dict(sys.modules, {"pyte.screens": mock_screens}):
+        module.patch_pyte_report_device_status()
 
-    result = patched(MockSelf(), arg1="value", private=True, arg2="value2")
+    instance = mock_screen_cls()
+    result = instance.report_device_status(arg1="value", private=True, arg2="value2")
 
-    # Check private was stripped from kwargs
     assert len(original_called_with) == 1
     args, kwargs = original_called_with[0]
     assert "private" not in kwargs
@@ -112,23 +109,21 @@ def test_patch_pyte_report_device_status_applies_wrapper(module) -> None:
 
 def test_patch_pyte_report_device_status_preserves_args(module) -> None:
     """Test that patched wrapper preserves positional arguments."""
-    # Test the wrapper logic directly by simulating what patch_pyte_report_device_status does
     captured_calls = []
 
-    def original(self, *args, **kwargs):
+    def original_report(self, *args, **kwargs):
         captured_calls.append({"args": args, "kwargs": kwargs})
         return "result"
 
-    # Create the patched wrapper (same logic as in patch_pyte_report_device_status)
-    def patched(self, *args, **kwargs):
-        kwargs.pop("private", None)
-        return original(self, *args, **kwargs)
+    mock_screens = MagicMock()
+    mock_screen_cls = type("Screen", (), {"report_device_status": original_report})
+    mock_screens.Screen = mock_screen_cls
 
-    class MockSelf:
-        pass
+    with patch.dict(sys.modules, {"pyte.screens": mock_screens}):
+        module.patch_pyte_report_device_status()
 
-    # Call with positional args and kwargs
-    patched(MockSelf(), "pos1", "pos2", kwarg1="val1", private=True)
+    instance = mock_screen_cls()
+    instance.report_device_status("pos1", "pos2", kwarg1="val1", private=True)
 
     assert len(captured_calls) == 1
     assert captured_calls[0]["args"] == ("pos1", "pos2")
