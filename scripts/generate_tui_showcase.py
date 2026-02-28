@@ -26,7 +26,7 @@ THEME_CAPTURE_PORTS = {
 }
 # The mock backend emits exactly four demo transcript entries.
 MIN_TRANSCRIPT_ITEMS = 4
-CAPTURE_GEOMETRY = "120x32"
+CAPTURE_GEOMETRY = "100x28"
 DEFAULT_CAPTURE_SECONDS = 4.0
 README_START = "<!-- tui-showcase:start -->"
 README_END = "<!-- tui-showcase:end -->"
