@@ -288,17 +288,21 @@ jobs:
           RELEASE_KIND: ${{ needs.classify_release.outputs.release_kind }}
         run: |
           if [ "${RELEASE_KIND}" = "prerelease" ]; then
-            echo "formula_path=Formula/whisper-local-preview.rb" >> "${GITHUB_OUTPUT}"
-            echo "alias_name=whisper.local-preview" >> "${GITHUB_OUTPUT}"
-            echo "alias_target=../Formula/whisper-local-preview.rb" >> "${GITHUB_OUTPUT}"
+            echo "formula_path=Formula/whisper.local-preview.rb" >> "${GITHUB_OUTPUT}"
+            echo "alias_name=whisper-local-preview" >> "${GITHUB_OUTPUT}"
+            echo "alias_target=../Formula/whisper.local-preview.rb" >> "${GITHUB_OUTPUT}"
+            echo "legacy_formula_path=Formula/whisper-local-preview.rb" >> "${GITHUB_OUTPUT}"
+            echo "legacy_alias_name=whisper.local-preview" >> "${GITHUB_OUTPUT}"
             echo "template_path=scripts/templates/whisper-local-preview.rb.tpl" >> "${GITHUB_OUTPUT}"
-            echo "commit_label=whisper-local-preview" >> "${GITHUB_OUTPUT}"
+            echo "commit_label=whisper.local-preview" >> "${GITHUB_OUTPUT}"
           else
-            echo "formula_path=Formula/whisper-local.rb" >> "${GITHUB_OUTPUT}"
-            echo "alias_name=whisper.local" >> "${GITHUB_OUTPUT}"
-            echo "alias_target=../Formula/whisper-local.rb" >> "${GITHUB_OUTPUT}"
+            echo "formula_path=Formula/whisper.local.rb" >> "${GITHUB_OUTPUT}"
+            echo "alias_name=whisper-local" >> "${GITHUB_OUTPUT}"
+            echo "alias_target=../Formula/whisper.local.rb" >> "${GITHUB_OUTPUT}"
+            echo "legacy_formula_path=Formula/whisper-local.rb" >> "${GITHUB_OUTPUT}"
+            echo "legacy_alias_name=whisper.local" >> "${GITHUB_OUTPUT}"
             echo "template_path=scripts/templates/whisper-local.rb.tpl" >> "${GITHUB_OUTPUT}"
-            echo "commit_label=whisper-local" >> "${GITHUB_OUTPUT}"
+            echo "commit_label=whisper.local" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Render formula from release assets
@@ -358,7 +362,10 @@ jobs:
         env:
           ALIAS_NAME: ${{ steps.tap_target.outputs.alias_name }}
           ALIAS_TARGET: ${{ steps.tap_target.outputs.alias_target }}
+          LEGACY_FORMULA_PATH: ${{ steps.tap_target.outputs.legacy_formula_path }}
+          LEGACY_ALIAS_NAME: ${{ steps.tap_target.outputs.legacy_alias_name }}
         run: |
+          rm -f "homebrew-tap/${LEGACY_FORMULA_PATH}" "homebrew-tap/Aliases/${LEGACY_ALIAS_NAME}"
           mkdir -p homebrew-tap/Aliases
           ln -sfn "${ALIAS_TARGET}" "homebrew-tap/Aliases/${ALIAS_NAME}"
 

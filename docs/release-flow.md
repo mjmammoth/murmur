@@ -12,9 +12,9 @@ flowchart TD
   B -->|post| D["GitHub Release prerelease=false"]
   B -->|prerelease (a/b/rc/dev)| E["GitHub Release prerelease=true"]
 
-  C --> F["Update Homebrew formula whisper-local"]
+  C --> F["Update Homebrew formula whisper.local"]
   D --> F
-  E --> G["Update Homebrew formula whisper-local-preview"]
+  E --> G["Update Homebrew formula whisper.local-preview"]
 
   C --> H["Default install/upgrade latest -> stable"]
   D --> H
@@ -50,16 +50,17 @@ Rejected examples:
 
 ## Homebrew Channels
 
-- Stable + post tags update `Formula/whisper-local.rb`.
-- Pre-release tags update `Formula/whisper-local-preview.rb`.
+- Stable + post tags update `Formula/whisper.local.rb`.
+- Pre-release tags update `Formula/whisper.local-preview.rb`.
 - Preview formula conflicts with stable formula because both install the same executables.
+- Legacy dashed names are maintained as aliases (`whisper-local`, `whisper-local-preview`).
 
 Install commands:
 
 ```bash
 brew tap mjmammoth/tap
-brew install whisper-local
-brew install whisper-local-preview
+brew install whisper.local
+brew install whisper.local-preview
 ```
 
 ## Installer and Upgrade Defaults
