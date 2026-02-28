@@ -1,8 +1,8 @@
-<p align="center">
-  <img align="center" src="docs/assets/banner.png"/>
-  <h5 align="center">Press a key. Speak. Text appears in your focused app.</h5>
-  <p align="center">Local, private voice transcription — nothing leaves your machine.</p>
-</p>
+<div align="center">
+  <img src="docs/assets/banner.png" alt="Catch banner" />
+  <h3>Press a key. Speak. Text appears.</h3>
+  <p>Private by default. Fully local. Works anywhere you can type.</p>
+</div>
 
 <p align="center">
   <a href="https://github.com/mjmammoth/whisper.local/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/mjmammoth/whisper.local/ci.yml?style=for-the-badge&labelColor=171717&branch=main" alt="CI"></a>
@@ -16,7 +16,9 @@
 ![whisper.local TUI home across themes](docs/assets/tui-home-themes.png)
 <!-- tui-showcase:end -->
 
-## How it works
+---
+
+### How it works
 
 1. **Hit F3** (or your custom hotkey) from any app — system-wide, no focus switching
 2. **Speak** — audio is captured, noise-suppressed, and transcribed locally by Whisper
@@ -25,9 +27,9 @@
 Everything runs on your machine. No cloud API, no network calls, no data collection. Your voice stays on your machine, always.
 
 > [!IMPORTANT]
-> This code in this repo has mostly been created by AI-assisted workflows
+> The code in this repo has mostly been created by AI-assisted workflows
 
-## Features
+### Features
 
 - **100% local & private** — no cloud, no telemetry, no network calls
 - **Global hotkey** (push-to-talk or toggle) — works system-wide from any app
@@ -41,58 +43,37 @@ Everything runs on your machine. No cloud API, no network calls, no data collect
 - Optional **Noise suppression** (RNNoise) and **voice activity detection** (VAD)
 - **File transcription** — drag-and-drop or paste audio file paths
 
-## Installation
+### Installation
 
-### macOS / Linux (Homebrew)
-
-```bash
-brew tap mjmammoth/tap && brew install whisper-local
-```
-
-### macOS / Linux (script)
+#### Linux / MacOS
 
 ```bash
+# YOLO
 curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | bash
+# or
+brew install mjmammoth/tap/whisper.local
 ```
 
-### Windows
+#### Windows
 
 Download the latest `whisper-local-tui-windows-x64.tar.gz` from [Releases](https://github.com/mjmammoth/whisper.local/releases/latest), extract, and run.
+
+#### Upgrade
+
+```bash
+whisper.local upgrade # upgrade to latest version
+```
+```
+```
 
 ## Quick Start
 
 ```bash
-whisper.local start   # start background service
-whisper.local tui     # open terminal UI
+whisper.local tui     # guided onboarding, starts background service and opens terminal UI - useful for first-time configuration
+whisper.local start   # start background service only
 ```
 
 Press **F3** from any app to record. Configure hotkey, models, and settings from the TUI.
-
-## Commands
-
-```bash
-whisper.local start       # start background service
-whisper.local stop        # stop background service
-whisper.local status      # check service state
-whisper.local tui         # open terminal UI
-whisper.local upgrade     # upgrade to latest version
-whisper.local uninstall   # remove whisper.local
-whisper.local --version   # print version
-```
-
-## TUI Key Bindings
-
-| Key | Action |
-|-----|--------|
-| `Enter` | Copy selected transcript |
-| `o` | Toggle hotkey mode (push-to-talk / toggle) |
-| `h` | Configure hotkey |
-| `m` | Model manager |
-| `s` | Settings |
-| `t` | Theme picker |
-| `q` | Quit |
-
-Drag-and-drop or paste an audio file path to transcribe files.
 
 ## Troubleshooting
 
