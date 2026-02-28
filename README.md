@@ -41,197 +41,69 @@ Everything runs on your machine. No cloud API, no network calls, no data collect
 - Optional **Noise suppression** (RNNoise) and **voice activity detection** (VAD)
 - **File transcription** — drag-and-drop or paste audio file paths
 
-## Get Started
+## Installation
 
-### Install via `curl | bash` (macOS + Linux)
+### macOS / Linux (Homebrew)
+
+```bash
+brew tap mjmammoth/tap && brew install whisper-local
+```
+
+### macOS / Linux (script)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | bash
 ```
 
-Installer verification and overrides:
-- By default, the installer verifies release checksums and GPG signatures before install/extract.
-- Disable verification only when necessary:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | bash -s -- --no-verify
-curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | NO_VERIFY=true bash
-curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | WHISPER_LOCAL_NO_VERIFY=1 bash
-```
-
-- Override signing verification inputs when needed:
-  - `WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT` (defaults to release signing fingerprint)
-  - `WHISPER_LOCAL_SIGNING_KEY_URL` (defaults to `https://github.com/<repo-owner>.gpg`)
-- Override runtime launcher paths if your install layout is custom:
-  - `WHISPER_LOCAL_HOME`
-  - `WHISPER_VENV_DIR`
-  - `WHISPER_LOCAL_TUI_BIN`
-
-### Homebrew (macOS Intel/Apple Silicon + Linux x64/arm64)
-
-```bash
-brew tap mjmammoth/tap
-brew install whisper-local
-```
-
-### RNNoise (optional)
-
-```bash
-brew install --cask rnnoise
-```
-
-### Service-first commands
-
-```bash
-whisper.local                 # show help
-whisper.local start           # start/ensure background service
-whisper.local status          # check service state
-whisper.local tui             # attach TUI to running service
-whisper.local trigger toggle  # hotkey fallback trigger command
-whisper.local trigger start --timeout-seconds 5
-whisper.local upgrade         # upgrade installer-managed install to latest
-whisper.local uninstall       # uninstall installer-managed install
-whisper.local --version       # print installed version
-whisper.local version         # subcommand alias
-whisper.local stop            # stop background service
-```
-
-### Hotkey
-
-Default hotkey is `f3`. Configure it through the TUI (by pressing 'h') or in the config file:
-`~/.config/whisper.local/config.toml`
-Supported keys: letters, digits, space, return, tab, escape, and function keys `f1`-`f12`.
-Transcript history retention is configured with `[history] max_entries` (default `5000`).
-
-### macOS permissions
-
-Global hotkeys require **Input Monitoring** permission for your terminal or app host.
-Auto-paste uses System Events and requires the **Accessibility** permission for the terminal or app running whisper.local.
-
-### Wayland guidance
-
-Global key swallow is not guaranteed on Wayland. Use a desktop shortcut that runs:
-
-```bash
-whisper.local trigger toggle
-```
-
-### Native hotkey support
-
-- macOS: native capture + swallow
-- Linux X11: native capture + swallow (best-effort), requires `python-xlib`
-- Linux Wayland: no guaranteed swallow; use `whisper.local trigger toggle` fallback
-- Windows: native capture + swallow (best-effort), requires `pywin32`
-
 ### Windows
 
-Windows builds are published as release artifacts (`whisper-local-tui-windows-x64.tar.gz`) with a documented manual install path.
+Download the latest `whisper-local-tui-windows-x64.tar.gz` from [Releases](https://github.com/mjmammoth/whisper.local/releases/latest), extract, and run.
 
-### Upgrade
-
-Installer-managed installs support in-place upgrades:
+## Quick Start
 
 ```bash
-whisper.local upgrade
-whisper.local upgrade --version v0.2.0
+whisper.local start   # start background service
+whisper.local tui     # open terminal UI
 ```
 
-Behavior:
-- If the background service is running, upgrade stops it and restarts it automatically on success.
-- Upgrade verifies release signatures and checksums before install/extract; verification failures abort without mutating installed bits.
-- Homebrew installs receive: `brew update && brew upgrade whisper-local`.
-- pip installs receive: `python -m pip install -U whisper-local`.
+Press **F3** from any app to record. Configure hotkey, models, and settings from the TUI.
 
-### Uninstall
-
-Installer-managed installs support first-class uninstall:
+## Commands
 
 ```bash
-whisper.local uninstall
-whisper.local uninstall --yes
-whisper.local uninstall --yes --all-data
+whisper.local start       # start background service
+whisper.local stop        # stop background service
+whisper.local status      # check service state
+whisper.local tui         # open terminal UI
+whisper.local upgrade     # upgrade to latest version
+whisper.local uninstall   # remove whisper.local
+whisper.local --version   # print version
 ```
 
-Behavior:
-- Default scope removes installer runtime/launchers only.
-- `--all-data` also removes `~/.local/state/whisper.local`, `~/.config/whisper.local`, and whisper.local model cache directories under `~/.cache/huggingface/hub`.
-- Homebrew installs receive: `brew uninstall whisper-local`.
-- pip installs receive: `python -m pip uninstall whisper-local`.
+## TUI Key Bindings
 
-### Release channels
+| Key | Action |
+|-----|--------|
+| `Enter` | Copy selected transcript |
+| `o` | Toggle hotkey mode (push-to-talk / toggle) |
+| `h` | Configure hotkey |
+| `m` | Model manager |
+| `s` | Settings |
+| `t` | Theme picker |
+| `q` | Quit |
 
-- Stable/default installs track the latest non-prerelease GitHub release.
-- Pre-release builds are available via explicit tags (for example `v1.2.4rc1`) and Homebrew formula `whisper-local-preview`.
-- Release/versioning policy is documented in [`docs/release-flow.md`](docs/release-flow.md).
-
-### Troubleshooting hotkey deps
-
-If Linux X11 hotkey support is unavailable:
-
-```bash
-python -m pip install python-xlib
-```
-
-If Windows hotkey support is unavailable:
-
-```bash
-python -m pip install pywin32
-```
-
-
-### Model downloading
-
-Model files are runtime-specific, and so changing runtimes necessitates downloading models again.
-- `faster-whisper` uses CTranslate2 artifacts
-- `whisper.cpp` uses `ggml-*.bin` artifacts
-
-You can also prefetch from CLI:
-
-```bash
-whisper.local models pull small
-whisper.local models pull small --runtime whisper.cpp
-whisper.local models select small
-```
-
-## Runtime device
-
-- `faster-whisper`: CPU/CUDA (mps falls back to CPU)
-- `whisper.cpp`: CPU + Metal (`mps`) when available
-
-## TUI key bindings
-Key bindings are visualised in the TUI by highlighted letters in function words.
-
-- `enter`: copy selected transcript
-- `o`: toggle hotkey mode (ptt/toggle)
-- `h`: hotkey modal
-- `m`: model manager
-- `s`: interactive settings menu
-- `t`: theme picker
-- drag/drop (paste path): transcribe audio file(s)
-- `q`: quit
+Drag-and-drop or paste an audio file path to transcribe files.
 
 ## Troubleshooting
 
-### MacOS
+### macOS permissions
 
-#### Input Monitoring permission missing (hotkey does nothing)
+Global hotkeys require **Input Monitoring** and auto-paste requires **Accessibility** permission for your terminal. Grant both in `System Settings` → `Privacy & Security`, then restart whisper.local.
 
-Global hotkeys require **Input Monitoring** permission for your terminal or app host.
+### Common issues
 
-1. Open `System Settings` -> `Privacy & Security` -> `Input Monitoring`
-2. Enable your terminal or app host
-3. Restart the app after granting permission
-
-#### Accessibility permission missing (auto-paste fails)
-
-Auto-paste uses System Events and requires **Accessibility** permission.
-
-1. Open `System Settings` -> `Privacy & Security` -> `Accessibility`
-2. Enable your terminal or app host
-3. Restart whisper.local
-
-#### Common errors
-
-- `No model selected` or `model not found`: run `whisper.local models pull small` then `whisper.local models select small`
-- `PortAudio`/input device errors: check your selected microphone and macOS microphone permissions
-- Slow first transcription: expected on first run while model files are downloaded and initialized
+- **Hotkey does nothing** — grant Input Monitoring permission (see above)
+- **Auto-paste fails** — grant Accessibility permission (see above)
+- **No model selected** — run `whisper.local models pull small && whisper.local models select small`
+- **PortAudio / input device errors** — check microphone selection and macOS microphone permissions
+- **Wayland** — global key swallow isn't guaranteed; bind `whisper.local trigger toggle` to a desktop shortcut instead
