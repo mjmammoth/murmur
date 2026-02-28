@@ -134,9 +134,7 @@ def test_write_github_outputs_appends_to_file(module, tmp_path) -> None:
     output_file = tmp_path / "github_output.txt"
     output_file.write_text("existing=content\n", encoding="utf-8")
 
-    from scripts.release_tag import ReleaseTagInfo
-
-    info = ReleaseTagInfo(
+    info = module.ReleaseTagInfo(
         tag="v1.2.3",
         version_no_v="1.2.3",
         release_kind="stable",
@@ -157,9 +155,7 @@ def test_write_github_outputs_prerelease_flag(module, tmp_path) -> None:
     """Test that prerelease flag is correctly written as 'true'."""
     output_file = tmp_path / "github_output.txt"
 
-    from scripts.release_tag import ReleaseTagInfo
-
-    info = ReleaseTagInfo(
+    info = module.ReleaseTagInfo(
         tag="v1.2.3rc1",
         version_no_v="1.2.3rc1",
         release_kind="prerelease",
