@@ -93,7 +93,9 @@ def test_patch_pyte_report_device_status_applies_wrapper(module) -> None:
     mock_screen_cls = type("Screen", (), {"report_device_status": original_report})
     mock_screens.Screen = mock_screen_cls
 
-    with patch.dict(sys.modules, {"pyte.screens": mock_screens}):
+    mock_pyte = MagicMock()
+    mock_pyte.screens = mock_screens
+    with patch.dict(sys.modules, {"pyte": mock_pyte, "pyte.screens": mock_screens}):
         module.patch_pyte_report_device_status()
 
     instance = mock_screen_cls()
@@ -119,7 +121,9 @@ def test_patch_pyte_report_device_status_preserves_args(module) -> None:
     mock_screen_cls = type("Screen", (), {"report_device_status": original_report})
     mock_screens.Screen = mock_screen_cls
 
-    with patch.dict(sys.modules, {"pyte.screens": mock_screens}):
+    mock_pyte = MagicMock()
+    mock_pyte.screens = mock_screens
+    with patch.dict(sys.modules, {"pyte": mock_pyte, "pyte.screens": mock_screens}):
         module.patch_pyte_report_device_status()
 
     instance = mock_screen_cls()
