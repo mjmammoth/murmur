@@ -678,14 +678,16 @@ export function SettingsSelectModal(): JSX.Element {
                       <text>
                         <span
                           style={{
-                            fg: isCurrent()
-                              ? option.disabled
-                                ? colors().warning
-                                : colors().success
-                              : colors().textDim,
+                            fg: (() => {
+                              if (!isCurrent()) return colors().textDim;
+                              return option.disabled ? colors().warning : colors().success;
+                            })(),
                           }}
                         >
-                          {isCurrent() ? "current" : option.disabled ? "disabled" : ""}
+                          {(() => {
+                            if (isCurrent()) return "current";
+                            return option.disabled ? "disabled" : "";
+                          })()}
                         </span>
                       </text>
                     </box>

@@ -27,7 +27,7 @@ import { removeHotkeys } from "./model-manager-config";
  * @param onClick - Optional callback invoked when the hint is clicked.
  * @returns A JSX element containing a colored key badge and its label laid out horizontally.
  */
-function CommandHint(props: { keys: string; label: string; onClick?: () => void }): JSX.Element {
+function CommandHint(props: { readonly keys: string; readonly label: string; readonly onClick?: () => void }): JSX.Element {
   const { colors } = useTheme();
 
   return (
@@ -152,7 +152,7 @@ export function ModelManager(): JSX.Element {
 
   const activePullingModel = createMemo(() => {
     const op = backend.activeModelOp();
-    if (!op || op.type !== "pulling") return null;
+    if (op?.type !== "pulling") return null;
     return op;
   });
 

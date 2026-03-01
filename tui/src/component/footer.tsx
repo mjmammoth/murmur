@@ -7,28 +7,28 @@ import { useBackend } from "../context/backend";
 import { Scanner } from "./spinner";
 
 interface KeyHintProps {
-  keyChar: string;
-  word: string;
-  onClick?: () => void;
+  readonly keyChar: string;
+  readonly word: string;
+  readonly onClick?: () => void;
 }
 
 interface PairHintProps {
-  label: string;
-  value: string;
-  keyChar?: string;
-  highlightColor?: string;
-  onClick?: () => void;
+  readonly label: string;
+  readonly value: string;
+  readonly keyChar?: string;
+  readonly highlightColor?: string;
+  readonly onClick?: () => void;
 }
 
 interface FooterProps {
-  availableWidth?: number;
-  onStatusClick?: () => void;
-  onModelClick?: () => void;
-  onHotkeyClick?: () => void;
-  onLogsClick?: () => void;
-  onSettingsClick?: () => void;
-  onThemeClick?: () => void;
-  onHelpClick?: () => void;
+  readonly availableWidth?: number;
+  readonly onStatusClick?: () => void;
+  readonly onModelClick?: () => void;
+  readonly onHotkeyClick?: () => void;
+  readonly onLogsClick?: () => void;
+  readonly onSettingsClick?: () => void;
+  readonly onThemeClick?: () => void;
+  readonly onHelpClick?: () => void;
 }
 
 /**
@@ -52,7 +52,7 @@ function KeyHint(props: KeyHintProps): JSX.Element {
     <box onMouseUp={() => props.onClick?.()}>
       <text>
         <span style={{ fg: colors().textMuted }}>{before}</span>
-        {key === null ? null : <span style={{ fg: colors().secondary, bold: true }}>{key}</span>}
+        {key !== null && <span style={{ fg: colors().secondary, bold: true }}>{key}</span>}
         <span style={{ fg: colors().textMuted }}>{after}</span>
       </text>
     </box>

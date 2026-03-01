@@ -28,6 +28,15 @@ import { setSigintHandler } from "../util/interrupt";
 
 
 /**
+ * Prevents mouse events inside a modal from bubbling to parent elements.
+ *
+ * @param event - The mouse event to stop from propagating
+ */
+function stopModalMouseBubble(event: MouseEvent) {
+  event.stopPropagation();
+}
+
+/**
  * Render the application's Home screen and manage its UI state, global input handlers, backend interactions, and modal overlays.
  *
  * Renders the header, transcript list, footer, optional logs panel, toast container, and any active modal dialogs while coordinating keyboard shortcuts, paste handling, and backend requests.
@@ -314,18 +323,6 @@ export function Home(): JSX.Element {
     if (event.button !== 0) return;
     event.preventDefault();
     dialog.requestDismiss();
-  }
-
-  /**
-   * Prevents mouse events inside a modal from bubbling to parent elements.
-   *
-   * Stops propagation of the provided mouse event so clicks within modal content
-   * do not trigger backdrop handlers (for example, dialog dismissal).
-   *
-   * @param event - The mouse event to stop from propagating
-   */
-  function stopModalMouseBubble(event: MouseEvent) {
-    event.stopPropagation();
   }
 
   return (

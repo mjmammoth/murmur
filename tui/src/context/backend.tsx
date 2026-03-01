@@ -82,6 +82,36 @@ export { useBackend };
 
 const RECONNECT_DELAY = 2000;
 
+function registerHandler<T>(handlers: T[], handler: T): () => void {
+  handlers.push(handler);
+  return () => {
+    const index = handlers.indexOf(handler);
+    if (index >= 0) {
+      handlers.splice(index, 1);
+    }
+  };
+}
+
+function emitHandlers<TArgs extends unknown[]>(
+  handlers: Array<(...args: TArgs) => void>,
+  ...args: TArgs
+) {
+  for (const handler of handlers) {
+    handler(...args);
+  }
+}
+
+/**
+ * Create a unique queue key for a model within a specific runtime.
+ *
+ * @param name - The model's name
+ * @param runtime - The runtime identifier
+ * @returns The composed key in the format `runtime:name`
+ */
+function modelPullKey(name: string, runtime: RuntimeName) {
+  return `${runtime}:${name}`;
+}
+
 /**
  * Provide a runtime WebSocket context and manage connection, server-derived state, and related actions for child components.
  *
@@ -136,36 +166,6 @@ export function BackendContextProvider(props: {
   const runtimeSwitchRequiredHandlers: (
     (payload: { runtime: RuntimeName; model: string; format: string }) => void
   )[] = [];
-
-  function registerHandler<T>(handlers: T[], handler: T): () => void {
-    handlers.push(handler);
-    return () => {
-      const index = handlers.indexOf(handler);
-      if (index >= 0) {
-        handlers.splice(index, 1);
-      }
-    };
-  }
-
-  function emitHandlers<TArgs extends unknown[]>(
-    handlers: Array<(...args: TArgs) => void>,
-    ...args: TArgs
-  ) {
-    for (const handler of handlers) {
-      handler(...args);
-    }
-  }
-
-  /**
-   * Create a unique queue key for a model within a specific runtime.
-   *
-   * @param name - The model's name
-   * @param runtime - The runtime identifier
-   * @returns The composed key in the format `runtime:name`
-   */
-  function modelPullKey(name: string, runtime: RuntimeName) {
-    return `${runtime}:${name}`;
-  }
 
   /**
    * Adds a model pull (for a specific runtime) to the pending download queue if it is not already queued.
@@ -394,7 +394,7 @@ export function BackendContextProvider(props: {
           }
         } else if (modelOp?.type === "removing") {
           const removed = message.models.find((model) => model.name === modelOp.model);
-          if (!removed || !removed.variants?.[modelOp.runtime]?.installed) {
+          if (!removed?.variants?.[modelOp.runtime]?.installed) {
             setActiveModelOp(null);
             setDownloadProgress(null);
           }

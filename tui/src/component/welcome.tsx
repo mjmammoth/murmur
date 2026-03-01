@@ -31,7 +31,7 @@ import { resolveNextHint, shouldAdvanceOnRightKey, type WelcomeStepId } from "./
  * @returns The rendered CommandHint JSX element.
  */
 
-function CommandHint(props: { keys: string; label: string; onClick?: () => void; disabled?: boolean }): JSX.Element {
+function CommandHint(props: { readonly keys: string; readonly label: string; readonly onClick?: () => void; readonly disabled?: boolean }): JSX.Element {
   const { colors } = useTheme();
   return (
     <box
@@ -55,7 +55,7 @@ function CommandHint(props: { keys: string; label: string; onClick?: () => void;
   );
 }
 
-function SectionTitle(props: { text: string }): JSX.Element {
+function SectionTitle(props: { readonly text: string }): JSX.Element {
   const { colors } = useTheme();
   return (
     <text>
@@ -64,7 +64,7 @@ function SectionTitle(props: { text: string }): JSX.Element {
   );
 }
 
-function Paragraph(props: { children: string }): JSX.Element {
+function Paragraph(props: { readonly children: string }): JSX.Element {
   const { colors } = useTheme();
   return (
     <text>
@@ -73,7 +73,7 @@ function Paragraph(props: { children: string }): JSX.Element {
   );
 }
 
-function Muted(props: { children: string }): JSX.Element {
+function Muted(props: { readonly children: string }): JSX.Element {
   const { colors } = useTheme();
   return (
     <text>
@@ -307,10 +307,10 @@ type HardwareSettingField = "runtime" | "device";
  * @returns The JSX element for the device-detection step UI.
  */
 function DeviceDetectionStep(props: {
-  caps: CapabilitiesResponse | null;
-  selectedField: HardwareSettingField;
-  onSelectField: (field: HardwareSettingField) => void;
-  onOpenSelector: (field: HardwareSettingField) => void;
+  readonly caps: CapabilitiesResponse | null;
+  readonly selectedField: HardwareSettingField;
+  readonly onSelectField: (field: HardwareSettingField) => void;
+  readonly onOpenSelector: (field: HardwareSettingField) => void;
 }): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();
@@ -483,8 +483,8 @@ const MODEL_DESCRIPTIONS: Record<string, string> = {
  * @returns The JSX element that renders the model download and selection UI
  */
 function ModelDownloadStep(props: {
-  selectedModelIndex: number;
-  onSelectModel: (index: number) => void;
+  readonly selectedModelIndex: number;
+  readonly onSelectModel: (index: number) => void;
 }): JSX.Element {
   const { colors } = useTheme();
   const backend = useBackend();

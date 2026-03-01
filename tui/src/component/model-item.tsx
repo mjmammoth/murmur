@@ -81,9 +81,8 @@ export function ModelItem(props: ModelItemProps): JSX.Element {
       if (current.type === "pulling") {
         const progress = backend.downloadProgress();
         if (
-          progress &&
-          progress.model === props.model.name &&
-          progress.runtime === runtime
+          progress?.model === props.model.name &&
+          progress?.runtime === runtime
         ) {
           const percent = Math.max(0, Math.min(100, Math.round(progress.percent)));
           return { text: `${spinnerFrame()}${percent}%`, color: colors().transcribing };
