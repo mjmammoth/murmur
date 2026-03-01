@@ -29,7 +29,7 @@ try:  # pragma: no cover - optional runtime import
 except Exception:  # pragma: no cover - optional runtime import
     ctranslate2 = None
 
-from murmur.config import normalize_runtime_name
+from murmur.config import RUNTIME_FASTER_WHISPER, RUNTIME_WHISPER_CPP, normalize_runtime_name
 from murmur.model_manager import (
     get_installed_model_path,
 )
@@ -288,7 +288,7 @@ class FasterWhisperRuntime(_RuntimeBase):
 
 
 class WhisperCppRuntime(_RuntimeBase):
-    runtime_name = "whisper.cpp"
+    runtime_name = RUNTIME_WHISPER_CPP
 
     def __init__(
         self,
@@ -625,22 +625,22 @@ def detect_runtime_capabilities(selected_runtime: str | None = None) -> dict[str
     }
 
     runtimes = {
-        "faster-whisper": {
+        RUNTIME_FASTER_WHISPER: {
             "enabled": faster_runtime_enabled,
             "reason": faster_runtime_reason,
         },
-        "whisper.cpp": {
+        RUNTIME_WHISPER_CPP: {
             "enabled": whisper_cpp_enabled,
             "reason": whisper_cpp_reason,
         },
     }
     devices_by_runtime = {
-        "faster-whisper": faster_devices,
-        "whisper.cpp": whisper_cpp_devices,
+        RUNTIME_FASTER_WHISPER: faster_devices,
+        RUNTIME_WHISPER_CPP: whisper_cpp_devices,
     }
     compute_by_runtime_device = {
-        "faster-whisper": faster_compute,
-        "whisper.cpp": whisper_cpp_compute,
+        RUNTIME_FASTER_WHISPER: faster_compute,
+        RUNTIME_WHISPER_CPP: whisper_cpp_compute,
     }
 
     selected_devices = devices_by_runtime.get(runtime_name) or faster_devices
@@ -693,7 +693,7 @@ def _create_runtime(
     Returns:
         _RuntimeBase: A concrete runtime instance (WhisperCppRuntime or FasterWhisperRuntime) configured with the provided arguments.
     """
-    if runtime == "whisper.cpp":
+    if runtime == RUNTIME_WHISPER_CPP:
         return WhisperCppRuntime(model_name, device, compute_type, model_path)
     return FasterWhisperRuntime(model_name, device, compute_type, model_path)
 

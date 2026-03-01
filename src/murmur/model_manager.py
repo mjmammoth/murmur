@@ -17,16 +17,17 @@ os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
 from murmur import config as config_module
+from murmur.config import RUNTIME_FASTER_WHISPER, RUNTIME_WHISPER_CPP
 from murmur.model_ops import ModelRuntimeOperations, get_model_runtime_operations_factory
 
 
 logger = logging.getLogger(__name__)
 
 RuntimeName = Literal["faster-whisper", "whisper.cpp"]
-RUNTIME_NAMES: tuple[RuntimeName, RuntimeName] = ("faster-whisper", "whisper.cpp")
+RUNTIME_NAMES: tuple[RuntimeName, RuntimeName] = (RUNTIME_FASTER_WHISPER, RUNTIME_WHISPER_CPP)
 RUNTIME_FORMATS: dict[RuntimeName, str] = {
-    "faster-whisper": "ctranslate2",
-    "whisper.cpp": "ggml",
+    RUNTIME_FASTER_WHISPER: "ctranslate2",
+    RUNTIME_WHISPER_CPP: "ggml",
 }
 
 MODEL_NAMES = ["tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo"]
@@ -136,9 +137,9 @@ def normalize_model_runtime(runtime: str | None) -> RuntimeName:
         'whisper.cpp' if the given runtime normalizes to "whisper.cpp", otherwise 'faster-whisper'.
     """
     normalized = config_module.normalize_runtime_name(str(runtime or "faster-whisper"))
-    if normalized == "whisper.cpp":
-        return "whisper.cpp"
-    return "faster-whisper"
+    if normalized == RUNTIME_WHISPER_CPP:
+        return RUNTIME_WHISPER_CPP
+    return RUNTIME_FASTER_WHISPER
 
 
 def _model_operations_for_runtime(runtime: str | None) -> ModelRuntimeOperations:
@@ -1037,7 +1038,7 @@ def _download_whisper_cpp_model(
         raise DownloadCancelledError("Download cancelled after transfer")
     with _MODEL_SIZE_CACHE_LOCK:
         try:
-            _MODEL_SIZE_CACHE[_size_cache_key(model_name, "whisper.cpp")] = downloaded.stat().st_size
+            _MODEL_SIZE_CACHE[_size_cache_key(model_name, RUNTIME_WHISPER_CPP)] = downloaded.stat().st_size
         except OSError:
             pass
     if progress_callback is not None:

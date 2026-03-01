@@ -8,7 +8,11 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Callable, Literal
 
-from murmur.config import normalize_runtime_name
+from murmur.config import (
+    RUNTIME_FASTER_WHISPER,
+    RUNTIME_WHISPER_CPP,
+    normalize_runtime_name,
+)
 
 RuntimeName = Literal["faster-whisper", "whisper.cpp"]
 
@@ -86,7 +90,7 @@ class ModelRuntimeOperations(ABC):
 
 
 class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
-    runtime: RuntimeName = "faster-whisper"
+    runtime: RuntimeName = RUNTIME_FASTER_WHISPER
 
     def download(
         self,
@@ -162,7 +166,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
 
 
 class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
-    runtime: RuntimeName = "whisper.cpp"
+    runtime: RuntimeName = RUNTIME_WHISPER_CPP
 
     def download(
         self,
@@ -428,8 +432,8 @@ class DefaultModelRuntimeOperationsFactory(ModelRuntimeOperationsFactory):
         "faster-whisper" and "whisper.cpp", accessible via self._operations.
         """
         self._operations: dict[RuntimeName, ModelRuntimeOperations] = {
-            "faster-whisper": FasterWhisperModelRuntimeOperations(),
-            "whisper.cpp": WhisperCppModelRuntimeOperations(),
+            RUNTIME_FASTER_WHISPER: FasterWhisperModelRuntimeOperations(),
+            RUNTIME_WHISPER_CPP: WhisperCppModelRuntimeOperations(),
         }
 
     def for_runtime(self, runtime: str | None) -> ModelRuntimeOperations:
@@ -443,7 +447,7 @@ class DefaultModelRuntimeOperationsFactory(ModelRuntimeOperationsFactory):
             ModelRuntimeOperations: The operation handler for the normalized runtime ("whisper.cpp" or "faster-whisper").
         """
         normalized = normalize_runtime_name(str(runtime or "faster-whisper"))
-        key: RuntimeName = "whisper.cpp" if normalized == "whisper.cpp" else "faster-whisper"
+        key: RuntimeName = RUNTIME_WHISPER_CPP if normalized == RUNTIME_WHISPER_CPP else RUNTIME_FASTER_WHISPER
         return self._operations[key]
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import logging
 
@@ -194,7 +194,9 @@ class AppConfig:
         return data
 
 
-SUPPORTED_RUNTIMES = ("faster-whisper", "whisper.cpp")
+RUNTIME_FASTER_WHISPER: Final = "faster-whisper"
+RUNTIME_WHISPER_CPP: Final = "whisper.cpp"
+SUPPORTED_RUNTIMES = (RUNTIME_FASTER_WHISPER, RUNTIME_WHISPER_CPP)
 
 
 def normalize_runtime_name(name: str) -> str:
@@ -208,9 +210,9 @@ def normalize_runtime_name(name: str) -> str:
     if normalized in SUPPORTED_RUNTIMES:
         return normalized
     if normalized in {"whispercpp", "whisper_cpp", "whisper-cpp"}:
-        return "whisper.cpp"
+        return RUNTIME_WHISPER_CPP
     logger.warning("Unknown runtime '%s', falling back to 'faster-whisper'", name)
-    return "faster-whisper"
+    return RUNTIME_FASTER_WHISPER
 
 
 def default_config_path() -> Path:
