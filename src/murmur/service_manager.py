@@ -134,11 +134,22 @@ def _pid_matches_status_indicator_process(pid: int, *, host: str, port: int) -> 
     )
 
 
+def _is_safe_pid(pid: int | None) -> bool:
+    """Validate that *pid* is a positive integer safe to signal.
+
+    Rejects ``None``, non-positive values (which ``os.kill`` interprets as
+    process-group signals), and PID 1 (the init/launchd process) to prevent
+    accidental system-wide impact.
+    """
+    return isinstance(pid, int) and pid > 1
+
+
 def _is_pid_alive(pid: int | None) -> bool:
-    if not pid or pid <= 0:
+    if not _is_safe_pid(pid):
         return False
+    assert pid is not None  # narrowing for type-checker after _is_safe_pid
     try:
-        os.kill(pid, 0)
+        os.kill(pid, 0)  # Signal 0: existence check only, no signal delivered
     except OSError as exc:
         return exc.errno == errno.EPERM
     return True
@@ -167,8 +178,9 @@ def _terminate_pid(
     timeout: float = 4.0,
     is_expected_pid: Callable[[int], bool] | None = None,
 ) -> None:
-    if pid is None or pid <= 0:
+    if not _is_safe_pid(pid):
         return
+    assert pid is not None  # narrowing for type-checker after _is_safe_pid
     if is_expected_pid is not None:
         try:
             if not is_expected_pid(pid):
