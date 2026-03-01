@@ -4,9 +4,7 @@ name = "murmur"
 
 [setup]
 script = '''
-#source /Users/mark.marryatt/.zshrc
-#pyenv activate murmur
-echo "Mark was here"
+# pyenv activate murmur
 '''
 
 [[actions]]

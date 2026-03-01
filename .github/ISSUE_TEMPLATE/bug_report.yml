@@ -44,7 +44,7 @@ body:
       required: true
 
   - type: input
-    id: whisper_local_version
+    id: murmur_version
     attributes:
       label: murmur version/commit
       description: Output of `murmur --version` or the git commit hash.

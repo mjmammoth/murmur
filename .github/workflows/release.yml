@@ -289,18 +289,10 @@ jobs:
         run: |
           if [ "${RELEASE_KIND}" = "prerelease" ]; then
             echo "formula_path=Formula/murmur-preview.rb" >> "${GITHUB_OUTPUT}"
-            echo "alias_name=murmur-preview" >> "${GITHUB_OUTPUT}"
-            echo "alias_target=../Formula/murmur-preview.rb" >> "${GITHUB_OUTPUT}"
-            echo "legacy_formula_path=Formula/murmur-preview.rb" >> "${GITHUB_OUTPUT}"
-            echo "legacy_alias_name=murmur-preview" >> "${GITHUB_OUTPUT}"
             echo "template_path=scripts/templates/murmur-preview.rb.tpl" >> "${GITHUB_OUTPUT}"
             echo "commit_label=murmur-preview" >> "${GITHUB_OUTPUT}"
           else
             echo "formula_path=Formula/murmur.rb" >> "${GITHUB_OUTPUT}"
-            echo "alias_name=murmur" >> "${GITHUB_OUTPUT}"
-            echo "alias_target=../Formula/murmur.rb" >> "${GITHUB_OUTPUT}"
-            echo "legacy_formula_path=Formula/murmur.rb" >> "${GITHUB_OUTPUT}"
-            echo "legacy_alias_name=murmur" >> "${GITHUB_OUTPUT}"
             echo "template_path=scripts/templates/murmur.rb.tpl" >> "${GITHUB_OUTPUT}"
             echo "commit_label=murmur" >> "${GITHUB_OUTPUT}"
           fi
@@ -358,22 +350,6 @@ jobs:
             --template "${TEMPLATE_PATH}" \
             --tap-repo-path homebrew-tap
 
-      - name: Ensure tap alias exists
-        env:
-          ALIAS_NAME: ${{ steps.tap_target.outputs.alias_name }}
-          ALIAS_TARGET: ${{ steps.tap_target.outputs.alias_target }}
-          LEGACY_FORMULA_PATH: ${{ steps.tap_target.outputs.legacy_formula_path }}
-          LEGACY_ALIAS_NAME: ${{ steps.tap_target.outputs.legacy_alias_name }}
-        run: |
-          if [ -n "${LEGACY_FORMULA_PATH}" ] && [ "${LEGACY_FORMULA_PATH}" != "${ALIAS_TARGET#../}" ]; then
-            rm -f "homebrew-tap/${LEGACY_FORMULA_PATH}"
-          fi
-          if [ -n "${LEGACY_ALIAS_NAME}" ] && [ "${LEGACY_ALIAS_NAME}" != "${ALIAS_NAME}" ]; then
-            rm -f "homebrew-tap/Aliases/${LEGACY_ALIAS_NAME}"
-          fi
-          mkdir -p homebrew-tap/Aliases
-          ln -sfn "${ALIAS_TARGET}" "homebrew-tap/Aliases/${ALIAS_NAME}"
-
       - name: Commit and push formula update
         env:
           VERSION: ${{ needs.classify_release.outputs.version_no_v }}
@@ -381,7 +357,7 @@ jobs:
         run: |
           git -C homebrew-tap config user.name "github-actions[bot]"
           git -C homebrew-tap config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C homebrew-tap add -A Formula Aliases
+          git -C homebrew-tap add -A Formula
           if git -C homebrew-tap diff --cached --quiet; then
             echo "No formula changes to commit."
             exit 0

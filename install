@@ -73,7 +73,6 @@ VENV_DIR="${APP_HOME}/venv"
 TUI_ROOT="${APP_HOME}/tui"
 BIN_DIR="${HOME}/.local/bin"
 LAUNCHER_PATH="${BIN_DIR}/murmur"
-ALT_LAUNCHER_PATH="${BIN_DIR}/murmur"
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "Error: curl is required" >&2
@@ -540,19 +539,9 @@ exec "${PYTHON_BIN}" -m whisper_local.cli "$@"
 EOF
 chmod +x "${LAUNCHER_PATH}"
 
-if [ "${ALT_LAUNCHER_PATH}" != "${LAUNCHER_PATH}" ]; then
-  cat > "${ALT_LAUNCHER_PATH}" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "${SCRIPT_DIR}/murmur" "$@"
-EOF
-  chmod +x "${ALT_LAUNCHER_PATH}"
-fi
-
 MANIFEST_PATH="${APP_HOME}/install-manifest.json"
 MANIFEST_TMP="$(mktemp "${APP_HOME}/install-manifest.tmp.XXXXXX")"
-export MANIFEST_TMP MANIFEST_PATH APP_HOME target REPO release_tag LAUNCHER_PATH ALT_LAUNCHER_PATH INSTALLER_MANIFEST_VERSION
+export MANIFEST_TMP MANIFEST_PATH APP_HOME target REPO release_tag LAUNCHER_PATH INSTALLER_MANIFEST_VERSION
 python3 - <<'PY'
 import datetime
 import json
@@ -569,14 +558,7 @@ payload = {
     "tag": os.environ["release_tag"],
     "installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     "installer_version": os.environ["INSTALLER_MANIFEST_VERSION"],
-    "launchers": list(
-        dict.fromkeys(
-            [
-                os.environ["LAUNCHER_PATH"],
-                os.environ["ALT_LAUNCHER_PATH"],
-            ]
-        )
-    ),
+    "launchers": [os.environ["LAUNCHER_PATH"]],
 }
 tmp_path.write_text(f"{json.dumps(payload, indent=2)}\n", encoding="utf-8")
 tmp_path.replace(manifest_path)

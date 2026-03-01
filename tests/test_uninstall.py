@@ -67,7 +67,6 @@ def test_run_uninstall_installer_app_only(tmp_path: Path, monkeypatch: pytest.Mo
     _write_manifest(installer_home, [primary_launcher, alt_launcher])
 
     monkeypatch.setattr(uninstall, "DEFAULT_LAUNCHER_PATH", primary_launcher)
-    monkeypatch.setattr(uninstall, "ALT_LAUNCHER_PATH", alt_launcher)
 
     manager = Mock()
     result = uninstall.run_uninstall(
@@ -103,7 +102,6 @@ def test_run_uninstall_installer_with_all_data(tmp_path: Path, monkeypatch: pyte
     cache_b.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(uninstall, "DEFAULT_LAUNCHER_PATH", primary_launcher)
-    monkeypatch.setattr(uninstall, "ALT_LAUNCHER_PATH", alt_launcher)
     monkeypatch.setattr(uninstall, "state_directory", lambda: state_dir)
     monkeypatch.setattr(uninstall, "default_config_path", lambda: config_dir / "config.toml")
     monkeypatch.setattr(uninstall, "whisper_local_model_cache_paths", lambda: (cache_a, cache_b))
@@ -158,7 +156,6 @@ def test_run_uninstall_skips_unknown_launchers(tmp_path: Path, monkeypatch: pyte
     _write_manifest(installer_home, [unknown_launcher])
 
     monkeypatch.setattr(uninstall, "DEFAULT_LAUNCHER_PATH", unknown_launcher)
-    monkeypatch.setattr(uninstall, "ALT_LAUNCHER_PATH", tmp_path / "bin" / "murmur-link")
 
     result = uninstall.run_uninstall(
         options=uninstall.UninstallOptions(),
@@ -178,7 +175,6 @@ def test_run_uninstall_collects_removal_failures(tmp_path: Path, monkeypatch: py
     _write_manifest(installer_home, [primary_launcher])
 
     monkeypatch.setattr(uninstall, "DEFAULT_LAUNCHER_PATH", primary_launcher)
-    monkeypatch.setattr(uninstall, "ALT_LAUNCHER_PATH", tmp_path / "bin" / "murmur-link")
 
     original_remove_path = uninstall._remove_path
 

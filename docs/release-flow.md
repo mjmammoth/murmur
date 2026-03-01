@@ -53,7 +53,7 @@ Rejected examples:
 - Stable + post tags update `Formula/murmur.rb`.
 - Pre-release tags update `Formula/murmur-preview.rb`.
 - Preview formula conflicts with stable formula because both install the same executables.
-- Legacy dotted names are maintained as aliases (`murmur`, `murmur-preview`).
+- No legacy aliases are maintained.
 
 Install commands:
 

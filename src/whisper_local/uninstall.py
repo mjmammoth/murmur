@@ -18,7 +18,6 @@ from whisper_local.upgrade import (
 
 
 DEFAULT_LAUNCHER_PATH = Path("~/.local/bin/murmur").expanduser()
-ALT_LAUNCHER_PATH = Path("~/.local/bin/murmur").expanduser()
 
 
 class UninstallError(RuntimeError):
@@ -159,7 +158,6 @@ def _installer_launcher_candidates(installer_home: Path) -> tuple[Path, ...]:
     manifest = read_install_manifest(installer_home / INSTALLER_MANIFEST_NAME)
     candidates = [
         DEFAULT_LAUNCHER_PATH.expanduser().resolve(strict=False),
-        ALT_LAUNCHER_PATH.expanduser().resolve(strict=False),
     ]
     manifest_launchers = manifest.get("launchers") if manifest is not None else None
     if isinstance(manifest_launchers, list):

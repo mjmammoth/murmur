@@ -21,7 +21,7 @@ mkdir -p "$TAP_DIR/Formula"
 DUMMY_SHA="$(printf 'a%.0s' {1..64})"
 
 "$PYTHON" "$REPO_ROOT/scripts/update_tap_formula.py" \
-  --wheel-url "https://example.com/whisper_local-0.0.0-py3-none-any.whl" \
+  --wheel-url "https://example.com/murmur-0.0.0-py3-none-any.whl" \
   --wheel-sha256 "$DUMMY_SHA" \
   --tui-url "https://example.com/murmur-tui-darwin-arm64.tar.gz" \
   --tui-sha256 "$DUMMY_SHA" \
