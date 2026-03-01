@@ -5,11 +5,11 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from whisper_local.config import default_config_path
-from whisper_local.model_manager import whisper_local_model_cache_paths
-from whisper_local.service_manager import ServiceManager
-from whisper_local.service_state import state_directory
-from whisper_local.upgrade import (
+from murmur.config import default_config_path
+from murmur.model_manager import murmur_model_cache_paths
+from murmur.service_manager import ServiceManager
+from murmur.service_state import state_directory
+from murmur.upgrade import (
     INSTALLER_HOME,
     INSTALLER_MANIFEST_NAME,
     detect_install_channel,
@@ -116,7 +116,7 @@ def _run_installer_uninstall(
 
     if options.remove_model_cache:
         try:
-            cache_paths = whisper_local_model_cache_paths()
+            cache_paths = murmur_model_cache_paths()
         except Exception as exc:
             warnings.append(f"Failed to resolve model cache paths: {exc}")
             cache_paths = ()
@@ -195,11 +195,11 @@ def _looks_like_installer_launcher(path: Path, installer_home: Path) -> bool:
     except Exception:
         return False
 
-    if str(installer_home) in content and "whisper_local.cli" in content:
+    if str(installer_home) in content and "murmur.cli" in content:
         return True
     if (
         "MURMUR_TUI_BIN" in content
-        and 'exec "${PYTHON_BIN}" -m whisper_local.cli "$@"' in content
+        and 'exec "${PYTHON_BIN}" -m murmur.cli "$@"' in content
         and "APP_HOME=" in content
     ):
         return True

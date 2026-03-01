@@ -218,7 +218,7 @@ def default_config_path() -> Path:
 
 
 def _load_default_config() -> dict[str, Any]:
-    with resources.files("whisper_local").joinpath("default_config.toml").open("rb") as handle:
+    with resources.files("murmur").joinpath("default_config.toml").open("rb") as handle:
         return tomllib.load(handle)
 
 

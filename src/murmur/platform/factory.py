@@ -5,8 +5,8 @@ import os
 import sys
 from importlib import import_module
 
-from whisper_local.platform.capabilities import PlatformCapabilities
-from whisper_local.platform.providers import (
+from murmur.platform.capabilities import PlatformCapabilities
+from murmur.platform.providers import (
     DefaultPasteProvider,
     HotkeyProvider,
     MacOSHotkeyProvider,

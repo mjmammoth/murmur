@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from whisper_local.vad import VadProcessor, VadResult, _float_to_int16, _frame_audio
+from murmur.vad import VadProcessor, VadResult, _float_to_int16, _frame_audio
 
 
 # ---------------------------------------------------------------------------

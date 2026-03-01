@@ -447,7 +447,7 @@ if ! "${VENV_PYTHON}" - "${tui_archive_path}" "${TUI_ROOT}/${target}" "${expecte
 from pathlib import Path
 import sys
 
-from whisper_local.archive_extract import install_tui_binary_from_archive
+from murmur.archive_extract import install_tui_binary_from_archive
 
 archive_path = Path(sys.argv[1])
 target_dir = Path(sys.argv[2])
@@ -535,7 +535,7 @@ else
 fi
 
 export MURMUR_TUI_BIN="${TUI_BIN}"
-exec "${PYTHON_BIN}" -m whisper_local.cli "$@"
+exec "${PYTHON_BIN}" -m murmur.cli "$@"
 EOF
 chmod +x "${LAUNCHER_PATH}"
 

@@ -6,8 +6,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from whisper_local import uninstall
-from whisper_local.upgrade import INSTALLER_MANIFEST_NAME
+from murmur import uninstall
+from murmur.upgrade import INSTALLER_MANIFEST_NAME
 
 
 def _write_manifest(installer_home: Path, launchers: list[Path]) -> None:
@@ -31,7 +31,7 @@ def _write_primary_launcher(path: Path) -> None:
 set -euo pipefail
 APP_HOME="${MURMUR_HOME:-${HOME}/.local/share/murmur}"
 export MURMUR_TUI_BIN="${APP_HOME}/tui/linux-x64/murmur-tui"
-exec "${PYTHON_BIN}" -m whisper_local.cli "$@"
+exec "${PYTHON_BIN}" -m murmur.cli "$@"
 """,
         encoding="utf-8",
     )
@@ -104,7 +104,7 @@ def test_run_uninstall_installer_with_all_data(tmp_path: Path, monkeypatch: pyte
     monkeypatch.setattr(uninstall, "DEFAULT_LAUNCHER_PATH", primary_launcher)
     monkeypatch.setattr(uninstall, "state_directory", lambda: state_dir)
     monkeypatch.setattr(uninstall, "default_config_path", lambda: config_dir / "config.toml")
-    monkeypatch.setattr(uninstall, "whisper_local_model_cache_paths", lambda: (cache_a, cache_b))
+    monkeypatch.setattr(uninstall, "murmur_model_cache_paths", lambda: (cache_a, cache_b))
 
     result = uninstall.run_uninstall(
         options=uninstall.UninstallOptions(
@@ -125,7 +125,7 @@ def test_run_uninstall_installer_with_all_data(tmp_path: Path, monkeypatch: pyte
 
 
 def test_run_uninstall_non_installer_returns_guidance(tmp_path: Path) -> None:
-    with patch("whisper_local.uninstall.detect_install_channel", return_value="homebrew"):
+    with patch("murmur.uninstall.detect_install_channel", return_value="homebrew"):
         with pytest.raises(uninstall.UninstallActionRequired) as exc_info:
             uninstall.run_uninstall(
                 options=uninstall.UninstallOptions(),
@@ -137,7 +137,7 @@ def test_run_uninstall_non_installer_returns_guidance(tmp_path: Path) -> None:
 
 
 def test_run_uninstall_pip_channel_returns_guidance(tmp_path: Path) -> None:
-    with patch("whisper_local.uninstall.detect_install_channel", return_value="pip"):
+    with patch("murmur.uninstall.detect_install_channel", return_value="pip"):
         with pytest.raises(uninstall.UninstallActionRequired) as exc_info:
             uninstall.run_uninstall(
                 options=uninstall.UninstallOptions(),
@@ -265,7 +265,7 @@ def test_looks_like_installer_launcher_script_content(tmp_path: Path) -> None:
     installer_home = tmp_path / "murmur"
     installer_home.mkdir()
     script = tmp_path / "launcher"
-    script.write_text(f"#!/bin/bash\n{installer_home}/venv/bin/python -m whisper_local.cli \"$@\"")
+    script.write_text(f"#!/bin/bash\n{installer_home}/venv/bin/python -m murmur.cli \"$@\"")
     assert uninstall._looks_like_installer_launcher(script, installer_home) is True
 
 
@@ -337,7 +337,7 @@ def test_run_uninstall_wraps_unexpected_exception(tmp_path: Path) -> None:
     _write_manifest(installer_home, [])
 
     with patch(
-        "whisper_local.uninstall._run_installer_uninstall",
+        "murmur.uninstall._run_installer_uninstall",
         side_effect=RuntimeError("unexpected"),
     ):
         with pytest.raises(uninstall.UninstallError, match="Uninstall failed"):
@@ -375,7 +375,7 @@ def test_run_installer_uninstall_model_cache_error(tmp_path: Path) -> None:
     installer_home = tmp_path / "murmur"
     installer_home.mkdir()
 
-    with patch("whisper_local.uninstall.whisper_local_model_cache_paths", side_effect=Exception("fail")):
+    with patch("murmur.uninstall.murmur_model_cache_paths", side_effect=Exception("fail")):
         result = uninstall._run_installer_uninstall(
             options=uninstall.UninstallOptions(remove_model_cache=True),
             installer_home=installer_home,
@@ -407,7 +407,7 @@ def test_run_uninstall_propagates_action_required(tmp_path: Path) -> None:
     _write_manifest(installer_home, [])
 
     with patch(
-        "whisper_local.uninstall._run_installer_uninstall",
+        "murmur.uninstall._run_installer_uninstall",
         side_effect=uninstall.UninstallActionRequired(channel="homebrew", command="brew uninstall"),
     ):
         with pytest.raises(uninstall.UninstallActionRequired):
@@ -428,7 +428,7 @@ def test_run_uninstall_propagates_uninstall_error(tmp_path: Path) -> None:
     _write_manifest(installer_home, [])
 
     with patch(
-        "whisper_local.uninstall._run_installer_uninstall",
+        "murmur.uninstall._run_installer_uninstall",
         side_effect=uninstall.UninstallError("specific error"),
     ):
         with pytest.raises(uninstall.UninstallError, match="specific error"):

@@ -35,7 +35,7 @@ def test_run_pip_audit_script_uses_ignore_file(run_pip_audit_script: Path) -> No
     assert "--ignore-vuln" in content
 
 
-def test_run_pip_audit_script_filters_whisper_local(run_pip_audit_script: Path) -> None:
+def test_run_pip_audit_script_filters_murmur(run_pip_audit_script: Path) -> None:
     """Test that script filters out murmur package from requirements."""
     content = run_pip_audit_script.read_text(encoding="utf-8")
     # Should filter out murmur from pip freeze output

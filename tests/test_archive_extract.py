@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from whisper_local import archive_extract
-from whisper_local.archive_extract import ArchiveExtractionError, install_tui_binary_from_archive
+from murmur import archive_extract
+from murmur.archive_extract import ArchiveExtractionError, install_tui_binary_from_archive
 
 
 def _write_tar_gz_archive(archive_path: Path, entries: list[tuple[str, bytes]]) -> None:
@@ -229,7 +229,7 @@ def test_install_tui_binary_from_archive_rejects_negative_member_size(tmp_path: 
     tar_context.__enter__.return_value = tar_handle
     tar_context.__exit__.return_value = False
 
-    with patch("whisper_local.archive_extract.tarfile.open", return_value=tar_context):
+    with patch("murmur.archive_extract.tarfile.open", return_value=tar_context):
         with pytest.raises(ArchiveExtractionError, match="member with invalid size"):
             install_tui_binary_from_archive(
                 archive_path=archive_path,
@@ -316,7 +316,7 @@ def test_install_tui_binary_from_archive_rejects_truncated_member_stream(tmp_pat
     tar_context.__enter__.return_value = tar_handle
     tar_context.__exit__.return_value = False
 
-    with patch("whisper_local.archive_extract.tarfile.open", return_value=tar_context):
+    with patch("murmur.archive_extract.tarfile.open", return_value=tar_context):
         with pytest.raises(ArchiveExtractionError, match="size did not match metadata"):
             install_tui_binary_from_archive(
                 archive_path=archive_path,
@@ -357,7 +357,7 @@ def test_install_tui_binary_from_archive_rejects_oversized_member_stream(tmp_pat
     tar_context.__enter__.return_value = tar_handle
     tar_context.__exit__.return_value = False
 
-    with patch("whisper_local.archive_extract.tarfile.open", return_value=tar_context):
+    with patch("murmur.archive_extract.tarfile.open", return_value=tar_context):
         with pytest.raises(ArchiveExtractionError, match="exceeded declared metadata size"):
             install_tui_binary_from_archive(
                 archive_path=archive_path,

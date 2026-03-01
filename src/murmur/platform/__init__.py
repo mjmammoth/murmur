@@ -1,5 +1,5 @@
-from whisper_local.platform.capabilities import PlatformCapabilities
-from whisper_local.platform.factory import (
+from murmur.platform.capabilities import PlatformCapabilities
+from murmur.platform.factory import (
     create_hotkey_provider,
     create_paste_provider,
     create_status_indicator_provider,
@@ -7,7 +7,7 @@ from whisper_local.platform.factory import (
     parse_hotkey_tokens,
     validate_hotkey,
 )
-from whisper_local.platform.providers import (
+from murmur.platform.providers import (
     DefaultPasteProvider,
     HotkeyProvider,
     MacOSHotkeyProvider,

@@ -59,13 +59,13 @@ jobs:
           python -m pip install -e .
 
       - name: CLI smoke help
-        run: python -m whisper_local.cli --help
+        run: python -m murmur.cli --help
 
       - name: CLI smoke status
-        run: python -m whisper_local.cli status
+        run: python -m murmur.cli status
 
       - name: CLI smoke trigger help
-        run: python -m whisper_local.cli trigger --help
+        run: python -m murmur.cli trigger --help
 
   python_checks:
     permissions:
@@ -90,7 +90,7 @@ jobs:
         run: ruff check src tests scripts
 
       - name: Type check
-        run: mypy --ignore-missing-imports src/whisper_local/tui_runtime.py src/whisper_local/cli.py
+        run: mypy --ignore-missing-imports src/murmur/tui_runtime.py src/murmur/cli.py
 
       - name: Run tests
         env:
@@ -101,9 +101,9 @@ jobs:
         env:
           PYTHONPATH: src
         run: |
-          python -m whisper_local.cli --help
-          python -m whisper_local.cli bridge --help
-          python -m whisper_local.cli models --help
+          python -m murmur.cli --help
+          python -m murmur.cli bridge --help
+          python -m murmur.cli models --help
 
       - name: Build Python distributions
         run: python -m build

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from whisper_local import audio
+from murmur import audio
 
 
 class _FakeDefaultDevice:

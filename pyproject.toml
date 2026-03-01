@@ -56,7 +56,7 @@ rnnoise = ["pyrnnoise>=0.4.3"]
 vad = ["webrtcvad>=2.0.10"]
 
 [project.scripts]
-murmur = "whisper_local.cli:main"
+murmur = "murmur.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -65,7 +65,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-whisper_local = ["default_config.toml"]
+murmur = ["default_config.toml"]
 
 [tool.setuptools_scm]
 
@@ -85,4 +85,4 @@ relative_files = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=src/whisper_local --cov=scripts --cov-report=term-missing --cov-fail-under=65"
+addopts = "--cov=src/murmur --cov=scripts --cov-report=term-missing --cov-fail-under=65"

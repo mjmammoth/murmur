@@ -10,14 +10,14 @@ import time
 from pathlib import Path
 from typing import Any, TYPE_CHECKING, TypeAlias
 
-from whisper_local import __version__
-from whisper_local.config import SUPPORTED_RUNTIMES, load_config
-from whisper_local.platform import create_status_indicator_provider
-from whisper_local.service_manager import ServiceManager
-from whisper_local.tui_runtime import resolve_tui_runtime
+from murmur import __version__
+from murmur.config import SUPPORTED_RUNTIMES, load_config
+from murmur.platform import create_status_indicator_provider
+from murmur.service_manager import ServiceManager
+from murmur.tui_runtime import resolve_tui_runtime
 
 if TYPE_CHECKING:
-    from whisper_local.service_state import ServiceStatus
+    from murmur.service_state import ServiceStatus
     from websockets.asyncio.client import ClientConnection
     from websockets.legacy.client import WebSocketClientProtocol
 
@@ -183,7 +183,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
-    from whisper_local.bridge import run_bridge
+    from murmur.bridge import run_bridge
 
     config = load_config()
     run_bridge(config, host, port, capture_logs=capture_logs)
@@ -418,7 +418,7 @@ def _trigger(
 
 
 def _upgrade(*, requested_version: str | None) -> None:
-    from whisper_local.upgrade import UpgradeActionRequired, UpgradeError, run_upgrade
+    from murmur.upgrade import UpgradeActionRequired, UpgradeError, run_upgrade
 
     try:
         result = run_upgrade(requested_version=requested_version)
@@ -482,7 +482,7 @@ def _confirm_uninstall() -> bool:
 
 
 def _uninstall(args: argparse.Namespace) -> None:
-    from whisper_local.uninstall import (
+    from murmur.uninstall import (
         UninstallActionRequired,
         UninstallError,
         UninstallOptions,
@@ -554,7 +554,7 @@ def _print_version() -> None:
 
 
 def _handle_models_command(args: argparse.Namespace) -> None:
-    from whisper_local.model_manager import (
+    from murmur.model_manager import (
         download_model,
         list_installed_models,
         remove_model,

@@ -6,8 +6,8 @@ from unittest.mock import Mock, call, patch
 
 import pytest
 
-from whisper_local import upgrade
-from whisper_local.upgrade import ReleaseAssetBundle, UpgradeActionRequired, UpgradeError
+from murmur import upgrade
+from murmur.upgrade import ReleaseAssetBundle, UpgradeActionRequired, UpgradeError
 
 
 def test_read_install_manifest_valid_payload(tmp_path: Path) -> None:
@@ -46,7 +46,7 @@ def test_detect_install_channel_manifest_does_not_override_non_installer_executa
         encoding="utf-8",
     )
 
-    with patch("whisper_local.upgrade._looks_like_homebrew_install", return_value=False):
+    with patch("murmur.upgrade._looks_like_homebrew_install", return_value=False):
         channel = upgrade.detect_install_channel(
             executable="/usr/local/bin/python3",
             installer_home=installer_home,
@@ -133,7 +133,7 @@ def test_detect_install_channel_stale_manifest_falls_back_to_pip(tmp_path: Path)
         encoding="utf-8",
     )
 
-    with patch("whisper_local.upgrade._looks_like_homebrew_install", return_value=False):
+    with patch("murmur.upgrade._looks_like_homebrew_install", return_value=False):
         channel = upgrade.detect_install_channel(
             executable="/usr/local/bin/python3",
             installer_home=installer_home,
@@ -152,7 +152,7 @@ def test_detect_install_channel_homebrew_by_executable_path(tmp_path: Path) -> N
 
 
 def test_detect_install_channel_pip_fallback(tmp_path: Path) -> None:
-    with patch("whisper_local.upgrade._looks_like_homebrew_install", return_value=False):
+    with patch("murmur.upgrade._looks_like_homebrew_install", return_value=False):
         channel = upgrade.detect_install_channel(
             executable="/usr/local/bin/python3",
             installer_home=tmp_path,
@@ -163,8 +163,8 @@ def test_detect_install_channel_pip_fallback(tmp_path: Path) -> None:
 
 def test_looks_like_homebrew_install_requires_executable_under_prefix() -> None:
     result = SimpleNamespace(returncode=0, stdout="/opt/homebrew/opt/murmur\n", stderr="")
-    with patch("whisper_local.upgrade.shutil.which", return_value="/opt/homebrew/bin/brew"), patch(
-        "whisper_local.upgrade.subprocess.run", return_value=result
+    with patch("murmur.upgrade.shutil.which", return_value="/opt/homebrew/bin/brew"), patch(
+        "murmur.upgrade.subprocess.run", return_value=result
     ):
         assert (
             upgrade._looks_like_homebrew_install(Path("/opt/homebrew/opt/murmur/bin/python3"))
@@ -174,8 +174,8 @@ def test_looks_like_homebrew_install_requires_executable_under_prefix() -> None:
 
 def test_looks_like_homebrew_install_rejects_executable_outside_prefix() -> None:
     result = SimpleNamespace(returncode=0, stdout="/opt/homebrew/opt/murmur\n", stderr="")
-    with patch("whisper_local.upgrade.shutil.which", return_value="/opt/homebrew/bin/brew"), patch(
-        "whisper_local.upgrade.subprocess.run", return_value=result
+    with patch("murmur.upgrade.shutil.which", return_value="/opt/homebrew/bin/brew"), patch(
+        "murmur.upgrade.subprocess.run", return_value=result
     ):
         assert upgrade._looks_like_homebrew_install(Path("/usr/local/bin/python3")) is False
 
@@ -192,7 +192,7 @@ def test_resolve_release_assets_uses_target_bundle() -> None:
         "tag_name": "v0.2.0",
         "assets": [
             {
-                "name": "whisper_local-0.2.0-py3-none-any.whl",
+                "name": "murmur-0.2.0-py3-none-any.whl",
                 "browser_download_url": "https://example.invalid/whl",
             },
             {
@@ -210,7 +210,7 @@ def test_resolve_release_assets_uses_target_bundle() -> None:
         ],
     }
 
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         result = upgrade.resolve_release_assets(
             repository="owner/repo",
             requested_version="v0.2.0",
@@ -233,13 +233,13 @@ def test_resolve_release_assets_missing_target_tui_raises() -> None:
         "tag_name": "v0.2.0",
         "assets": [
             {
-                "name": "whisper_local-0.2.0-py3-none-any.whl",
+                "name": "murmur-0.2.0-py3-none-any.whl",
                 "browser_download_url": "https://example.invalid/whl",
             }
         ],
     }
 
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError) as exc_info:
             upgrade.resolve_release_assets(target="linux-x64")
 
@@ -251,11 +251,11 @@ def test_resolve_release_assets_multiple_wheels_raises() -> None:
         "tag_name": "v0.2.0",
         "assets": [
             {
-                "name": "whisper_local-0.2.0-py3-none-any.whl",
+                "name": "murmur-0.2.0-py3-none-any.whl",
                 "browser_download_url": "https://example.invalid/whl1",
             },
             {
-                "name": "whisper_local-0.2.0-cp312-cp312-manylinux.whl",
+                "name": "murmur-0.2.0-cp312-cp312-manylinux.whl",
                 "browser_download_url": "https://example.invalid/whl2",
             },
             {
@@ -273,7 +273,7 @@ def test_resolve_release_assets_multiple_wheels_raises() -> None:
         ],
     }
 
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="multiple wheel artifacts"):
             upgrade.resolve_release_assets(target="linux-x64")
 
@@ -283,7 +283,7 @@ def test_resolve_release_assets_missing_checksums_raises() -> None:
         "tag_name": "v0.2.0",
         "assets": [
             {
-                "name": "whisper_local-0.2.0-py3-none-any.whl",
+                "name": "murmur-0.2.0-py3-none-any.whl",
                 "browser_download_url": "https://example.invalid/whl",
             },
             {
@@ -293,7 +293,7 @@ def test_resolve_release_assets_missing_checksums_raises() -> None:
         ],
     }
 
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="missing checksum manifest"):
             upgrade.resolve_release_assets(target="linux-x64")
 
@@ -303,7 +303,7 @@ def test_resolve_release_assets_missing_signature_raises() -> None:
         "tag_name": "v0.2.0",
         "assets": [
             {
-                "name": "whisper_local-0.2.0-py3-none-any.whl",
+                "name": "murmur-0.2.0-py3-none-any.whl",
                 "browser_download_url": "https://example.invalid/whl",
             },
             {
@@ -317,7 +317,7 @@ def test_resolve_release_assets_missing_signature_raises() -> None:
         ],
     }
 
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="missing checksum signature"):
             upgrade.resolve_release_assets(target="linux-x64")
 
@@ -328,7 +328,7 @@ def test_verify_release_signature_requires_gpg(tmp_path: Path) -> None:
     checksums.write_text("", encoding="utf-8")
     signature.write_text("", encoding="utf-8")
 
-    with patch("whisper_local.upgrade.shutil.which", return_value=None):
+    with patch("murmur.upgrade.shutil.which", return_value=None):
         with pytest.raises(UpgradeError, match="'gpg' is required"):
             upgrade._verify_release_signature(
                 repository="owner/repo",
@@ -344,7 +344,7 @@ def test_parse_checksums_manifest_parses_sha256_and_optional_star(tmp_path: Path
             [
                 "# comment",
                 "invalid line",
-                "A" * 64 + "  whisper_local-0.2.0-py3-none-any.whl",
+                "A" * 64 + "  murmur-0.2.0-py3-none-any.whl",
                 "b" * 64 + "\t*murmur-tui-linux-x64.tar.gz",
             ]
         )
@@ -355,7 +355,7 @@ def test_parse_checksums_manifest_parses_sha256_and_optional_star(tmp_path: Path
     parsed = upgrade._parse_checksums_manifest(manifest_path)
 
     assert parsed == {
-        "whisper_local-0.2.0-py3-none-any.whl": "a" * 64,
+        "murmur-0.2.0-py3-none-any.whl": "a" * 64,
         "murmur-tui-linux-x64.tar.gz": "b" * 64,
     }
 
@@ -391,7 +391,7 @@ def test_run_upgrade_installer_running_service_restarts(tmp_path: Path, monkeypa
     assets = ReleaseAssetBundle(
         repository="owner/repo",
         tag="v0.2.0",
-        wheel_name="whisper_local-0.2.0-py3-none-any.whl",
+        wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
         tui_name="murmur-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
@@ -402,15 +402,15 @@ def test_run_upgrade_installer_running_service_restarts(tmp_path: Path, monkeypa
         target="linux-x64",
     )
 
-    with patch("whisper_local.upgrade.detect_install_channel", return_value="installer"), patch(
-        "whisper_local.upgrade.resolve_release_assets", return_value=assets
-    ), patch("whisper_local.upgrade._download_to_file"), patch(
-        "whisper_local.upgrade.install_tui_binary_from_archive"
+    with patch("murmur.upgrade.detect_install_channel", return_value="installer"), patch(
+        "murmur.upgrade.resolve_release_assets", return_value=assets
+    ), patch("murmur.upgrade._download_to_file"), patch(
+        "murmur.upgrade.install_tui_binary_from_archive"
     ) as mock_extract, patch(
-        "whisper_local.upgrade._verify_downloaded_release_assets"
+        "murmur.upgrade._verify_downloaded_release_assets"
     ) as mock_verify_assets, patch(
-        "whisper_local.upgrade._installed_version", side_effect=["0.1.0", "0.2.0"]
-    ), patch("whisper_local.upgrade.subprocess.run"):
+        "murmur.upgrade._installed_version", side_effect=["0.1.0", "0.2.0"]
+    ), patch("murmur.upgrade.subprocess.run"):
         result = upgrade.run_upgrade(
             requested_version="v0.2.0",
             installer_home=tmp_path,
@@ -449,7 +449,7 @@ def test_run_upgrade_installer_when_service_stopped(tmp_path: Path, monkeypatch:
     assets = ReleaseAssetBundle(
         repository="owner/repo",
         tag="v0.2.0",
-        wheel_name="whisper_local-0.2.0-py3-none-any.whl",
+        wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
         tui_name="murmur-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
@@ -460,14 +460,14 @@ def test_run_upgrade_installer_when_service_stopped(tmp_path: Path, monkeypatch:
         target="linux-x64",
     )
 
-    with patch("whisper_local.upgrade.detect_install_channel", return_value="installer"), patch(
-        "whisper_local.upgrade.resolve_release_assets", return_value=assets
-    ), patch("whisper_local.upgrade._download_to_file"), patch(
-        "whisper_local.upgrade.install_tui_binary_from_archive"
+    with patch("murmur.upgrade.detect_install_channel", return_value="installer"), patch(
+        "murmur.upgrade.resolve_release_assets", return_value=assets
+    ), patch("murmur.upgrade._download_to_file"), patch(
+        "murmur.upgrade.install_tui_binary_from_archive"
     ) as mock_extract, patch(
-        "whisper_local.upgrade._verify_downloaded_release_assets"
-    ), patch("whisper_local.upgrade._installed_version", side_effect=["0.1.0", "0.2.0"]), patch(
-        "whisper_local.upgrade.subprocess.run"
+        "murmur.upgrade._verify_downloaded_release_assets"
+    ), patch("murmur.upgrade._installed_version", side_effect=["0.1.0", "0.2.0"]), patch(
+        "murmur.upgrade.subprocess.run"
     ):
         result = upgrade.run_upgrade(
             requested_version=None,
@@ -498,7 +498,7 @@ def test_run_upgrade_installer_maps_windows_binary_name(tmp_path: Path, monkeypa
     assets = ReleaseAssetBundle(
         repository="owner/repo",
         tag="v0.2.0",
-        wheel_name="whisper_local-0.2.0-py3-none-any.whl",
+        wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
         tui_name="murmur-tui-windows-x64.tar.gz",
         tui_url="https://example.invalid/tui",
@@ -509,14 +509,14 @@ def test_run_upgrade_installer_maps_windows_binary_name(tmp_path: Path, monkeypa
         target="windows-x64",
     )
 
-    with patch("whisper_local.upgrade.detect_install_channel", return_value="installer"), patch(
-        "whisper_local.upgrade.resolve_release_assets", return_value=assets
-    ), patch("whisper_local.upgrade._download_to_file"), patch(
-        "whisper_local.upgrade.install_tui_binary_from_archive"
+    with patch("murmur.upgrade.detect_install_channel", return_value="installer"), patch(
+        "murmur.upgrade.resolve_release_assets", return_value=assets
+    ), patch("murmur.upgrade._download_to_file"), patch(
+        "murmur.upgrade.install_tui_binary_from_archive"
     ) as mock_extract, patch(
-        "whisper_local.upgrade._verify_downloaded_release_assets"
-    ), patch("whisper_local.upgrade._installed_version", side_effect=["0.1.0", "0.2.0"]), patch(
-        "whisper_local.upgrade.subprocess.run"
+        "murmur.upgrade._verify_downloaded_release_assets"
+    ), patch("murmur.upgrade._installed_version", side_effect=["0.1.0", "0.2.0"]), patch(
+        "murmur.upgrade.subprocess.run"
     ):
         upgrade.run_upgrade(
             requested_version=None,
@@ -544,7 +544,7 @@ def test_run_upgrade_wraps_archive_extraction_error(
     assets = ReleaseAssetBundle(
         repository="owner/repo",
         tag="v0.2.0",
-        wheel_name="whisper_local-0.2.0-py3-none-any.whl",
+        wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
         tui_name="murmur-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
@@ -555,16 +555,16 @@ def test_run_upgrade_wraps_archive_extraction_error(
         target="linux-x64",
     )
 
-    with patch("whisper_local.upgrade.detect_install_channel", return_value="installer"), patch(
-        "whisper_local.upgrade.resolve_release_assets", return_value=assets
-    ), patch("whisper_local.upgrade._download_to_file"), patch(
-        "whisper_local.upgrade.install_tui_binary_from_archive",
+    with patch("murmur.upgrade.detect_install_channel", return_value="installer"), patch(
+        "murmur.upgrade.resolve_release_assets", return_value=assets
+    ), patch("murmur.upgrade._download_to_file"), patch(
+        "murmur.upgrade.install_tui_binary_from_archive",
         side_effect=upgrade.ArchiveExtractionError("bad archive"),
     ), patch(
-        "whisper_local.upgrade._verify_downloaded_release_assets"
+        "murmur.upgrade._verify_downloaded_release_assets"
     ), patch(
-        "whisper_local.upgrade._installed_version", side_effect=["0.1.0", "0.2.0"]
-    ), patch("whisper_local.upgrade.subprocess.run"):
+        "murmur.upgrade._installed_version", side_effect=["0.1.0", "0.2.0"]
+    ), patch("murmur.upgrade.subprocess.run"):
         with pytest.raises(UpgradeError, match="bad archive"):
             upgrade.run_upgrade(
                 requested_version="v0.2.0",
@@ -574,7 +574,7 @@ def test_run_upgrade_wraps_archive_extraction_error(
 
 
 def test_run_upgrade_non_installer_returns_guidance(tmp_path: Path) -> None:
-    with patch("whisper_local.upgrade.detect_install_channel", return_value="homebrew"):
+    with patch("murmur.upgrade.detect_install_channel", return_value="homebrew"):
         with pytest.raises(UpgradeActionRequired) as exc_info:
             upgrade.run_upgrade(installer_home=tmp_path)
 
@@ -598,7 +598,7 @@ def test_run_upgrade_failure_attempts_service_recovery(
     assets = ReleaseAssetBundle(
         repository="owner/repo",
         tag="v0.2.0",
-        wheel_name="whisper_local-0.2.0-py3-none-any.whl",
+        wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
         tui_name="murmur-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
@@ -609,12 +609,12 @@ def test_run_upgrade_failure_attempts_service_recovery(
         target="linux-x64",
     )
 
-    with patch("whisper_local.upgrade.detect_install_channel", return_value="installer"), patch(
-        "whisper_local.upgrade.resolve_release_assets", return_value=assets
+    with patch("murmur.upgrade.detect_install_channel", return_value="installer"), patch(
+        "murmur.upgrade.resolve_release_assets", return_value=assets
     ), patch(
-        "whisper_local.upgrade._download_to_file",
+        "murmur.upgrade._download_to_file",
         side_effect=RuntimeError("download failed"),
-    ), patch("whisper_local.upgrade._installed_version", return_value="0.1.0"):
+    ), patch("murmur.upgrade._installed_version", return_value="0.1.0"):
         with pytest.raises(UpgradeError) as exc_info:
             upgrade.run_upgrade(installer_home=tmp_path, service_manager=manager)
 
@@ -644,7 +644,7 @@ def test_run_upgrade_failure_surfaces_restart_failure(
     assets = ReleaseAssetBundle(
         repository="owner/repo",
         tag="v0.2.0",
-        wheel_name="whisper_local-0.2.0-py3-none-any.whl",
+        wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
         tui_name="murmur-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
@@ -655,12 +655,12 @@ def test_run_upgrade_failure_surfaces_restart_failure(
         target="linux-x64",
     )
 
-    with patch("whisper_local.upgrade.detect_install_channel", return_value="installer"), patch(
-        "whisper_local.upgrade.resolve_release_assets", return_value=assets
+    with patch("murmur.upgrade.detect_install_channel", return_value="installer"), patch(
+        "murmur.upgrade.resolve_release_assets", return_value=assets
     ), patch(
-        "whisper_local.upgrade._download_to_file",
+        "murmur.upgrade._download_to_file",
         side_effect=RuntimeError("download failed"),
-    ), patch("whisper_local.upgrade._installed_version", return_value="0.1.0"):
+    ), patch("murmur.upgrade._installed_version", return_value="0.1.0"):
         with pytest.raises(UpgradeError) as exc_info:
             upgrade.run_upgrade(installer_home=tmp_path, service_manager=manager)
 
@@ -680,38 +680,38 @@ def test_run_upgrade_failure_surfaces_restart_failure(
 
 
 def test_detect_target_darwin_arm64():
-    with patch("whisper_local.upgrade.sys.platform", "darwin"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="arm64"), create=True):
+    with patch("murmur.upgrade.sys.platform", "darwin"), \
+         patch("murmur.upgrade.os.uname", return_value=SimpleNamespace(machine="arm64"), create=True):
         assert upgrade.detect_target() == "darwin-arm64"
 
 
 def test_detect_target_darwin_x64():
-    with patch("whisper_local.upgrade.sys.platform", "darwin"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64"), create=True):
+    with patch("murmur.upgrade.sys.platform", "darwin"), \
+         patch("murmur.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64"), create=True):
         assert upgrade.detect_target() == "darwin-x64"
 
 
 def test_detect_target_linux_x64():
-    with patch("whisper_local.upgrade.sys.platform", "linux"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64"), create=True):
+    with patch("murmur.upgrade.sys.platform", "linux"), \
+         patch("murmur.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64"), create=True):
         assert upgrade.detect_target() == "linux-x64"
 
 
 def test_detect_target_linux_arm64():
-    with patch("whisper_local.upgrade.sys.platform", "linux"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="aarch64"), create=True):
+    with patch("murmur.upgrade.sys.platform", "linux"), \
+         patch("murmur.upgrade.os.uname", return_value=SimpleNamespace(machine="aarch64"), create=True):
         assert upgrade.detect_target() == "linux-arm64"
 
 
 def test_detect_target_windows_x64():
-    with patch("whisper_local.upgrade.sys.platform", "win32"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64"), create=True):
+    with patch("murmur.upgrade.sys.platform", "win32"), \
+         patch("murmur.upgrade.os.uname", return_value=SimpleNamespace(machine="x86_64"), create=True):
         assert upgrade.detect_target() == "windows-x64"
 
 
 def test_detect_target_unsupported():
-    with patch("whisper_local.upgrade.sys.platform", "freebsd"), \
-         patch("whisper_local.upgrade.os.uname", return_value=SimpleNamespace(machine="mips"), create=True):
+    with patch("murmur.upgrade.sys.platform", "freebsd"), \
+         patch("murmur.upgrade.os.uname", return_value=SimpleNamespace(machine="mips"), create=True):
         with pytest.raises(UpgradeError, match="Unsupported"):
             upgrade.detect_target()
 
@@ -845,7 +845,7 @@ def test_sha256_file(tmp_path: Path):
 
 def test_run_command_or_error_success():
     with patch(
-        "whisper_local.upgrade.subprocess.run",
+        "murmur.upgrade.subprocess.run",
         return_value=SimpleNamespace(returncode=0, stdout="hello\n", stderr=""),
     ):
         result = upgrade._run_command_or_error(["echo", "hello"])
@@ -854,7 +854,7 @@ def test_run_command_or_error_success():
 
 def test_run_command_or_error_failure():
     with patch(
-        "whisper_local.upgrade.subprocess.run",
+        "murmur.upgrade.subprocess.run",
         return_value=SimpleNamespace(returncode=1, stdout="", stderr="boom"),
     ):
         with pytest.raises(UpgradeError, match="Upgrade verification failed"):
@@ -863,7 +863,7 @@ def test_run_command_or_error_failure():
 
 def test_run_command_or_error_not_found():
     with patch(
-        "whisper_local.upgrade.subprocess.run",
+        "murmur.upgrade.subprocess.run",
         side_effect=FileNotFoundError("binary not found"),
     ):
         with pytest.raises(UpgradeError, match="Upgrade verification failed"):
@@ -884,14 +884,14 @@ def test_expected_tui_binary_name_unix():
 
 
 def test_installed_version_success():
-    with patch("whisper_local.upgrade.subprocess.run") as mock_run:
+    with patch("murmur.upgrade.subprocess.run") as mock_run:
         mock_run.return_value = Mock(stdout="1.2.3\n", returncode=0)
         result = upgrade._installed_version("python3")
     assert result == "1.2.3"
 
 
 def test_installed_version_failure():
-    with patch("whisper_local.upgrade.subprocess.run", side_effect=Exception("fail")):
+    with patch("murmur.upgrade.subprocess.run", side_effect=Exception("fail")):
         result = upgrade._installed_version("python3")
     # Falls back to __version__
     assert result == upgrade.__version__
@@ -941,7 +941,7 @@ def test_detect_install_channel_pip(tmp_path: Path):
     exe = tmp_path / "python"
     exe.write_text("#!/usr/bin/env python", encoding="utf-8")
 
-    with patch("whisper_local.upgrade._looks_like_homebrew_install", return_value=False):
+    with patch("murmur.upgrade._looks_like_homebrew_install", return_value=False):
         result = upgrade.detect_install_channel(
             executable=str(exe),
             installer_home=tmp_path / "nonexistent",
@@ -961,7 +961,7 @@ def test_download_to_file(tmp_path: Path):
     mock_response.__enter__ = Mock(return_value=mock_response)
     mock_response.__exit__ = Mock(return_value=False)
 
-    with patch("whisper_local.upgrade.urllib.request.urlopen", return_value=mock_response):
+    with patch("murmur.upgrade.urllib.request.urlopen", return_value=mock_response):
         upgrade._download_to_file("https://example.com/file.bin", dest)
     assert dest.read_bytes() == b"chunk1chunk2"
 
@@ -978,30 +978,30 @@ def test_looks_like_homebrew_cellar():
 
 def test_looks_like_homebrew_no_brew(tmp_path: Path):
     exe = tmp_path / "python"
-    with patch("whisper_local.upgrade.shutil.which", return_value=None):
+    with patch("murmur.upgrade.shutil.which", return_value=None):
         assert upgrade._looks_like_homebrew_install(exe) is False
 
 
 def test_looks_like_homebrew_brew_check_fail(tmp_path: Path):
     exe = tmp_path / "python"
-    with patch("whisper_local.upgrade.shutil.which", return_value="/usr/local/bin/brew"), \
-         patch("whisper_local.upgrade.subprocess.run", side_effect=Exception("fail")):
+    with patch("murmur.upgrade.shutil.which", return_value="/usr/local/bin/brew"), \
+         patch("murmur.upgrade.subprocess.run", side_effect=Exception("fail")):
         assert upgrade._looks_like_homebrew_install(exe) is False
 
 
 def test_looks_like_homebrew_brew_nonzero_rc(tmp_path: Path):
     exe = tmp_path / "python"
     mock_result = Mock(returncode=1, stdout="", stderr="")
-    with patch("whisper_local.upgrade.shutil.which", return_value="/usr/local/bin/brew"), \
-         patch("whisper_local.upgrade.subprocess.run", return_value=mock_result):
+    with patch("murmur.upgrade.shutil.which", return_value="/usr/local/bin/brew"), \
+         patch("murmur.upgrade.subprocess.run", return_value=mock_result):
         assert upgrade._looks_like_homebrew_install(exe) is False
 
 
 def test_looks_like_homebrew_brew_empty_prefix(tmp_path: Path):
     exe = tmp_path / "python"
     mock_result = Mock(returncode=0, stdout="", stderr="")
-    with patch("whisper_local.upgrade.shutil.which", return_value="/usr/local/bin/brew"), \
-         patch("whisper_local.upgrade.subprocess.run", return_value=mock_result):
+    with patch("murmur.upgrade.shutil.which", return_value="/usr/local/bin/brew"), \
+         patch("murmur.upgrade.subprocess.run", return_value=mock_result):
         assert upgrade._looks_like_homebrew_install(exe) is False
 
 
@@ -1011,8 +1011,8 @@ def test_looks_like_homebrew_relative_to_prefix(tmp_path: Path):
     exe.parent.mkdir(parents=True)
     exe.write_text("#!/usr/bin/env python", encoding="utf-8")
     mock_result = Mock(returncode=0, stdout=str(prefix), stderr="")
-    with patch("whisper_local.upgrade.shutil.which", return_value="/usr/local/bin/brew"), \
-         patch("whisper_local.upgrade.subprocess.run", return_value=mock_result):
+    with patch("murmur.upgrade.shutil.which", return_value="/usr/local/bin/brew"), \
+         patch("murmur.upgrade.subprocess.run", return_value=mock_result):
         assert upgrade._looks_like_homebrew_install(exe) is True
 
 
@@ -1027,7 +1027,7 @@ def test_github_get_json_success():
     mock_response.__enter__ = Mock(return_value=mock_response)
     mock_response.__exit__ = Mock(return_value=False)
 
-    with patch("whisper_local.upgrade.urllib.request.urlopen", return_value=mock_response):
+    with patch("murmur.upgrade.urllib.request.urlopen", return_value=mock_response):
         result = upgrade._github_get_json("https://api.github.com/test")
     assert result == {"key": "value"}
 
@@ -1038,7 +1038,7 @@ def test_github_get_json_invalid_json_type():
     mock_response.__enter__ = Mock(return_value=mock_response)
     mock_response.__exit__ = Mock(return_value=False)
 
-    with patch("whisper_local.upgrade.urllib.request.urlopen", return_value=mock_response):
+    with patch("murmur.upgrade.urllib.request.urlopen", return_value=mock_response):
         with pytest.raises(UpgradeError, match="invalid JSON"):
             upgrade._github_get_json("https://api.github.com/test")
 
@@ -1056,13 +1056,13 @@ def test_resolve_release_assets_success():
     payload = {
         "tag_name": "v1.0.0",
         "assets": [
-            _make_asset("whisper_local-1.0.0.whl", "https://example.com/whl"),
+            _make_asset("murmur-1.0.0.whl", "https://example.com/whl"),
             _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("checksums.txt.asc", "https://example.com/sig"),
         ],
     }
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         bundle = upgrade.resolve_release_assets(target="darwin-arm64")
     assert bundle.tag == "v1.0.0"
     assert bundle.wheel_url == "https://example.com/whl"
@@ -1077,7 +1077,7 @@ def test_resolve_release_assets_missing_wheel():
             _make_asset("checksums.txt.asc"),
         ],
     }
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="missing wheel"):
             upgrade.resolve_release_assets(target="darwin-arm64")
 
@@ -1086,12 +1086,12 @@ def test_resolve_release_assets_missing_tui():
     payload = {
         "tag_name": "v1.0.0",
         "assets": [
-            _make_asset("whisper_local-1.0.0.whl"),
+            _make_asset("murmur-1.0.0.whl"),
             _make_asset("checksums.txt"),
             _make_asset("checksums.txt.asc"),
         ],
     }
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="missing TUI"):
             upgrade.resolve_release_assets(target="darwin-arm64")
 
@@ -1100,11 +1100,11 @@ def test_resolve_release_assets_missing_checksums():
     payload = {
         "tag_name": "v1.0.0",
         "assets": [
-            _make_asset("whisper_local-1.0.0.whl"),
+            _make_asset("murmur-1.0.0.whl"),
             _make_asset("murmur-tui-darwin-arm64.tar.gz"),
         ],
     }
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="missing checksum manifest"):
             upgrade.resolve_release_assets(target="darwin-arm64")
 
@@ -1113,12 +1113,12 @@ def test_resolve_release_assets_missing_signature():
     payload = {
         "tag_name": "v1.0.0",
         "assets": [
-            _make_asset("whisper_local-1.0.0.whl"),
+            _make_asset("murmur-1.0.0.whl"),
             _make_asset("murmur-tui-darwin-arm64.tar.gz"),
             _make_asset("checksums.txt"),
         ],
     }
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="missing checksum signature"):
             upgrade.resolve_release_assets(target="darwin-arm64")
 
@@ -1127,13 +1127,13 @@ def test_resolve_release_assets_with_version_tag():
     payload = {
         "tag_name": "v2.0.0",
         "assets": [
-            _make_asset("whisper_local-2.0.0.whl", "https://example.com/whl"),
+            _make_asset("murmur-2.0.0.whl", "https://example.com/whl"),
             _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("checksums.txt.asc", "https://example.com/sig"),
         ],
     }
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         bundle = upgrade.resolve_release_assets(
             target="darwin-arm64", requested_version="2.0.0"
         )
@@ -1142,7 +1142,7 @@ def test_resolve_release_assets_with_version_tag():
 
 def test_resolve_release_assets_no_tag():
     payload = {"tag_name": "", "assets": []}
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="valid tag"):
             upgrade.resolve_release_assets(target="darwin-arm64")
 
@@ -1158,7 +1158,7 @@ def test_resolve_release_assets_multiple_wheels():
             _make_asset("checksums.txt.asc"),
         ],
     }
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="multiple wheel"):
             upgrade.resolve_release_assets(target="darwin-arm64")
 
@@ -1169,7 +1169,7 @@ def test_resolve_release_assets_multiple_wheels():
 
 
 def test_verify_release_signature_no_gpg(tmp_path: Path):
-    with patch("whisper_local.upgrade.shutil.which", return_value=None):
+    with patch("murmur.upgrade.shutil.which", return_value=None):
         with pytest.raises(UpgradeError, match="gpg"):
             upgrade._verify_release_signature(
                 repository="owner/repo",
@@ -1198,7 +1198,7 @@ def test_verify_downloaded_release_assets_checksum_mismatch(tmp_path: Path):
         target="darwin-arm64",
     )
     # Bypass signature verification
-    with patch("whisper_local.upgrade._verify_release_signature"):
+    with patch("murmur.upgrade._verify_release_signature"):
         wheel_path = tmp_path / "test.whl"
         wheel_path.write_bytes(b"wheel content")
         tui_path = tmp_path / "tui.tar.gz"
@@ -1255,7 +1255,7 @@ def test_verify_downloaded_release_assets_success(tmp_path: Path):
         target="darwin-arm64",
     )
 
-    with patch("whisper_local.upgrade._verify_release_signature"):
+    with patch("murmur.upgrade._verify_release_signature"):
         # Should not raise
         upgrade._verify_downloaded_release_assets(
             bundle=bundle,
@@ -1317,7 +1317,7 @@ def test_detect_install_channel_exception_in_relative_to(tmp_path: Path):
     exe.write_text("#!/usr/bin/env python", encoding="utf-8")
 
     with patch.object(Path, "is_relative_to", side_effect=TypeError("fail")), \
-         patch("whisper_local.upgrade._looks_like_homebrew_install", return_value=False):
+         patch("murmur.upgrade._looks_like_homebrew_install", return_value=False):
         result = upgrade.detect_install_channel(
             executable=str(exe),
             installer_home=tmp_path,
@@ -1349,13 +1349,13 @@ def test_resolve_release_assets_release_asc_signature():
     payload = {
         "tag_name": "v1.0.0",
         "assets": [
-            _make_asset("whisper_local-1.0.0.whl", "https://example.com/whl"),
+            _make_asset("murmur-1.0.0.whl", "https://example.com/whl"),
             _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("release.asc", "https://example.com/sig"),
         ],
     }
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         bundle = upgrade.resolve_release_assets(target="darwin-arm64")
     assert bundle.signature_name == "release.asc"
 
@@ -1364,26 +1364,26 @@ def test_resolve_release_assets_checksum_asc_fallback():
     payload = {
         "tag_name": "v1.0.0",
         "assets": [
-            _make_asset("whisper_local-1.0.0.whl", "https://example.com/whl"),
+            _make_asset("murmur-1.0.0.whl", "https://example.com/whl"),
             _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("checksum-release.asc", "https://example.com/sig"),
         ],
     }
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         bundle = upgrade.resolve_release_assets(target="darwin-arm64")
     assert "checksum" in bundle.signature_name.lower()
 
 
 def test_resolve_release_assets_api_error():
-    with patch("whisper_local.upgrade._github_get_json", side_effect=Exception("network error")):
+    with patch("murmur.upgrade._github_get_json", side_effect=Exception("network error")):
         with pytest.raises(UpgradeError, match="Failed to fetch"):
             upgrade.resolve_release_assets(target="darwin-arm64")
 
 
 def test_resolve_release_assets_invalid_assets_type():
     payload = {"tag_name": "v1.0.0", "assets": "not_a_list"}
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="invalid assets"):
             upgrade.resolve_release_assets(target="darwin-arm64")
 
@@ -1398,7 +1398,7 @@ def test_resolve_release_assets_missing_download_urls():
             {"name": "checksums.txt.asc", "browser_download_url": "https://x.com/sig"},
         ],
     }
-    with patch("whisper_local.upgrade._github_get_json", return_value=payload):
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
         with pytest.raises(UpgradeError, match="missing download URLs"):
             upgrade.resolve_release_assets(target="darwin-arm64")
 
@@ -1413,10 +1413,10 @@ def test_verify_release_signature_download_key_fails(tmp_path: Path):
     checksums.write_text("test")
     sig = tmp_path / "checksums.txt.asc"
     sig.write_text("sig")
-    with patch("whisper_local.upgrade.shutil.which", return_value="/usr/bin/gpg"), \
-         patch("whisper_local.upgrade._expected_signing_fingerprint", return_value="ABCD1234"), \
-         patch("whisper_local.upgrade._signing_key_url_for_repository", return_value="https://example.com/key.gpg"), \
-         patch("whisper_local.upgrade._download_to_file", side_effect=Exception("download failed")):
+    with patch("murmur.upgrade.shutil.which", return_value="/usr/bin/gpg"), \
+         patch("murmur.upgrade._expected_signing_fingerprint", return_value="ABCD1234"), \
+         patch("murmur.upgrade._signing_key_url_for_repository", return_value="https://example.com/key.gpg"), \
+         patch("murmur.upgrade._download_to_file", side_effect=Exception("download failed")):
         with pytest.raises(UpgradeError, match="could not download signing key"):
             upgrade._verify_release_signature(
                 repository="owner/repo",
@@ -1437,11 +1437,11 @@ def test_verify_release_signature_fingerprint_mismatch(tmp_path: Path):
             return "fpr:::::::::WRONGFINGERPRINT1234:\n"
         return ""
 
-    with patch("whisper_local.upgrade.shutil.which", return_value="/usr/bin/gpg"), \
-         patch("whisper_local.upgrade._expected_signing_fingerprint", return_value="ABCDEF1234567890"), \
-         patch("whisper_local.upgrade._signing_key_url_for_repository", return_value="https://example.com/key.gpg"), \
-         patch("whisper_local.upgrade._download_to_file"), \
-         patch("whisper_local.upgrade._run_command_or_error", side_effect=fake_run_cmd):
+    with patch("murmur.upgrade.shutil.which", return_value="/usr/bin/gpg"), \
+         patch("murmur.upgrade._expected_signing_fingerprint", return_value="ABCDEF1234567890"), \
+         patch("murmur.upgrade._signing_key_url_for_repository", return_value="https://example.com/key.gpg"), \
+         patch("murmur.upgrade._download_to_file"), \
+         patch("murmur.upgrade._run_command_or_error", side_effect=fake_run_cmd):
         with pytest.raises(UpgradeError, match="fingerprint was not found"):
             upgrade._verify_release_signature(
                 repository="owner/repo",
@@ -1464,11 +1464,11 @@ def test_verify_release_signature_success(tmp_path: Path):
             return f"fpr:::::::::{expected_fp}:\n"
         return ""
 
-    with patch("whisper_local.upgrade.shutil.which", return_value="/usr/bin/gpg"), \
-         patch("whisper_local.upgrade._expected_signing_fingerprint", return_value=expected_fp), \
-         patch("whisper_local.upgrade._signing_key_url_for_repository", return_value="https://example.com/key.gpg"), \
-         patch("whisper_local.upgrade._download_to_file"), \
-         patch("whisper_local.upgrade._run_command_or_error", side_effect=fake_run_cmd):
+    with patch("murmur.upgrade.shutil.which", return_value="/usr/bin/gpg"), \
+         patch("murmur.upgrade._expected_signing_fingerprint", return_value=expected_fp), \
+         patch("murmur.upgrade._signing_key_url_for_repository", return_value="https://example.com/key.gpg"), \
+         patch("murmur.upgrade._download_to_file"), \
+         patch("murmur.upgrade._run_command_or_error", side_effect=fake_run_cmd):
         # Should not raise
         upgrade._verify_release_signature(
             repository="owner/repo",
@@ -1515,7 +1515,7 @@ def test_verify_downloaded_release_assets_tui_mismatch(tmp_path: Path):
         target="darwin-arm64",
     )
 
-    with patch("whisper_local.upgrade._verify_release_signature"):
+    with patch("murmur.upgrade._verify_release_signature"):
         with pytest.raises(UpgradeError, match="TUI checksum mismatch"):
             upgrade._verify_downloaded_release_assets(
                 bundle=bundle,

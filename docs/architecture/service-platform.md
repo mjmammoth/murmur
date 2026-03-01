@@ -23,31 +23,31 @@ To avoid repeated refactors, we need explicit contracts for:
 We define and own these contracts:
 
 1. Platform contracts
-- `src/whisper_local/platform/capabilities.py`
+- `src/murmur/platform/capabilities.py`
   - `PlatformCapabilities` includes:
     - `hotkey_capture`
     - `hotkey_swallow`
     - `status_indicator`
     - `auto_paste`
     - `hotkey_guidance`
-- `src/whisper_local/platform/providers.py`
+- `src/murmur/platform/providers.py`
   - `HotkeyProvider`
   - `StatusIndicatorProvider`
   - `PasteProvider`
-- `src/whisper_local/platform/factory.py`
+- `src/murmur/platform/factory.py`
   - capability detection
   - provider construction
   - hotkey validation
 
 2. Service state contracts
-- `src/whisper_local/service_state.py`
+- `src/murmur/service_state.py`
   - state directory: `~/.local/state/murmur`
   - service file: `service.json`
   - transcript database: `transcripts.sqlite3`
   - typed `ServiceState` and `ServiceStatus`
 
 3. Transcript persistence contract
-- `src/whisper_local/transcript_store.py`
+- `src/murmur/transcript_store.py`
   - SQLite-backed transcript records
   - bounded retention via config (`history.max_entries`)
   - stable transcript message metadata (`id`, `created_at`)

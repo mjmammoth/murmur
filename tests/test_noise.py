@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from whisper_local.noise import (
+from murmur.noise import (
     FRAME_SIZE,
     RNNoiseSuppressor,
     _candidate_rnnoise_paths,
@@ -83,21 +83,21 @@ def test_candidate_rnnoise_paths_with_caskroom(tmp_path: Path, monkeypatch):
 
 def test_rnnoise_library_candidates_env_var(monkeypatch):
     monkeypatch.setenv("RNNOISE_LIB", "/custom/librnnoise.dylib")
-    with patch("whisper_local.noise.ctypes.util.find_library", return_value=None):
+    with patch("murmur.noise.ctypes.util.find_library", return_value=None):
         candidates = _rnnoise_library_candidates()
     assert candidates[0] == "/custom/librnnoise.dylib"
 
 
 def test_rnnoise_library_candidates_find_library(monkeypatch):
     monkeypatch.delenv("RNNOISE_LIB", raising=False)
-    with patch("whisper_local.noise.ctypes.util.find_library", return_value="librnnoise.so"):
+    with patch("murmur.noise.ctypes.util.find_library", return_value="librnnoise.so"):
         candidates = _rnnoise_library_candidates()
     assert "librnnoise.so" in candidates
 
 
 def test_rnnoise_library_candidates_deduplication(monkeypatch):
     monkeypatch.setenv("RNNOISE_LIB", "/custom/lib.dylib")
-    with patch("whisper_local.noise.ctypes.util.find_library", return_value="/custom/lib.dylib"):
+    with patch("murmur.noise.ctypes.util.find_library", return_value="/custom/lib.dylib"):
         candidates = _rnnoise_library_candidates()
     assert candidates.count("/custom/lib.dylib") == 1
 
@@ -118,8 +118,8 @@ def test_suppressor_disabled():
 
 def test_suppressor_load_all_fail(monkeypatch):
     monkeypatch.delenv("RNNOISE_LIB", raising=False)
-    with patch("whisper_local.noise.ctypes.util.find_library", return_value=None), \
-         patch("whisper_local.noise._candidate_rnnoise_paths", return_value=[]), \
+    with patch("murmur.noise.ctypes.util.find_library", return_value=None), \
+         patch("murmur.noise._candidate_rnnoise_paths", return_value=[]), \
          patch.dict("sys.modules", {"pyrnnoise": None}):
         sup = RNNoiseSuppressor(enabled=True)
     assert sup.available is False
@@ -132,7 +132,7 @@ def test_suppressor_load_all_fail(monkeypatch):
 def test_try_load_ctypes_oserror():
     sup = RNNoiseSuppressor(enabled=False)
     errors: list[str] = []
-    with patch("whisper_local.noise.ctypes.CDLL", side_effect=OSError("not found")):
+    with patch("murmur.noise.ctypes.CDLL", side_effect=OSError("not found")):
         result = sup._try_load_ctypes("/fake/lib.dylib", errors)
     assert result is False
     assert len(errors) == 1
@@ -143,7 +143,7 @@ def test_try_load_ctypes_create_returns_zero():
     errors: list[str] = []
     mock_lib = MagicMock()
     mock_lib.rnnoise_create.return_value = 0  # failed init
-    with patch("whisper_local.noise.ctypes.CDLL", return_value=mock_lib):
+    with patch("murmur.noise.ctypes.CDLL", return_value=mock_lib):
         result = sup._try_load_ctypes("/fake/lib.dylib", errors)
     assert result is False
     assert sup._lib is None
@@ -154,7 +154,7 @@ def test_try_load_ctypes_success():
     errors: list[str] = []
     mock_lib = MagicMock()
     mock_lib.rnnoise_create.return_value = 42  # valid state pointer
-    with patch("whisper_local.noise.ctypes.CDLL", return_value=mock_lib):
+    with patch("murmur.noise.ctypes.CDLL", return_value=mock_lib):
         result = sup._try_load_ctypes("/fake/lib.dylib", errors)
     assert result is True
     assert sup.available is True
@@ -316,7 +316,7 @@ def test_resolve_rnnoise_library_path_env_var(tmp_path: Path, monkeypatch):
 
 def test_resolve_rnnoise_library_path_find_library(monkeypatch):
     monkeypatch.delenv("RNNOISE_LIB", raising=False)
-    with patch("whisper_local.noise.ctypes.util.find_library", return_value="librnnoise.so"):
+    with patch("murmur.noise.ctypes.util.find_library", return_value="librnnoise.so"):
         assert _resolve_rnnoise_library_path() == "librnnoise.so"
 
 
@@ -324,15 +324,15 @@ def test_resolve_rnnoise_library_path_candidate(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("RNNOISE_LIB", raising=False)
     candidate = tmp_path / "rnnoise"
     candidate.write_bytes(b"fake")
-    with patch("whisper_local.noise.ctypes.util.find_library", return_value=None), \
-         patch("whisper_local.noise._candidate_rnnoise_paths", return_value=[candidate]):
+    with patch("murmur.noise.ctypes.util.find_library", return_value=None), \
+         patch("murmur.noise._candidate_rnnoise_paths", return_value=[candidate]):
         assert _resolve_rnnoise_library_path() == str(candidate)
 
 
 def test_resolve_rnnoise_library_path_none(monkeypatch):
     monkeypatch.delenv("RNNOISE_LIB", raising=False)
-    with patch("whisper_local.noise.ctypes.util.find_library", return_value=None), \
-         patch("whisper_local.noise._candidate_rnnoise_paths", return_value=[]):
+    with patch("murmur.noise.ctypes.util.find_library", return_value=None), \
+         patch("murmur.noise._candidate_rnnoise_paths", return_value=[]):
         assert _resolve_rnnoise_library_path() is None
 
 

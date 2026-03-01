@@ -29,8 +29,8 @@ try:  # pragma: no cover - optional runtime import
 except Exception:  # pragma: no cover - optional runtime import
     ctranslate2 = None
 
-from whisper_local.config import normalize_runtime_name
-from whisper_local.model_manager import (
+from murmur.config import normalize_runtime_name
+from murmur.model_manager import (
     get_installed_model_path,
 )
 

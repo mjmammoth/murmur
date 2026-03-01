@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from whisper_local.platform import factory
-from whisper_local.platform.providers import NoopHotkeyProvider, WindowsHotkeyProvider, X11HotkeyProvider
+from murmur.platform import factory
+from murmur.platform.providers import NoopHotkeyProvider, WindowsHotkeyProvider, X11HotkeyProvider
 
 
 class _DummyModule:

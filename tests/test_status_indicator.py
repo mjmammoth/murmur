@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-_SI_KEY = "whisper_local.status_indicator"
+_SI_KEY = "murmur.status_indicator"
 _MOCK_MODULES = {
     "objc": {"python_method": lambda f: f, "super": MagicMock()},
     "AppKit": {

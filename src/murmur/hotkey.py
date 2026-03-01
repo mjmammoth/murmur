@@ -29,7 +29,7 @@ from Quartz import (
     kCGSessionEventTap,
     kCFRunLoopCommonModes,
 )
-from whisper_local.platform.providers import PressReleaseCallback
+from murmur.platform.providers import PressReleaseCallback
 
 # macOS NX_SYSDEFINED event type for media/special keys.
 # When "Use F1, F2, etc. keys as standard function keys" is OFF (the default),

@@ -14,8 +14,8 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from whisper_local.platform import create_status_indicator_provider
-from whisper_local.service_state import (
+from murmur.platform import create_status_indicator_provider
+from murmur.service_state import (
     ServiceState,
     ServiceStatus,
     ensure_state_directory,
@@ -113,7 +113,7 @@ def _pid_matches_bridge_process(pid: int, *, host: str, port: int) -> bool:
         )
         return True
     return (
-        _argv_contains_sequence(argv, ("-m", "whisper_local.cli", "bridge"))
+        _argv_contains_sequence(argv, ("-m", "murmur.cli", "bridge"))
         and _argv_contains_option_value(argv, "--host", host)
         and _argv_contains_option_value(argv, "--port", str(port))
     )
@@ -128,7 +128,7 @@ def _pid_matches_status_indicator_process(pid: int, *, host: str, port: int) -> 
         )
         return True
     return (
-        _argv_contains_sequence(argv, ("-m", "whisper_local.status_indicator"))
+        _argv_contains_sequence(argv, ("-m", "murmur.status_indicator"))
         and _argv_contains_option_value(argv, "--host", host)
         and _argv_contains_option_value(argv, "--port", str(port))
     )
@@ -363,7 +363,7 @@ class ServiceManager:
         command = [
             self.python_executable,
             "-m",
-            "whisper_local.cli",
+            "murmur.cli",
             "bridge",
             "--host",
             host,

@@ -13,9 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from whisper_local import __version__
-from whisper_local.archive_extract import ArchiveExtractionError, install_tui_binary_from_archive
-from whisper_local.service_manager import ServiceManager
+from murmur import __version__
+from murmur.archive_extract import ArchiveExtractionError, install_tui_binary_from_archive
+from murmur.service_manager import ServiceManager
 
 
 DEFAULT_REPOSITORY = os.environ.get("MURMUR_REPO", "mjmammoth/murmur")
@@ -611,7 +611,7 @@ def _installed_version(python_executable: str) -> str:
             [
                 python_executable,
                 "-c",
-                "import whisper_local; print(whisper_local.__version__)",
+                "import murmur; print(murmur.__version__)",
             ],
             check=True,
             stdout=subprocess.PIPE,

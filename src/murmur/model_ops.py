@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Callable, Literal
 
-from whisper_local.config import normalize_runtime_name
+from murmur.config import normalize_runtime_name
 
 RuntimeName = Literal["faster-whisper", "whisper.cpp"]
 
@@ -105,7 +105,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             Path: Filesystem path to the installed model.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm._download_faster_model(
             model_name,
@@ -120,7 +120,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
         Parameters:
             model_name (str): The model identifier used by the faster-whisper runtime to locate and remove the installed model.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         mm._remove_faster_model(model_name)
 
@@ -131,7 +131,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
         	Path or `None`: Path to the installed model file if the model is installed, `None` otherwise.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm._get_installed_faster_model_path(model_name)
 
@@ -145,7 +145,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             int: Total cache size for the specified model in bytes.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm._faster_model_cache_size_bytes(model_name)
 
@@ -156,7 +156,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             int | None: The estimated size in bytes for `model_name` if known, `None` otherwise.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm.MODEL_ESTIMATED_SIZE_BYTES.get(model_name)
 
@@ -185,7 +185,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
             ValueError: If `model_name` is not a recognized whisper.cpp model.
             DownloadCancelledError: If cancellation is requested before start or during the download.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         if model_name not in mm.MODEL_NAMES:
             raise ValueError(f"Unknown model: {model_name}")
@@ -252,10 +252,10 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
         	Path: Path to the downloaded file as printed by the subprocess.
 
         Raises:
-        	whisper_local.model_manager.DownloadCancelledError: If cancellation is requested via cancel_check during download.
+        	murmur.model_manager.DownloadCancelledError: If cancellation is requested via cancel_check during download.
         	RuntimeError: If the subprocess fails or does not return a download path.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         env = os.environ.copy()
         env["HF_HUB_DISABLE_XET"] = "1"
@@ -360,7 +360,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
         Parameters:
             model_name (str): The whisper.cpp model identifier to remove (e.g., a known model name).
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         mm._remove_whisper_cpp_model(model_name)
 
@@ -374,7 +374,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             Path | None: Path to the installed model file if installed, `None` otherwise.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm.get_installed_whisper_cpp_model_path(model_name)
 
@@ -388,7 +388,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             int: Total cache size in bytes for the specified model.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm._whisper_cpp_model_cache_size_bytes(model_name)
 
@@ -399,7 +399,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             int | None: Estimated size in bytes for the specified model, or None if no estimate is available.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm.WHISPER_CPP_ESTIMATED_SIZE_BYTES.get(model_name)
 

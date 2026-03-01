@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from whisper_local import tui_runtime
+from murmur import tui_runtime
 
 
 def _touch_executable(path: Path) -> None:
@@ -20,7 +20,7 @@ def test_resolve_runtime_uses_env_override(tmp_path: Path) -> None:
     runtime = tui_runtime.resolve_tui_runtime(
         env={tui_runtime.ENV_TUI_BIN: str(binary)},
         sys_executable=str(tmp_path / "python"),
-        cli_file=tmp_path / "src" / "whisper_local" / "cli.py",
+        cli_file=tmp_path / "src" / "murmur" / "cli.py",
         current_dir=tmp_path,
     )
 
@@ -35,7 +35,7 @@ def test_resolve_runtime_fails_for_invalid_env_override(tmp_path: Path) -> None:
         tui_runtime.resolve_tui_runtime(
             env={tui_runtime.ENV_TUI_BIN: str(bad_binary)},
             sys_executable=str(tmp_path / "python"),
-            cli_file=tmp_path / "src" / "whisper_local" / "cli.py",
+            cli_file=tmp_path / "src" / "murmur" / "cli.py",
             current_dir=tmp_path,
         )
 
@@ -49,7 +49,7 @@ def test_resolve_runtime_uses_packaged_binary_near_python(tmp_path: Path) -> Non
     runtime = tui_runtime.resolve_tui_runtime(
         env={},
         sys_executable=str(python_bin),
-        cli_file=tmp_path / "libexec" / "lib" / "python3.12" / "site-packages" / "whisper_local" / "cli.py",
+        cli_file=tmp_path / "libexec" / "lib" / "python3.12" / "site-packages" / "murmur" / "cli.py",
         current_dir=tmp_path,
     )
 
@@ -68,7 +68,7 @@ def test_resolve_runtime_dev_mode_needs_bun(tmp_path: Path, monkeypatch: pytest.
         tui_runtime.resolve_tui_runtime(
             env={tui_runtime.ENV_DEV_USE_BUN: "1"},
             sys_executable=str(tmp_path / "python"),
-            cli_file=repo_root / "src" / "whisper_local" / "cli.py",
+            cli_file=repo_root / "src" / "murmur" / "cli.py",
             current_dir=repo_root,
         )
 
@@ -83,7 +83,7 @@ def test_resolve_runtime_dev_mode_uses_local_tui(tmp_path: Path, monkeypatch: py
     runtime = tui_runtime.resolve_tui_runtime(
         env={tui_runtime.ENV_DEV_USE_BUN: "1"},
         sys_executable=str(tmp_path / "python"),
-        cli_file=repo_root / "src" / "whisper_local" / "cli.py",
+        cli_file=repo_root / "src" / "murmur" / "cli.py",
         current_dir=repo_root,
     )
 
@@ -104,7 +104,7 @@ def test_resolve_runtime_prefers_env_over_packaged(tmp_path: Path) -> None:
     runtime = tui_runtime.resolve_tui_runtime(
         env={tui_runtime.ENV_TUI_BIN: str(env_binary)},
         sys_executable=str(tmp_path / "bin" / "python"),
-        cli_file=tmp_path / "src" / "whisper_local" / "cli.py",
+        cli_file=tmp_path / "src" / "murmur" / "cli.py",
         current_dir=tmp_path,
     )
 
@@ -119,7 +119,7 @@ def test_resolve_runtime_no_runtime_available_raises(tmp_path: Path) -> None:
         tui_runtime.resolve_tui_runtime(
             env={},
             sys_executable=str(tmp_path / "python"),
-            cli_file=tmp_path / "src" / "whisper_local" / "cli.py",
+            cli_file=tmp_path / "src" / "murmur" / "cli.py",
             current_dir=tmp_path,
         )
 
@@ -135,7 +135,7 @@ def test_resolve_runtime_packaged_multiple_candidates(tmp_path: Path) -> None:
     runtime = tui_runtime.resolve_tui_runtime(
         env={},
         sys_executable=str(python_bin),
-        cli_file=tmp_path / "venv" / "lib" / "python3.12" / "site-packages" / "whisper_local" / "cli.py",
+        cli_file=tmp_path / "venv" / "lib" / "python3.12" / "site-packages" / "murmur" / "cli.py",
         current_dir=tmp_path,
     )
 
@@ -151,7 +151,7 @@ def test_resolve_runtime_packaged_in_libexec(tmp_path: Path) -> None:
     binary = tmp_path / "libexec" / "bin" / "murmur-tui"
     _touch_executable(binary)
 
-    cli_file = tmp_path / "libexec" / "lib" / "python3.12" / "site-packages" / "whisper_local" / "cli.py"
+    cli_file = tmp_path / "libexec" / "lib" / "python3.12" / "site-packages" / "murmur" / "cli.py"
     cli_file.parent.mkdir(parents=True, exist_ok=True)
     cli_file.touch()
 
@@ -172,7 +172,7 @@ def test_resolve_runtime_dev_mode_searches_cli_parents(tmp_path: Path, monkeypat
     (repo_root / "tui" / "src").mkdir(parents=True, exist_ok=True)
     (repo_root / "tui" / "src" / "index.tsx").write_text("export {};\n", encoding="utf-8")
 
-    cli_file = repo_root / "src" / "whisper_local" / "cli.py"
+    cli_file = repo_root / "src" / "murmur" / "cli.py"
     cli_file.parent.mkdir(parents=True, exist_ok=True)
     cli_file.touch()
 
@@ -197,7 +197,7 @@ def test_resolve_runtime_dev_mode_missing_tui_directory(tmp_path: Path, monkeypa
         tui_runtime.resolve_tui_runtime(
             env={tui_runtime.ENV_DEV_USE_BUN: "1"},
             sys_executable=str(tmp_path / "python"),
-            cli_file=tmp_path / "src" / "whisper_local" / "cli.py",
+            cli_file=tmp_path / "src" / "murmur" / "cli.py",
             current_dir=tmp_path,
         )
 
@@ -242,7 +242,7 @@ def test_packaged_tui_candidates_deduplicates(tmp_path: Path) -> None:
 
 def test_find_local_tui_directory_not_found(tmp_path: Path) -> None:
     """Test _find_local_tui_directory returns None when tui/ not found."""
-    cli_file = tmp_path / "src" / "whisper_local" / "cli.py"
+    cli_file = tmp_path / "src" / "murmur" / "cli.py"
     cli_file.parent.mkdir(parents=True)
     cli_file.touch()
 

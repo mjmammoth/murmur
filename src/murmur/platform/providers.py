@@ -62,7 +62,7 @@ class NoopHotkeyProvider(HotkeyProvider):
 class MacOSHotkeyProvider(HotkeyProvider):
     def __init__(self, hotkey: str, on_press: PressReleaseCallback, on_release: PressReleaseCallback) -> None:
         # Import only on macOS paths to keep non-darwin startup safe.
-        from whisper_local.hotkey import HotkeyListener
+        from murmur.hotkey import HotkeyListener
 
         self._listener = HotkeyListener(hotkey, on_press=on_press, on_release=on_release)
 
@@ -469,7 +469,7 @@ class SubprocessStatusIndicatorProvider(StatusIndicatorProvider):
             [
                 self.python_executable,
                 "-m",
-                "whisper_local.status_indicator",
+                "murmur.status_indicator",
                 "--host",
                 self.host,
                 "--port",
@@ -511,6 +511,6 @@ class NoopPasteProvider(PasteProvider):
 
 class DefaultPasteProvider(PasteProvider):
     def paste_from_clipboard(self) -> bool:
-        from whisper_local.output import paste_from_clipboard
+        from murmur.output import paste_from_clipboard
 
         return paste_from_clipboard()

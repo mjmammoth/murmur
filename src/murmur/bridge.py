@@ -17,8 +17,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import websockets
 
-from whisper_local import __version__
-from whisper_local.audio import (
+from murmur import __version__
+from murmur.audio import (
     AudioInputDeviceInfo,
     AudioRecorder,
     default_audio_input_device,
@@ -26,8 +26,8 @@ from whisper_local.audio import (
     resolve_audio_input_device_index,
     scan_audio_input_devices,
 )
-from whisper_local.audio_file import DEFAULT_DECODE_SAMPLE_RATE, load_audio_file
-from whisper_local.config import (
+from murmur.audio_file import DEFAULT_DECODE_SAMPLE_RATE, load_audio_file
+from murmur.config import (
     AppConfig,
     SUPPORTED_RUNTIMES,
     default_config_path,
@@ -35,7 +35,7 @@ from whisper_local.config import (
     normalize_runtime_name,
     save_config,
 )
-from whisper_local.model_manager import (
+from murmur.model_manager import (
     RUNTIME_NAMES,
     DownloadCancelledError,
     MODEL_NAMES,
@@ -46,23 +46,23 @@ from whisper_local.model_manager import (
     prune_invalid_model_caches,
     remove_model,
 )
-from whisper_local.model_task_queue import SerialModelTaskQueue
-from whisper_local.noise import RNNoiseSuppressor
-from whisper_local.output import (
+from murmur.model_task_queue import SerialModelTaskQueue
+from murmur.noise import RNNoiseSuppressor
+from murmur.output import (
     append_to_file,
     capture_clipboard_snapshot,
     copy_to_clipboard,
     restore_clipboard_snapshot,
 )
-from whisper_local.platform import (
+from murmur.platform import (
     create_hotkey_provider,
     create_paste_provider,
     detect_platform_capabilities,
     validate_hotkey,
 )
-from whisper_local.service_state import transcript_db_path
-from whisper_local.transcript_store import TranscriptRecord, TranscriptStore
-from whisper_local.vad import VadProcessor
+from murmur.service_state import transcript_db_path
+from murmur.transcript_store import TranscriptRecord, TranscriptStore
+from murmur.vad import VadProcessor
 
 WebSocketServerProtocol = Any
 
@@ -116,7 +116,7 @@ class BridgeLogFilter(logging.Filter):
             if "opening handshake failed" in message:
                 return False
 
-        if record.name.startswith("whisper_local"):
+        if record.name.startswith("murmur"):
             return record.levelno >= logging.INFO
         return record.levelno >= logging.WARNING
 
@@ -523,7 +523,7 @@ class BridgeServer:
         Returns:
             transcriber: A Transcriber initialized with the configured model name, runtime, device, compute_type, and model path.
         """
-        from whisper_local.transcribe import Transcriber
+        from murmur.transcribe import Transcriber
 
         return Transcriber(
             model_name=self.config.model.name,
@@ -543,7 +543,7 @@ class BridgeServer:
         Returns:
         	capabilities (dict[str, Any]): A mapping of capability keys to detected values for the probed runtime.
         """
-        from whisper_local.transcribe import detect_runtime_capabilities
+        from murmur.transcribe import detect_runtime_capabilities
 
         return detect_runtime_capabilities(selected_runtime or self.config.model.runtime)
 

@@ -1,4 +1,4 @@
-from whisper_local.cli import main
+from murmur.cli import main
 
 
 if __name__ == "__main__":

@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from whisper_local.audio import AudioInputDeviceInfo
-from whisper_local.bridge import (
+from murmur.audio import AudioInputDeviceInfo
+from murmur.bridge import (
     BridgeLogFilter,
     BridgeServer,
     WebSocketLogHandler,
 )
-from whisper_local.config import AppConfig
+from murmur.config import AppConfig
 
 
 class FakeServeContext:
@@ -109,7 +109,7 @@ def mock_config():
 def isolate_transcript_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Use an isolated transcript SQLite file for each test."""
     monkeypatch.setattr(
-        "whisper_local.bridge.transcript_db_path",
+        "murmur.bridge.transcript_db_path",
         lambda: tmp_path / "transcripts.sqlite3",
     )
 
@@ -148,12 +148,12 @@ def test_bridge_log_filter_blocks_websocket_asyncio_handshake_errors():
     assert not log_filter.filter(record)
 
 
-def test_bridge_log_filter_allows_whisper_local_info():
-    """Test BridgeLogFilter allows whisper_local INFO logs."""
+def test_bridge_log_filter_allows_murmur_info():
+    """Test BridgeLogFilter allows murmur INFO logs."""
     log_filter = BridgeLogFilter()
 
     record = logging.LogRecord(
-        name='whisper_local.bridge',
+        name='murmur.bridge',
         level=logging.INFO,
         pathname='',
         lineno=0,
@@ -165,12 +165,12 @@ def test_bridge_log_filter_allows_whisper_local_info():
     assert log_filter.filter(record)
 
 
-def test_bridge_log_filter_blocks_whisper_local_debug():
-    """Test BridgeLogFilter blocks whisper_local DEBUG logs."""
+def test_bridge_log_filter_blocks_murmur_debug():
+    """Test BridgeLogFilter blocks murmur DEBUG logs."""
     log_filter = BridgeLogFilter()
 
     record = logging.LogRecord(
-        name='whisper_local.bridge',
+        name='murmur.bridge',
         level=logging.DEBUG,
         pathname='',
         lineno=0,
@@ -213,7 +213,7 @@ def test_bridge_log_filter_allows_websocket_non_handshake_errors():
         exc_info=None
     )
 
-    # Should be allowed since it's WARNING level for non-whisper_local
+    # Should be allowed since it's WARNING level for non-murmur
     assert log_filter.filter(record)
 
 
@@ -234,8 +234,8 @@ def test_bridge_server_init_forces_auto_copy_when_auto_paste_enabled(mock_config
     mock_config.auto_copy = False
     mock_config.auto_paste = True
 
-    with patch('whisper_local.bridge.save_config') as mock_save:
-        with patch('whisper_local.bridge.logger') as mock_logger:
+    with patch('murmur.bridge.save_config') as mock_save:
+        with patch('murmur.bridge.logger') as mock_logger:
             server = BridgeServer(mock_config)
 
     assert server._auto_paste is True
@@ -257,8 +257,8 @@ def test_toggle_auto_copy_is_blocked_while_auto_paste_enabled(mock_config):
     server._broadcast = AsyncMock()
     server._broadcast_config = AsyncMock()
 
-    with patch('whisper_local.bridge.save_config') as mock_save:
-        with patch('whisper_local.bridge.logger') as mock_logger:
+    with patch('murmur.bridge.save_config') as mock_save:
+        with patch('murmur.bridge.logger') as mock_logger:
             asyncio.run(
                 server._handle_message(
                     Mock(),
@@ -292,8 +292,8 @@ def test_toggle_auto_paste_enables_auto_copy(mock_config):
     server._broadcast = AsyncMock()
     server._broadcast_config = AsyncMock()
 
-    with patch('whisper_local.bridge.save_config') as mock_save:
-        with patch('whisper_local.bridge.logger') as mock_logger:
+    with patch('murmur.bridge.save_config') as mock_save:
+        with patch('murmur.bridge.logger') as mock_logger:
             asyncio.run(
                 server._handle_message(
                     Mock(),
@@ -325,7 +325,7 @@ def test_toggle_auto_revert_clipboard_persists_and_broadcasts(mock_config):
     server._broadcast = AsyncMock()
     server._broadcast_config = AsyncMock()
 
-    with patch('whisper_local.bridge.save_config') as mock_save:
+    with patch('murmur.bridge.save_config') as mock_save:
         asyncio.run(
             server._handle_message(
                 Mock(),
@@ -485,7 +485,7 @@ def test_first_run_start_defers_runtime_initialization_until_onboarding(mock_con
 
     async def _run():
         with patch.object(server, "_has_installed_models", return_value=False), patch(
-            "whisper_local.bridge.websockets.serve", return_value=FakeServeContext()
+            "murmur.bridge.websockets.serve", return_value=FakeServeContext()
         ), patch.object(server, "_spawn_task") as mock_spawn_task:
             task = asyncio.create_task(server.start())
             await asyncio.sleep(0.01)
@@ -504,7 +504,7 @@ def test_non_first_run_start_spawns_runtime_initialization_task(mock_config):
 
     async def _run():
         with patch.object(server, "_has_installed_models", return_value=True), patch(
-            "whisper_local.bridge.websockets.serve", return_value=FakeServeContext()
+            "murmur.bridge.websockets.serve", return_value=FakeServeContext()
         ), patch.object(server, "_spawn_task", side_effect=spawn_task_stub) as mock_spawn_task:
             task = asyncio.create_task(server.start())
             await asyncio.sleep(0.01)
@@ -622,10 +622,10 @@ def test_init_components_falls_back_to_default_when_saved_device_missing(mock_co
 
     with patch.object(server, "_refresh_audio_inputs", side_effect=fake_refresh), patch.object(
         server, "_persist_config", return_value=None
-    ), patch("whisper_local.bridge.AudioRecorder") as mock_recorder, patch(
-        "whisper_local.bridge.RNNoiseSuppressor"
-    ), patch("whisper_local.bridge.VadProcessor"), patch(
-        "whisper_local.bridge.create_hotkey_provider"
+    ), patch("murmur.bridge.AudioRecorder") as mock_recorder, patch(
+        "murmur.bridge.RNNoiseSuppressor"
+    ), patch("murmur.bridge.VadProcessor"), patch(
+        "murmur.bridge.create_hotkey_provider"
     ):
         server._init_components()
 
@@ -693,15 +693,15 @@ def test_process_audio_auto_paste_reverts_clipboard_in_order(mock_config):
         """
         return func(*args, **kwargs)
 
-    with patch("whisper_local.bridge.capture_clipboard_snapshot") as mock_capture, patch(
-        "whisper_local.bridge.copy_to_clipboard"
+    with patch("murmur.bridge.capture_clipboard_snapshot") as mock_capture, patch(
+        "murmur.bridge.copy_to_clipboard"
     ) as mock_copy, patch.object(
         server._paste_provider, "paste_from_clipboard"
     ) as mock_paste, patch(
-        "whisper_local.bridge.restore_clipboard_snapshot"
+        "murmur.bridge.restore_clipboard_snapshot"
     ) as mock_restore, patch(
-        "whisper_local.bridge.asyncio.to_thread", side_effect=fake_to_thread
-    ), patch("whisper_local.bridge.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        "murmur.bridge.asyncio.to_thread", side_effect=fake_to_thread
+    ), patch("murmur.bridge.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
         mock_capture.side_effect = lambda: call_order.append("capture") or snapshot
         mock_copy.side_effect = lambda text: call_order.append("copy") or True
         mock_paste.side_effect = lambda: call_order.append("paste") or True
@@ -797,7 +797,7 @@ def test_process_audio_broadcasts_transcript_when_persist_fails(mock_config):
     async def fake_to_thread(func, *args, **kwargs):
         return func(*args, **kwargs)
 
-    with patch("whisper_local.bridge.asyncio.to_thread", side_effect=fake_to_thread):
+    with patch("murmur.bridge.asyncio.to_thread", side_effect=fake_to_thread):
         asyncio.run(
             server._process_audio(
                 audio,
@@ -857,13 +857,13 @@ def test_process_audio_auto_paste_without_revert_does_not_restore(mock_config):
         """
         return func(*args, **kwargs)
 
-    with patch("whisper_local.bridge.capture_clipboard_snapshot") as mock_capture, patch(
-        "whisper_local.bridge.copy_to_clipboard", return_value=True
+    with patch("murmur.bridge.capture_clipboard_snapshot") as mock_capture, patch(
+        "murmur.bridge.copy_to_clipboard", return_value=True
     ), patch.object(
         server._paste_provider, "paste_from_clipboard", return_value=True
     ), patch(
-        "whisper_local.bridge.restore_clipboard_snapshot"
-    ) as mock_restore, patch("whisper_local.bridge.asyncio.to_thread", side_effect=fake_to_thread):
+        "murmur.bridge.restore_clipboard_snapshot"
+    ) as mock_restore, patch("murmur.bridge.asyncio.to_thread", side_effect=fake_to_thread):
         asyncio.run(
             server._process_audio(
                 audio,
@@ -915,15 +915,15 @@ def test_process_audio_auto_paste_revert_attempted_when_paste_fails(mock_config)
         """
         return func(*args, **kwargs)
 
-    with patch("whisper_local.bridge.capture_clipboard_snapshot", return_value=object()), patch(
-        "whisper_local.bridge.copy_to_clipboard", return_value=True
+    with patch("murmur.bridge.capture_clipboard_snapshot", return_value=object()), patch(
+        "murmur.bridge.copy_to_clipboard", return_value=True
     ), patch.object(
         server._paste_provider, "paste_from_clipboard", return_value=False
     ), patch(
-        "whisper_local.bridge.restore_clipboard_snapshot", return_value=True
+        "murmur.bridge.restore_clipboard_snapshot", return_value=True
     ) as mock_restore, patch(
-        "whisper_local.bridge.asyncio.to_thread", side_effect=fake_to_thread
-    ), patch("whisper_local.bridge.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        "murmur.bridge.asyncio.to_thread", side_effect=fake_to_thread
+    ), patch("murmur.bridge.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
         asyncio.run(
             server._process_audio(
                 audio,
@@ -981,7 +981,7 @@ def test_bridge_server_on_task_done_logs_exception():
     mock_task.exception.return_value = RuntimeError("Task failed")
     server._background_tasks.add(mock_task)
 
-    with patch('whisper_local.bridge.logger') as mock_logger:
+    with patch('murmur.bridge.logger') as mock_logger:
         server._on_task_done(mock_task)
 
         mock_logger.error.assert_called_once()
@@ -1279,8 +1279,8 @@ def test_handle_client_disconnect_cleanup_runs_once(mock_config):
 
     websocket = DummyWebSocket()
 
-    with patch("whisper_local.bridge.websockets.ConnectionClosed", RuntimeError), patch(
-        "whisper_local.bridge.logger"
+    with patch("murmur.bridge.websockets.ConnectionClosed", RuntimeError), patch(
+        "murmur.bridge.logger"
     ) as mock_logger:
         asyncio.run(server._handle_client(websocket))
 
@@ -1320,7 +1320,7 @@ def test_send_transcript_history_handles_history_read_failure(mock_config):
     server._transcript_store.history = Mock(side_effect=RuntimeError("history read failed"))
     websocket = AsyncMock()
 
-    with patch("whisper_local.bridge.logger") as mock_logger:
+    with patch("murmur.bridge.logger") as mock_logger:
         asyncio.run(server._send_transcript_history(websocket))
 
     websocket.send.assert_awaited_once()
@@ -1368,7 +1368,7 @@ def test_bridge_server_installed_model_names():
     config = Mock()
     server = BridgeServer(config)
 
-    with patch('whisper_local.bridge.list_installed_models') as mock_list:
+    with patch('murmur.bridge.list_installed_models') as mock_list:
         mock_model1 = Mock(installed=True)
         mock_model1.name = 'tiny'
         mock_model2 = Mock(installed=False)
@@ -1389,7 +1389,7 @@ def test_bridge_server_installed_model_names_backend_aware():
     config.model.runtime = "faster-whisper"
     server = BridgeServer(config)
 
-    with patch("whisper_local.bridge.list_installed_models") as mock_list:
+    with patch("murmur.bridge.list_installed_models") as mock_list:
         tiny = Mock()
         tiny.name = "tiny"
         tiny.variants = {
@@ -1426,7 +1426,7 @@ def test_bridge_server_set_model_runtime_missing_variant_emits_requirement_event
     }
 
     with patch.object(server, "_detect_runtime_capabilities", return_value=capabilities), patch(
-        "whisper_local.bridge.get_installed_model_path",
+        "murmur.bridge.get_installed_model_path",
         return_value=None,
     ):
         asyncio.run(server._set_model_runtime("whisper.cpp"))
@@ -1471,7 +1471,7 @@ def test_bridge_server_set_model_runtime_first_run_missing_variant_applies_witho
     }
 
     with patch.object(server, "_detect_runtime_capabilities", return_value=capabilities), patch(
-        "whisper_local.bridge.get_installed_model_path",
+        "murmur.bridge.get_installed_model_path",
         return_value=None,
     ), patch.object(server, "_persist_config", return_value=None):
         asyncio.run(server._set_model_runtime("whisper.cpp"))
@@ -1544,7 +1544,7 @@ def test_bridge_server_download_progress_payload_includes_backend(mock_config):
         if progress_callback:
             progress_callback(35)
 
-    with patch("whisper_local.bridge.download_model", side_effect=fake_download_model):
+    with patch("murmur.bridge.download_model", side_effect=fake_download_model):
         asyncio.run(server._download_model("tiny", runtime="whisper.cpp"))
 
     payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
@@ -1564,7 +1564,7 @@ def test_bridge_server_has_installed_models_true():
     config = Mock()
     server = BridgeServer(config)
 
-    with patch('whisper_local.bridge.list_installed_models') as mock_list:
+    with patch('murmur.bridge.list_installed_models') as mock_list:
         mock_model = Mock(installed=True)
         mock_model.name = 'tiny'
         mock_list.return_value = [mock_model]
@@ -1577,7 +1577,7 @@ def test_bridge_server_has_installed_models_false():
     config = Mock()
     server = BridgeServer(config)
 
-    with patch('whisper_local.bridge.list_installed_models') as mock_list:
+    with patch('murmur.bridge.list_installed_models') as mock_list:
         mock_model = Mock(installed=False)
         mock_model.name = 'tiny'
         mock_list.return_value = [mock_model]
@@ -1589,10 +1589,10 @@ def test_bridge_server_init_components(mock_config):
     """Test _init_components initializes all components."""
     server = BridgeServer(mock_config)
 
-    with patch('whisper_local.bridge.AudioRecorder'), \
-         patch('whisper_local.bridge.RNNoiseSuppressor'), \
-         patch('whisper_local.bridge.VadProcessor'), \
-         patch('whisper_local.bridge.create_hotkey_provider'):
+    with patch('murmur.bridge.AudioRecorder'), \
+         patch('murmur.bridge.RNNoiseSuppressor'), \
+         patch('murmur.bridge.VadProcessor'), \
+         patch('murmur.bridge.create_hotkey_provider'):
 
         server._init_components()
 
@@ -1607,7 +1607,7 @@ def test_bridge_server_detect_runtime_capabilities(mock_config):
     """Test _detect_runtime_capabilities calls detect_runtime_capabilities."""
     server = BridgeServer(mock_config)
 
-    with patch('whisper_local.transcribe.detect_runtime_capabilities') as mock_detect:
+    with patch('murmur.transcribe.detect_runtime_capabilities') as mock_detect:
         mock_detect.return_value = {'runtime': 'test'}
 
         result = server._detect_runtime_capabilities()
@@ -1623,7 +1623,7 @@ def test_bridge_server_refresh_runtime_capabilities_no_force_within_ttl(mock_con
     server._runtime_capabilities_updated_at = monotonic()
     server._runtime_capabilities_dirty = False
 
-    with patch('whisper_local.transcribe.detect_runtime_capabilities') as mock_detect:
+    with patch('murmur.transcribe.detect_runtime_capabilities') as mock_detect:
         server._refresh_runtime_capabilities(force=False)
 
         # Should not call detect since within TTL
@@ -1634,7 +1634,7 @@ def test_bridge_server_refresh_runtime_capabilities_force(mock_config):
     """Test _refresh_runtime_capabilities forces refresh when force=True."""
     server = BridgeServer(mock_config)
 
-    with patch('whisper_local.transcribe.detect_runtime_capabilities') as mock_detect:
+    with patch('murmur.transcribe.detect_runtime_capabilities') as mock_detect:
         mock_detect.return_value = {'new': 'data'}
 
         server._refresh_runtime_capabilities(force=True)
@@ -1669,7 +1669,7 @@ def test_bridge_server_persist_config_success(mock_config):
     """Test _persist_config saves config successfully."""
     server = BridgeServer(mock_config)
 
-    with patch('whisper_local.bridge.save_config') as mock_save:
+    with patch('murmur.bridge.save_config') as mock_save:
         result = server._persist_config('test context')
 
         assert result is None
@@ -1680,7 +1680,7 @@ def test_bridge_server_persist_config_failure(mock_config):
     """Test _persist_config returns error message on failure."""
     server = BridgeServer(mock_config)
 
-    with patch('whisper_local.bridge.save_config') as mock_save:
+    with patch('murmur.bridge.save_config') as mock_save:
         mock_save.side_effect = Exception('Save failed')
 
         result = server._persist_config('test context')
@@ -1874,7 +1874,7 @@ def test_websocket_log_handler_handles_emit_errors():
 
 def test_broadcast_mirrors_info_toast_to_logger(mock_config):
     server = BridgeServer(mock_config)
-    with patch("whisper_local.bridge.logger") as mock_logger:
+    with patch("murmur.bridge.logger") as mock_logger:
         asyncio.run(
             server._broadcast(
                 {
@@ -1898,7 +1898,7 @@ def test_broadcast_mirrors_info_toast_to_logger(mock_config):
 
 def test_broadcast_mirrors_success_toast_to_info_logger(mock_config):
     server = BridgeServer(mock_config)
-    with patch("whisper_local.bridge.logger") as mock_logger:
+    with patch("murmur.bridge.logger") as mock_logger:
         asyncio.run(
             server._broadcast(
                 {
@@ -1915,7 +1915,7 @@ def test_broadcast_mirrors_success_toast_to_info_logger(mock_config):
 
 def test_broadcast_mirrors_error_toast_to_error_logger(mock_config):
     server = BridgeServer(mock_config)
-    with patch("whisper_local.bridge.logger") as mock_logger:
+    with patch("murmur.bridge.logger") as mock_logger:
         asyncio.run(
             server._broadcast(
                 {
@@ -1932,7 +1932,7 @@ def test_broadcast_mirrors_error_toast_to_error_logger(mock_config):
 
 def test_broadcast_does_not_log_non_toast_messages(mock_config):
     server = BridgeServer(mock_config)
-    with patch("whisper_local.bridge.logger") as mock_logger:
+    with patch("murmur.bridge.logger") as mock_logger:
         asyncio.run(server._broadcast({"type": "status", "status": "ready", "message": "Ready"}))
 
     mock_logger.info.assert_not_called()
@@ -1941,7 +1941,7 @@ def test_broadcast_does_not_log_non_toast_messages(mock_config):
 
 def test_broadcast_ignores_empty_toast_message(mock_config):
     server = BridgeServer(mock_config)
-    with patch("whisper_local.bridge.logger") as mock_logger:
+    with patch("murmur.bridge.logger") as mock_logger:
         asyncio.run(server._broadcast({"type": "toast", "message": "   ", "level": "info"}))
 
     mock_logger.info.assert_not_called()
@@ -1950,7 +1950,7 @@ def test_broadcast_ignores_empty_toast_message(mock_config):
 
 def test_constants_defined():
     """Test that bridge constants are defined."""
-    from whisper_local.bridge import (
+    from murmur.bridge import (
         AUTO_PASTE_INPUT_SUPPRESS_MS,
         AUTO_REVERT_CLIPBOARD_DELAY_MS,
         MAX_DROP_AUDIO_SECONDS,

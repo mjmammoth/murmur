@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
-from whisper_local.platform.providers import (
+from murmur.platform.providers import (
     DefaultPasteProvider,
     HotkeyProvider,
     MacOSHotkeyProvider,
@@ -59,7 +59,7 @@ def test_windows_modifier_mask_maps_known_modifiers():
 def test_noop_hotkey_provider_logs_reason_on_start():
     provider = NoopHotkeyProvider(reason="not available")
 
-    with patch("whisper_local.platform.providers.logger") as mock_logger:
+    with patch("murmur.platform.providers.logger") as mock_logger:
         provider.start()
 
     mock_logger.info.assert_called_once()
@@ -71,7 +71,7 @@ def test_x11_provider_start_stop_idempotent():
     thread = Mock()
     thread.is_alive.return_value = True
 
-    with patch("whisper_local.platform.providers.threading.Thread", return_value=thread) as mock_thread_ctor:
+    with patch("murmur.platform.providers.threading.Thread", return_value=thread) as mock_thread_ctor:
         provider.start()
         provider.start()
         provider.stop()
@@ -225,8 +225,8 @@ def test_subprocess_status_indicator_start_darwin():
     mock_process = MagicMock()
     mock_process.pid = 1234
     mock_process.poll.return_value = None
-    with patch("whisper_local.platform.providers.sys.platform", "darwin"), \
-         patch("whisper_local.platform.providers.subprocess.Popen", return_value=mock_process):
+    with patch("murmur.platform.providers.sys.platform", "darwin"), \
+         patch("murmur.platform.providers.subprocess.Popen", return_value=mock_process):
         provider.start()
     assert provider.pid == 1234
 
@@ -236,8 +236,8 @@ def test_subprocess_status_indicator_start_idempotent():
     mock_process = MagicMock()
     mock_process.poll.return_value = None
     provider._process = mock_process
-    with patch("whisper_local.platform.providers.sys.platform", "darwin"), \
-         patch("whisper_local.platform.providers.subprocess.Popen") as mock_popen:
+    with patch("murmur.platform.providers.sys.platform", "darwin"), \
+         patch("murmur.platform.providers.subprocess.Popen") as mock_popen:
         provider.start()
     mock_popen.assert_not_called()
 
@@ -287,7 +287,7 @@ def test_noop_paste_provider():
 
 
 def test_default_paste_provider():
-    with patch("whisper_local.output.paste_from_clipboard", return_value=True):
+    with patch("murmur.output.paste_from_clipboard", return_value=True):
         assert DefaultPasteProvider().paste_from_clipboard() is True
 
 
@@ -453,9 +453,9 @@ def _install_fake_win32(monkeypatch: pytest.MonkeyPatch) -> tuple[ModuleType, Mo
 
 def test_macos_hotkey_provider_delegates_to_listener(monkeypatch: pytest.MonkeyPatch):
     listener = Mock()
-    hotkey_module = ModuleType("whisper_local.hotkey")
+    hotkey_module = ModuleType("murmur.hotkey")
     hotkey_module.HotkeyListener = Mock(return_value=listener)
-    monkeypatch.setitem(sys.modules, "whisper_local.hotkey", hotkey_module)
+    monkeypatch.setitem(sys.modules, "murmur.hotkey", hotkey_module)
 
     provider = MacOSHotkeyProvider("ctrl+f3", on_press=lambda: None, on_release=lambda: None)
     provider.start()
@@ -524,7 +524,7 @@ def test_x11_poll_next_event_waits_then_none_when_still_empty():
     display = Mock()
     display.pending_events.side_effect = [0, 0]
 
-    with patch("whisper_local.platform.providers.select.select", return_value=([], [], [])) as select_mock:
+    with patch("murmur.platform.providers.select.select", return_value=([], [], [])) as select_mock:
         assert provider._poll_next_event(display) is None
 
     select_mock.assert_called_once()
@@ -536,7 +536,7 @@ def test_x11_poll_next_event_returns_none_when_stop_requested():
     display.pending_events.return_value = 0
     provider._stop_event.set()
 
-    with patch("whisper_local.platform.providers.select.select", return_value=([], [], [])):
+    with patch("murmur.platform.providers.select.select", return_value=([], [], [])):
         assert provider._poll_next_event(display) is None
 
 
@@ -641,7 +641,7 @@ def test_x11_run_logs_and_cleans_up_on_setup_error():
 
     with patch.object(provider, "_setup_grab", side_effect=RuntimeError("boom")), \
          patch.object(provider, "_cleanup_grab") as cleanup_mock, \
-         patch("whisper_local.platform.providers.logger") as logger_mock:
+         patch("murmur.platform.providers.logger") as logger_mock:
         provider._run()
 
     logger_mock.error.assert_called_once()
@@ -653,7 +653,7 @@ def test_windows_provider_start_is_idempotent():
     thread = Mock()
     thread.is_alive.return_value = True
 
-    with patch("whisper_local.platform.providers.threading.Thread", return_value=thread) as thread_ctor:
+    with patch("murmur.platform.providers.threading.Thread", return_value=thread) as thread_ctor:
         provider.start()
         provider.start()
 
@@ -719,7 +719,7 @@ def test_windows_run_logs_when_register_hotkey_fails(monkeypatch: pytest.MonkeyP
     _, _, win32gui = _install_fake_win32(monkeypatch)
     win32gui.RegisterHotKey.return_value = False
 
-    with patch("whisper_local.platform.providers.logger") as logger_mock:
+    with patch("murmur.platform.providers.logger") as logger_mock:
         provider._run()
 
     logger_mock.error.assert_called_once()
@@ -762,7 +762,7 @@ def test_windows_start_release_monitor_skips_when_thread_alive():
     provider = WindowsHotkeyProvider(key="f3", modifiers=("ctrl",), on_press=lambda: None, on_release=lambda: None)
     provider._release_monitor_thread = Mock(is_alive=Mock(return_value=True))
 
-    with patch("whisper_local.platform.providers.threading.Thread") as thread_ctor:
+    with patch("murmur.platform.providers.threading.Thread") as thread_ctor:
         provider._start_release_monitor(Mock(), Mock())
 
     thread_ctor.assert_not_called()
@@ -772,7 +772,7 @@ def test_windows_start_release_monitor_starts_thread():
     provider = WindowsHotkeyProvider(key="f3", modifiers=("ctrl",), on_press=lambda: None, on_release=lambda: None)
     thread = Mock()
 
-    with patch("whisper_local.platform.providers.threading.Thread", return_value=thread) as thread_ctor:
+    with patch("murmur.platform.providers.threading.Thread", return_value=thread) as thread_ctor:
         win32api = Mock()
         win32con = Mock()
         provider._start_release_monitor(win32api, win32con)
@@ -806,7 +806,7 @@ def test_windows_monitor_release_loops_until_stop_event():
         provider._stop_event.set()
 
     with patch.object(provider, "_is_hotkey_down", return_value=True), \
-         patch("whisper_local.platform.providers.time.sleep", side_effect=_sleep):
+         patch("murmur.platform.providers.time.sleep", side_effect=_sleep):
         provider._monitor_release(Mock(), Mock())
 
 

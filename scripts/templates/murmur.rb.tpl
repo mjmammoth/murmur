@@ -97,7 +97,7 @@ class Murmur < Formula
       from pathlib import Path
       import sys
 
-      from whisper_local.archive_extract import install_tui_binary_from_archive
+      from murmur.archive_extract import install_tui_binary_from_archive
 
       archive_path = Path(sys.argv[1])
       target_dir = Path(sys.argv[2])

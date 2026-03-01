@@ -16,8 +16,8 @@ os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
-from whisper_local import config as config_module
-from whisper_local.model_ops import ModelRuntimeOperations, get_model_runtime_operations_factory
+from murmur import config as config_module
+from murmur.model_ops import ModelRuntimeOperations, get_model_runtime_operations_factory
 
 
 logger = logging.getLogger(__name__)
@@ -209,7 +209,7 @@ def _cache_path_for_repo_id(repo_id: str) -> Path:
     return get_hf_cache_dir() / "hub" / cache_name
 
 
-def whisper_local_model_cache_paths() -> tuple[Path, ...]:
+def murmur_model_cache_paths() -> tuple[Path, ...]:
     """
     Return all Hugging Face cache directories managed by murmur model operations.
 

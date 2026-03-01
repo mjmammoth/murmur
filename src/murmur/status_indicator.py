@@ -26,7 +26,7 @@ from AppKit import (
 )
 from Foundation import NSMutableAttributedString, NSObject
 from PyObjCTools import AppHelper
-from whisper_local.service_state import ensure_state_directory
+from murmur.service_state import ensure_state_directory
 
 try:
     import fcntl
@@ -222,7 +222,7 @@ class MenuBarStatusApp(NSObject):  # type: ignore[misc]
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m whisper_local.status_indicator",
+        prog="python -m murmur.status_indicator",
         description="murmur macOS menu bar status indicator",
     )
     parser.add_argument("--host", default="localhost", help="Bridge host")
