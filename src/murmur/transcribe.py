@@ -528,6 +528,15 @@ class Transcriber:
         return info
 
 
+def _whisper_cpp_mps_reason(mps_enabled: bool, fallback_reason: str | None) -> str | None:
+    """Return the reason string for whisper.cpp MPS device availability."""
+    if mps_enabled:
+        return None
+    if sys.platform != "darwin":
+        return "Metal acceleration is macOS only"
+    return fallback_reason
+
+
 def detect_runtime_capabilities(selected_runtime: str | None = None) -> dict[str, Any]:
     """
     Detects available transcription runtimes, their supported devices, and supported compute types.
@@ -603,15 +612,7 @@ def detect_runtime_capabilities(selected_runtime: str | None = None) -> dict[str
         "cpu": {"enabled": whisper_cpp_enabled, "reason": whisper_cpp_reason},
         "mps": {
             "enabled": whisper_cpp_mps_enabled,
-            "reason": (
-                None
-                if whisper_cpp_mps_enabled
-                else (
-                    "Metal acceleration is macOS only"
-                    if sys.platform != "darwin"
-                    else whisper_cpp_reason
-                )
-            ),
+            "reason": _whisper_cpp_mps_reason(whisper_cpp_mps_enabled, whisper_cpp_reason),
         },
         "cuda": {
             "enabled": False,
