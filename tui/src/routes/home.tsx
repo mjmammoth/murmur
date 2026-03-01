@@ -85,8 +85,6 @@ export function Home(): JSX.Element {
     if (welcomeShown() && !firstRunSetupRequired()) return;
     const cfg = backend.config();
     if (!cfg) return;
-    const models = backend.models();
-    if (models.length === 0) return;
 
     const currentDialog = dialog.currentDialog();
     if (currentDialog) return;

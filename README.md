@@ -87,6 +87,7 @@ Global hotkeys require **Input Monitoring** and auto-paste requires **Accessibil
 - **No model selected** — run `murmur models pull small && murmur models select small`
 - **PortAudio / input device errors** — check microphone selection and macOS microphone permissions
 - **Wayland** — global key swallow isn't guaranteed; bind `murmur trigger toggle` to a desktop shortcut instead
+- **Need a full local reset** — run `./scripts/reset-local.sh` to clear murmur state/config/runtime/model cache and force first-run behavior
 
 > [!IMPORTANT]
 > The code in this repo has mostly been created by AI-assisted workflows
