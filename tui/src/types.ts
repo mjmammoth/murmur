@@ -27,6 +27,21 @@ export interface PlatformCapabilities {
   hotkey_guidance: string | null;
 }
 
+export type StartupPhase = "idle" | "running" | "ready" | "error";
+export type StartupTaskState = "pending" | "running" | "ready" | "degraded" | "error";
+export type StartupModelState = "pending" | "running" | "ready" | "error";
+
+export interface StartupState {
+  phase: StartupPhase;
+  runtime_probe: StartupTaskState;
+  audio_scan: StartupTaskState;
+  components: StartupTaskState;
+  model: StartupModelState;
+  onboarding_close_ready: boolean;
+  blockers: string[];
+  last_error: string | null;
+}
+
 export interface ModelConfig {
   name: string;
   runtime: string;
@@ -116,6 +131,7 @@ export interface AppConfig {
   first_run_setup_required?: boolean;
   runtime?: RuntimeCapabilities;
   audio_inputs?: AudioInputsConfig;
+  startup?: StartupState;
   version?: string;
   platform_capabilities?: PlatformCapabilities;
 }
@@ -195,6 +211,7 @@ export type ClientMessage =
   | { type: "get_config_file" }
   | { type: "copy_text"; text: string }
   | { type: "set_welcome_shown" }
+  | { type: "begin_onboarding_setup" }
   | { type: "get_capabilities" };
 
 // Server -> Client messages

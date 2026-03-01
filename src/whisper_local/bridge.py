@@ -12,7 +12,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from time import monotonic
-from typing import Any, Coroutine
+from typing import Any, Coroutine, Literal
 from urllib.parse import parse_qs, unquote, urlparse
 
 import websockets
@@ -73,6 +73,10 @@ MAX_DROP_FILE_BYTES = 512 * 1024 * 1024
 MAX_DROP_AUDIO_SECONDS = 4 * 60 * 60
 AUTO_PASTE_INPUT_SUPPRESS_MS = 1000
 AUTO_REVERT_CLIPBOARD_DELAY_MS = 120
+
+StartupPhase = Literal["idle", "running", "ready", "error"]
+StartupTaskState = Literal["pending", "running", "ready", "degraded", "error"]
+StartupModelState = Literal["pending", "running", "ready", "error"]
 
 
 class WebSocketLogHandler(logging.Handler):
@@ -167,6 +171,14 @@ class BridgeServer:
         self._startup_audio_notice: str | None = None
         self._startup_audio_notice_level = "info"
         self._shutdown_requested = threading.Event()
+        self._startup_phase: StartupPhase = "idle"
+        self._startup_runtime_probe: StartupTaskState = "pending"
+        self._startup_audio_scan: StartupTaskState = "pending"
+        self._startup_components: StartupTaskState = "pending"
+        self._startup_model: StartupModelState = "pending"
+        self._startup_last_error: str | None = None
+        self._onboarding_setup_started = False
+        self._onboarding_setup_task: asyncio.Task[Any] | None = None
 
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._model_tasks: dict[str, asyncio.Task[Any]] = {}
@@ -362,6 +374,67 @@ class BridgeServer:
         """
         return bool(self._installed_model_names(runtime=runtime))
 
+    @staticmethod
+    def _startup_task_settled(state: StartupTaskState) -> bool:
+        return state in {"ready", "degraded"}
+
+    def _selected_model_download_is_pending(self) -> bool:
+        key = self._download_task_key(
+            self.config.model.name,
+            normalize_runtime_name(self.config.model.runtime),
+        )
+        return key in set(self._download_queue.pending_keys())
+
+    def _startup_blockers(self) -> list[str]:
+        blockers: list[str] = []
+        if self._first_run_setup_required:
+            blockers.append("Download and select a model to continue.")
+        if self._startup_model != "ready":
+            if self._startup_model == "running":
+                blockers.append("Model is still loading.")
+            elif self._startup_model == "error":
+                blockers.append("Model failed to load.")
+            else:
+                blockers.append("Model is not ready yet.")
+        if not self._startup_task_settled(self._startup_runtime_probe):
+            blockers.append("Runtime detection is still running.")
+        if not self._startup_task_settled(self._startup_audio_scan):
+            blockers.append("Audio device discovery is still running.")
+        if not self._startup_task_settled(self._startup_components):
+            blockers.append("Runtime components are still initializing.")
+        if self._selected_model_download_is_pending():
+            blockers.append("Selected model download is still in progress.")
+        return blockers
+
+    def _startup_onboarding_close_ready(self) -> bool:
+        return not self._startup_blockers()
+
+    def _refresh_startup_phase(self) -> None:
+        if self._startup_model == "error" or self._startup_components == "error":
+            self._startup_phase = "error"
+            return
+        if self._startup_onboarding_close_ready():
+            self._startup_phase = "ready"
+            return
+        if self._first_run_setup_required and not self._onboarding_setup_started:
+            self._startup_phase = "idle"
+            return
+        self._startup_phase = "running"
+
+    def _startup_payload(self) -> dict[str, Any]:
+        self._refresh_startup_phase()
+        blockers = self._startup_blockers()
+        return {
+            "phase": self._startup_phase,
+            "runtime_probe": self._startup_runtime_probe,
+            "audio_scan": self._startup_audio_scan,
+            "components": self._startup_components,
+            "model": self._startup_model,
+            "onboarding_close_ready": self._startup_onboarding_close_ready(),
+            "blockers": blockers,
+            "last_error": self._startup_last_error,
+        }
+
     async def start(
         self,
         host: str = "localhost",
@@ -381,13 +454,30 @@ class BridgeServer:
         self._loop = asyncio.get_event_loop()
         self._host = host
         self._port = port
+        self._first_run_setup_required = not self._has_installed_models()
+        self._startup_model = "pending"
+        if self._first_run_setup_required:
+            self._status = "connecting"
+            self._status_message = (
+                "First run setup required. Download and select a model in Model Manager."
+            )
+        else:
+            self._status = "connecting"
+            self._status_message = "Starting runtime..."
+            self._onboarding_setup_started = True
+            self._startup_runtime_probe = "running"
+            self._startup_audio_scan = "running"
+            self._startup_components = "running"
+            self._startup_model = "running"
+        self._refresh_startup_phase()
 
         if capture_logs:
             self._install_log_handler()
 
         async with websockets.serve(self._handle_client, host, port):
             logger.info(f"Bridge server running on ws://{host}:{port}")
-            self._spawn_task(self._initialize_runtime_after_server_start())
+            if not self._first_run_setup_required:
+                self._spawn_task(self._initialize_runtime_after_server_start())
             await asyncio.Future()  # Run forever
 
     def _install_log_handler(self) -> None:
@@ -554,11 +644,24 @@ class BridgeServer:
         Initializes lazily-created components, prunes invalid model caches, detects and caches runtime capabilities, and broadcasts current configuration to clients. If no installed models are found this marks first-run setup as required and updates status; if the configured model is unavailable it selects a suitable installed fallback, persists that change, notifies clients, and then starts asynchronous model loading.
         """
         loop = asyncio.get_event_loop()
+        self._onboarding_setup_started = True
+        self._startup_components = "running"
+        self._startup_audio_scan = "running"
+        self._startup_runtime_probe = "running"
+        self._startup_last_error = None
+        await self._broadcast_config()
 
         try:
             await loop.run_in_executor(None, self._init_components)
+            self._startup_components = "ready"
+            self._startup_audio_scan = (
+                "degraded" if self._audio_inputs_error and not self._audio_inputs else "ready"
+            )
         except Exception as exc:
             logger.exception("Bridge component initialization failed")
+            self._startup_components = "error"
+            self._startup_last_error = str(exc)
+            await self._broadcast_config()
             await self._set_status("error", f"Startup failed: {exc}")
             return
 
@@ -576,8 +679,10 @@ class BridgeServer:
                 self.config.model.runtime,
             )
             self._set_runtime_capabilities(runtime_capabilities)
+            self._startup_runtime_probe = "ready"
         except Exception:
             logger.warning("Failed to detect runtime capabilities", exc_info=True)
+            self._startup_runtime_probe = "degraded"
 
         await self._broadcast_config()
         if self._startup_audio_notice:
@@ -591,6 +696,7 @@ class BridgeServer:
             self._startup_audio_notice = None
 
         if self._first_run_setup_required:
+            self._startup_model = "pending"
             await self._set_status(
                 "connecting",
                 "First run setup required. Download and select a model in Model Manager.",
@@ -604,6 +710,7 @@ class BridgeServer:
             installed_names = self._installed_model_names(runtime=self.config.model.runtime)
             if not installed_names:
                 self._first_run_setup_required = True
+                self._startup_model = "pending"
                 await self._set_status(
                     "connecting",
                     "First run setup required. Download and select a model in Model Manager.",
@@ -635,12 +742,27 @@ class BridgeServer:
 
         await self._load_model_async()
 
+    async def _begin_onboarding_setup(self) -> None:
+        if self._onboarding_setup_started:
+            return
+        if self._onboarding_setup_task and not self._onboarding_setup_task.done():
+            return
+        self._onboarding_setup_started = True
+        self._startup_runtime_probe = "running"
+        self._startup_audio_scan = "running"
+        self._startup_components = "running"
+        self._onboarding_setup_task = self._spawn_task(self._initialize_runtime_after_server_start())
+        await self._broadcast_config()
+
     async def _load_model_async(self) -> None:
         """
         Load and initialize the configured transcription model and prepare the bridge for transcription.
 
         Loads and initializes the transcriber for the current model/runtime, marks the model as loaded, starts the hotkey listener if applicable, logs runtime and model information, and updates the bridge status to "ready" on success. On failure, updates the bridge status to "error" with the failure details.
         """
+        self._startup_model = "running"
+        self._startup_last_error = None
+        await self._broadcast_config()
         await self._set_status(
             "downloading",
             f"Loading {self.config.model.runtime} model {self.config.model.name}...",
@@ -669,9 +791,14 @@ class BridgeServer:
                 info.get("model_source", "unknown"),
             )
             self._first_run_setup_required = False
+            self._startup_model = "ready"
+            self._startup_last_error = None
             await self._set_status("ready", "Ready")
         except Exception as exc:
             logger.exception("Model load failed")
+            self._startup_model = "error"
+            self._startup_last_error = str(exc)
+            await self._broadcast_config()
             await self._set_status("error", f"Model load failed: {exc}")
 
     def _start_hotkey(self) -> None:
@@ -1081,6 +1208,15 @@ class BridgeServer:
             )
         )
 
+    async def _send_transcript_history_safe(self, websocket: WebSocketServerProtocol) -> None:
+        """Best-effort transcript history send that never blocks client initialization flow."""
+        try:
+            await self._send_transcript_history(websocket)
+        except websockets.ConnectionClosed:
+            pass
+        except Exception:
+            logger.exception("Failed to send transcript history")
+
     async def _handle_client(self, websocket: WebSocketServerProtocol) -> None:
         """Handle a single client connection."""
         self.clients.add(websocket)
@@ -1101,7 +1237,7 @@ class BridgeServer:
                 json.dumps({"type": "status", "status": self._status, "message": self._status_message})
             )
             await self._send_config(websocket)
-            await self._send_transcript_history(websocket)
+            self._spawn_task(self._send_transcript_history_safe(websocket))
             async for message in websocket:
                 await self._handle_message(websocket, message)
         except websockets.ConnectionClosed:
@@ -1328,6 +1464,8 @@ class BridgeServer:
                 await self._set_hotkey(data.get("hotkey", ""))
             elif msg_type == "list_models":
                 await self._send_models(websocket)
+            elif msg_type == "begin_onboarding_setup":
+                await self._begin_onboarding_setup()
             elif msg_type == "get_config":
                 await self._send_config(websocket)
             elif msg_type == "copy_text":
@@ -1991,6 +2129,8 @@ class BridgeServer:
     async def _enter_first_run_setup(self) -> None:
         self._first_run_setup_required = True
         self._model_loaded = False
+        self._startup_model = "pending"
+        self._startup_last_error = None
         if self._hotkey_started and self.hotkey:
             self.hotkey.stop()
             self._hotkey_started = False
@@ -2100,18 +2240,29 @@ class BridgeServer:
         This updates internal state to mark a model as loaded, clears first-run setup, refreshes cached runtime capabilities, and (re)starts the hotkey listener. Ongoing transcription jobs continue using the transcriber instance they captured before this swap; new recordings use the updated transcriber. If no recording or transcribing jobs remain, the server status is set to "ready".
         """
         async with self._model_reload_lock:
-            next_transcriber = await asyncio.get_event_loop().run_in_executor(
-                None,
-                self._create_transcriber,
-            )
-            await asyncio.get_event_loop().run_in_executor(None, next_transcriber.load)
-            self.transcriber = next_transcriber
-            self._model_loaded = True
-            self._first_run_setup_required = False
-            self._refresh_runtime_capabilities(force=True)
-            self._start_hotkey()
-            if not self._recording and self._transcribing_jobs <= 0:
-                await self._set_status("ready", "Ready")
+            self._startup_model = "running"
+            self._startup_last_error = None
+            await self._broadcast_config()
+            try:
+                next_transcriber = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    self._create_transcriber,
+                )
+                await asyncio.get_event_loop().run_in_executor(None, next_transcriber.load)
+                self.transcriber = next_transcriber
+                self._model_loaded = True
+                self._first_run_setup_required = False
+                self._startup_model = "ready"
+                self._startup_last_error = None
+                self._refresh_runtime_capabilities(force=True)
+                self._start_hotkey()
+                if not self._recording and self._transcribing_jobs <= 0:
+                    await self._set_status("ready", "Ready")
+            except Exception as exc:
+                self._startup_model = "error"
+                self._startup_last_error = str(exc)
+                await self._broadcast_config()
+                raise
 
     async def _set_model_runtime(
         self,
@@ -3223,8 +3374,9 @@ class BridgeServer:
         """Broadcast config to all clients."""
         await self._broadcast({"type": "config", "config": self._config_payload()})
 
-    def _audio_inputs_payload(self) -> dict[str, Any]:
-        self._refresh_audio_inputs()
+    def _audio_inputs_payload(self, *, refresh: bool = False) -> dict[str, Any]:
+        if refresh:
+            self._refresh_audio_inputs()
         selected_key = self.config.audio.input_device
         selected_device = find_audio_input_device(selected_key, self._audio_inputs)
         selected_missing = selected_key is not None and selected_device is None
@@ -3284,7 +3436,8 @@ class BridgeServer:
         config_dict["auto_revert_clipboard"] = self._auto_revert_clipboard
         config_dict["first_run_setup_required"] = self._first_run_setup_required
         config_dict["runtime"] = self._runtime_capabilities
-        config_dict["audio_inputs"] = self._audio_inputs_payload()
+        config_dict["audio_inputs"] = self._audio_inputs_payload(refresh=False)
+        config_dict["startup"] = self._startup_payload()
         config_dict["version"] = __version__
         config_dict["platform_capabilities"] = dict(self._platform_capabilities)
         return config_dict

@@ -634,6 +634,9 @@ export function BackendContextProvider(props: {
       case "set_theme":
         patchUiConfig((ui) => ({ ...ui, theme: message.theme }));
         return;
+      case "set_welcome_shown":
+        patchUiConfig((ui) => ({ ...ui, welcome_shown: true }));
+        return;
       case "toggle_auto_revert_clipboard":
         setAutoRevertClipboard(message.enabled);
         setConfig((prev) => {

@@ -2,6 +2,7 @@ import {
   createSignal,
   createMemo,
   createEffect,
+  onMount,
   onCleanup,
   on,
   For,
@@ -17,6 +18,7 @@ import { useSpinnerFrame } from "./spinner";
 import { BrandTitle } from "./brand-title";
 import { formatBytes, formatDeviceLabel } from "../util/format";
 import type { RuntimeName, SelectSettingId, WelcomeDialogData } from "../types";
+import { resolveNextHint, shouldAdvanceOnRightKey, type WelcomeStepId } from "./welcome-logic";
 
 // ---------------------------------------------------------------------------
 // Shared sub-components
@@ -29,17 +31,25 @@ import type { RuntimeName, SelectSettingId, WelcomeDialogData } from "../types";
  * @returns The rendered CommandHint JSX element.
  */
 
-function CommandHint(props: { keys: string; label: string; onClick?: () => void }): JSX.Element {
+function CommandHint(props: { keys: string; label: string; onClick?: () => void; disabled?: boolean }): JSX.Element {
   const { colors } = useTheme();
   return (
-    <box flexDirection="row" alignItems="center" gap={1} onMouseUp={() => props.onClick?.()}>
-      <box backgroundColor={colors().accent} paddingX={1}>
+    <box
+      flexDirection="row"
+      alignItems="center"
+      gap={1}
+      onMouseUp={() => {
+        if (props.disabled) return;
+        props.onClick?.();
+      }}
+    >
+      <box backgroundColor={props.disabled ? colors().backgroundElement : colors().accent} paddingX={1}>
         <text>
-          <span style={{ fg: colors().selectedText }}>{props.keys}</span>
+          <span style={{ fg: props.disabled ? colors().textDim : colors().selectedText }}>{props.keys}</span>
         </text>
       </box>
       <text>
-        <span style={{ fg: colors().textMuted }}>{props.label}</span>
+        <span style={{ fg: props.disabled ? colors().textDim : colors().textMuted }}>{props.label}</span>
       </text>
     </box>
   );
@@ -492,49 +502,55 @@ function ModelDownloadStep(props: {
     return op;
   });
 
-  const selectedModelIsPulling = createMemo(() => {
-    const model = selectedModel();
-    const pulling = activePulling();
-    return Boolean(model && pulling && model.name === pulling.model && pulling.runtime === activeRuntime());
-  });
-
-  const selectedModelIsQueued = createMemo(() => {
-    const model = selectedModel();
-    if (!model) return false;
-    return backend.isModelPullQueued(model.name, activeRuntime());
-  });
-
   const selectedModelName = createMemo(() => {
     const configured = backend.config()?.model.name ?? null;
     if (!configured) return null;
     const match = models().find((m) => m.name === configured);
     return match?.variants?.[activeRuntime()]?.installed ? configured : null;
   });
+  const startup = createMemo(() => backend.config()?.startup);
 
-  function handlePullOrSelect() {
-    const model = selectedModel();
-    const op = backend.activeModelOp();
-    const variant = model?.variants?.[activeRuntime()];
-    if (!model) return;
-    if (selectedModelIsPulling()) {
-      const pulling = activePulling();
-      backend.cancelModelDownload(model.name, pulling?.runtime ?? activeRuntime());
-      return;
+  function startupStateLabel(state: string | null | undefined): { text: string; color: string } {
+    if (state === "ready") {
+      return { text: "ready", color: colors().success };
     }
-    if (selectedModelIsQueued()) {
-      backend.cancelModelDownload(model.name, activeRuntime());
-      return;
+    if (state === "degraded") {
+      return { text: "degraded", color: colors().warning };
     }
-    if (variant?.installed) {
-      if (op) return;
-      backend.send({ type: "set_selected_model", name: model.name });
-      return;
+    if (state === "error") {
+      return { text: "error", color: colors().error };
     }
-    backend.downloadModel(model.name, activeRuntime());
+    if (state === "running") {
+      return { text: `${spinnerFrame()} running`, color: colors().transcribing };
+    }
+    return { text: `${spinnerFrame()} pending`, color: colors().textDim };
   }
 
+  const startupChecklist = createMemo(() => {
+    const startupState = startup();
+    return [
+      {
+        label: "runtime detection",
+        state: startupState?.runtime_probe ?? "pending",
+      },
+      {
+        label: "audio discovery",
+        state: startupState?.audio_scan ?? "pending",
+      },
+      {
+        label: "components",
+        state: startupState?.components ?? "pending",
+      },
+      {
+        label: "model",
+        state: startupState?.model ?? "pending",
+      },
+    ];
+  });
+  const modelListHeight = createMemo(() => Math.max(7, Math.min(12, models().length + 1)));
+
   return (
-    <box flexDirection="column" gap={1} paddingX={2} paddingY={1} height="100%">
+    <box flexDirection="column" gap={1} paddingX={2} paddingY={1} flexShrink={0}>
       <box flexDirection="column" gap={0} flexShrink={0}>
         <SectionTitle text="Download a model" />
       </box>
@@ -549,7 +565,13 @@ function ModelDownloadStep(props: {
         </text>
       </box>
 
-      <scrollbox flexGrow={1} flexShrink={1}>
+      <box flexDirection="column" gap={0} flexShrink={0}>
+        <text>
+          <span style={{ fg: colors().primary, bold: true }}>Models</span>
+        </text>
+      </box>
+
+      <scrollbox height={modelListHeight()} flexShrink={0}>
         <box flexDirection="column">
           <For each={models()}>
             {(model, index) => {
@@ -638,18 +660,32 @@ function ModelDownloadStep(props: {
         </box>
       </Show>
 
-      <box flexDirection="row" gap={2} paddingTop={1} flexShrink={0}>
-        <CommandHint
-          keys="Enter"
-          label={
-            selectedModelIsPulling()
-              ? "cancel"
-              : selectedModelIsQueued()
-                ? "cancel queued"
-              : (selectedModel()?.variants?.[activeRuntime()]?.installed ? "select" : "pull + select")
-          }
-          onClick={handlePullOrSelect}
-        />
+      <box flexDirection="column" gap={0} flexShrink={0}>
+        <text>
+          <span style={{ fg: colors().primary, bold: true }}>Setup checklist</span>
+        </text>
+        <For each={startupChecklist()}>
+          {(item) => {
+            const label = startupStateLabel(item.state);
+            return (
+              <text>
+                <span style={{ fg: colors().textDim }}>{item.label}: </span>
+                <span style={{ fg: label.color }}>{label.text}</span>
+              </text>
+            );
+          }}
+        </For>
+        <Show when={(startup()?.blockers?.length ?? 0) > 0}>
+          <box flexDirection="column" marginTop={1}>
+            <For each={startup()?.blockers ?? []}>
+              {(blocker) => (
+                <text>
+                  <span style={{ fg: colors().textDim }}>- {blocker}</span>
+                </text>
+              )}
+            </For>
+          </box>
+        </Show>
       </box>
     </box>
   );
@@ -681,6 +717,7 @@ export function Welcome(): JSX.Element {
   );
   const firstRun = createMemo(() => Boolean(dialogData().firstRun));
   const setupRequired = createMemo(() => Boolean(backend.config()?.first_run_setup_required));
+  const onboardingCloseReady = createMemo(() => Boolean(backend.config()?.startup?.onboarding_close_ready));
 
   // Step management
   const steps = createMemo(() => {
@@ -697,7 +734,7 @@ export function Welcome(): JSX.Element {
     return Math.max(0, Math.min(steps().length - 1, normalized));
   };
   const [stepIndex, setStepIndex] = createSignal(initialStepIndex());
-  const currentStep = () => steps()[stepIndex()] ?? "welcome";
+  const currentStep = (): WelcomeStepId => steps()[stepIndex()] ?? "welcome";
   const isLastStep = () => stepIndex() >= steps().length - 1;
   const isFirstStep = () => stepIndex() === 0;
 
@@ -720,6 +757,12 @@ export function Welcome(): JSX.Element {
   const [recommendationAutoApplyInFlight, setRecommendationAutoApplyInFlight] = createSignal(
     false,
   );
+
+  onMount(() => {
+    if (firstRun()) {
+      backend.send({ type: "begin_onboarding_setup" });
+    }
+  });
 
   const recommendedRuntime = createMemo<RuntimeName | null>(() => {
     const value = backend.capabilitiesResponse()?.recommended.runtime;
@@ -772,6 +815,17 @@ export function Welcome(): JSX.Element {
     }
   }));
 
+  // Refresh recommendations once deferred runtime probing settles.
+  createEffect(on(
+    () => [currentStep(), backend.config()?.startup?.runtime_probe] as const,
+    ([step, runtimeProbe]) => {
+      if (step !== "device-detection") return;
+      if (runtimeProbe === "ready" || runtimeProbe === "degraded") {
+        backend.requestCapabilities();
+      }
+    },
+  ));
+
   // Auto-apply hardware recommendation once per welcome session on first run:
   // apply runtime first, then apply device after runtime config is reflected.
   createEffect(() => {
@@ -812,8 +866,9 @@ export function Welcome(): JSX.Element {
   });
 
   function canClose() {
-    if (firstRun() && setupRequired()) return false;
-    return true;
+    if (!firstRun()) return true;
+    if (setupRequired()) return false;
+    return onboardingCloseReady();
   }
 
   /**
@@ -851,6 +906,10 @@ export function Welcome(): JSX.Element {
   function handleBack() {
     setStepIndex((i) => Math.max(0, i - 1));
   }
+
+  const nextHint = createMemo(() =>
+    resolveNextHint(currentStep(), isLastStep(), canClose()),
+  );
 
   // Keyboard navigation
   useKeyHandler((key: KeyEvent) => {
@@ -948,7 +1007,9 @@ export function Welcome(): JSX.Element {
         }
         break;
       case "right":
-        handleNext();
+        if (shouldAdvanceOnRightKey(currentStep())) {
+          handleNext();
+        }
         break;
       case "left":
         handleBack();
@@ -1038,12 +1099,12 @@ export function Welcome(): JSX.Element {
         </scrollbox>
       </Show>
       <Show when={currentStep() === "model-download"}>
-        <box flexGrow={1} flexShrink={1} flexDirection="column">
+        <scrollbox flexGrow={1} flexShrink={1} ref={(r: ScrollBoxRenderable) => { contentScroll = r; }}>
           <ModelDownloadStep
             selectedModelIndex={modelIndex()}
             onSelectModel={setModelIndex}
           />
-        </box>
+        </scrollbox>
       </Show>
 
       {/* Footer navigation — only shown for multi-step flows */}
@@ -1051,13 +1112,20 @@ export function Welcome(): JSX.Element {
         <box paddingX={2} paddingTop={1} flexShrink={0}>
           <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="center">
             <box flexDirection="row" gap={2}>
+              <Show when={currentStep() === "model-download"}>
+                <CommandHint
+                  keys="Enter"
+                  label="pull/select/cancel"
+                />
+              </Show>
               <Show when={!isFirstStep()}>
                 <CommandHint keys="Left" label="back" onClick={handleBack} />
               </Show>
               <CommandHint
-                keys={isLastStep() ? "Enter" : "Right"}
-                label={isLastStep() ? "finish" : "next"}
+                keys={nextHint().keys}
+                label={nextHint().label}
                 onClick={handleNext}
+                disabled={nextHint().disabled}
               />
             </box>
             <text>

@@ -18,6 +18,42 @@ from whisper_local.bridge import (
 from whisper_local.config import AppConfig
 
 
+class FakeServeContext:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        del exc_type, exc, tb
+        return False
+
+
+def spawn_task_stub(coro):
+    coro.close()
+    return Mock()
+
+
+class FakeClientWebSocket:
+    def __init__(self, messages: list[str] | None = None) -> None:
+        self.path = "/ws"
+        self._messages = list(messages or [])
+        self._iter_index = 0
+        self.sent_payloads: list[str] = []
+
+    async def send(self, payload: str) -> None:
+        self.sent_payloads.append(payload)
+
+    def __aiter__(self):
+        self._iter_index = 0
+        return self
+
+    async def __anext__(self) -> str:
+        if self._iter_index >= len(self._messages):
+            raise StopAsyncIteration
+        payload = self._messages[self._iter_index]
+        self._iter_index += 1
+        return payload
+
+
 @pytest.fixture
 def mock_config():
     """
@@ -380,6 +416,132 @@ def test_config_payload_surfaces_detected_platform_capabilities(mock_config):
 
     assert payload["platform_capabilities"]["hotkey_capture"] is True
     assert payload["platform_capabilities"]["hotkey_swallow"] is True
+
+
+def test_config_payload_includes_startup_state_and_does_not_force_audio_scan(mock_config):
+    server = BridgeServer(mock_config)
+    mock_config.to_dict.return_value = {"model": {"runtime": "faster-whisper"}}
+
+    with patch.object(server, "_refresh_audio_inputs") as mock_refresh:
+        payload = server._config_payload()
+
+    assert "startup" in payload
+    assert payload["startup"]["phase"] in {"idle", "running", "ready", "error"}
+    mock_refresh.assert_not_called()
+
+
+def test_startup_onboarding_close_ready_accepts_degraded_non_model_tasks(mock_config):
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = False
+    server._startup_model = "ready"
+    server._startup_runtime_probe = "degraded"
+    server._startup_audio_scan = "ready"
+    server._startup_components = "degraded"
+
+    assert server._startup_onboarding_close_ready() is True
+
+
+def test_startup_onboarding_close_ready_blocks_when_selected_model_download_pending(mock_config):
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = False
+    server._startup_model = "ready"
+    server._startup_runtime_probe = "ready"
+    server._startup_audio_scan = "ready"
+    server._startup_components = "ready"
+    pending_task = Mock()
+    pending_task.done.return_value = False
+    runtime = mock_config.model.runtime
+    key = server._download_task_key(mock_config.model.name, runtime)
+    server._download_queue.enqueue_download(
+        key,
+        model=mock_config.model.name,
+        runtime=runtime,
+        task=pending_task,
+    )
+
+    assert server._startup_onboarding_close_ready() is False
+
+
+def test_begin_onboarding_setup_is_idempotent(mock_config):
+    server = BridgeServer(mock_config)
+    server._broadcast_config = AsyncMock()
+
+    async def _run():
+        with patch.object(server, "_spawn_task", side_effect=spawn_task_stub) as mock_spawn_task:
+            await server._begin_onboarding_setup()
+            await server._begin_onboarding_setup()
+            assert mock_spawn_task.call_count == 1
+
+    asyncio.run(_run())
+
+    assert server._startup_runtime_probe == "running"
+    assert server._startup_audio_scan == "running"
+    assert server._startup_components == "running"
+    server._broadcast_config.assert_awaited_once()
+
+
+def test_first_run_start_defers_runtime_initialization_until_onboarding(mock_config):
+    server = BridgeServer(mock_config)
+
+    async def _run():
+        with patch.object(server, "_has_installed_models", return_value=False), patch(
+            "whisper_local.bridge.websockets.serve", return_value=FakeServeContext()
+        ), patch.object(server, "_spawn_task") as mock_spawn_task:
+            task = asyncio.create_task(server.start())
+            await asyncio.sleep(0.01)
+            assert server._first_run_setup_required is True
+            assert server._startup_phase == "idle"
+            mock_spawn_task.assert_not_called()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    asyncio.run(_run())
+
+
+def test_non_first_run_start_spawns_runtime_initialization_task(mock_config):
+    server = BridgeServer(mock_config)
+
+    async def _run():
+        with patch.object(server, "_has_installed_models", return_value=True), patch(
+            "whisper_local.bridge.websockets.serve", return_value=FakeServeContext()
+        ), patch.object(server, "_spawn_task", side_effect=spawn_task_stub) as mock_spawn_task:
+            task = asyncio.create_task(server.start())
+            await asyncio.sleep(0.01)
+            assert server._first_run_setup_required is False
+            assert server._startup_phase == "running"
+            assert mock_spawn_task.call_count == 1
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    asyncio.run(_run())
+
+
+def test_handle_client_does_not_block_message_processing_on_transcript_history(mock_config):
+    server = BridgeServer(mock_config)
+    websocket = FakeClientWebSocket(messages=[json.dumps({"type": "list_models"})])
+    history_gate = asyncio.Event()
+
+    async def _slow_history(_ws):
+        await history_gate.wait()
+
+    async def _run():
+        server._send_config = AsyncMock()
+        server._send_transcript_history_safe = AsyncMock(side_effect=_slow_history)
+        server._handle_message = AsyncMock()
+
+        task = asyncio.create_task(server._handle_client(websocket))
+
+        deadline = monotonic() + 0.3
+        while server._handle_message.await_count == 0 and monotonic() < deadline:
+            await asyncio.sleep(0.005)
+
+        assert server._handle_message.await_count == 1
+        history_gate.set()
+        await task
+
+    asyncio.run(_run())
 
 
 def test_set_audio_input_device_updates_recorder_and_config(mock_config):

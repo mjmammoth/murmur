@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { formatDeviceLabel } from "../util/format";
+import { resolveNextHint, shouldAdvanceOnRightKey } from "./welcome-logic";
 
 describe("Welcome", () => {
   describe("hardware detection display", () => {
@@ -101,6 +102,18 @@ describe("Welcome", () => {
           : "pull + select";
 
       expect(label).toBe("cancel queued");
+    });
+
+    test("should treat right arrow as no-op on model-download step", () => {
+      const step = "model-download";
+      const isLastStep = true;
+      const canClose = true;
+
+      expect(shouldAdvanceOnRightKey("model-download")).toBe(false);
+      const hint = resolveNextHint(step, isLastStep, canClose);
+      expect(hint.keys).toBe("Esc/q");
+      expect(hint.label).toBe("finish");
+      expect(hint.disabled).toBe(false);
     });
   });
 });
