@@ -47,7 +47,7 @@ done
 TAP_DIR=""
 
 cleanup() {
-  if [ "$NO_CLEANUP" = true ]; then
+  if [[ "$NO_CLEANUP" = true ]]; then
     echo "Skipping cleanup (--no-cleanup). Tap dir: ${TAP_DIR:-<none>}"
     return
   fi
@@ -61,14 +61,14 @@ for f in data.get('formulae', []):
     tap = f.get('tap', '')
     if tap: print(tap)
 " 2>/dev/null || true)"
-    if [ "$INSTALLED_TAP" = "$TAP_NAME" ]; then
+    if [[ "$INSTALLED_TAP" = "$TAP_NAME" ]]; then
       brew uninstall "$FORMULA_NAME" 2>/dev/null || true
     else
       echo "  Skipping uninstall — $FORMULA_NAME is from tap '$INSTALLED_TAP', not '$TAP_NAME'"
     fi
   fi
   brew untap "$TAP_NAME" 2>/dev/null || true
-  if [ -n "$TAP_DIR" ] && [ -d "$TAP_DIR" ]; then
+  if [[ -n "$TAP_DIR" ]] && [[ -d "$TAP_DIR" ]]; then
     rm -rf "$TAP_DIR"
   fi
 }
@@ -77,7 +77,7 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 # 1. Build artifacts
 # ---------------------------------------------------------------------------
-if [ "$SKIP_BUILD" = false ]; then
+if [[ "$SKIP_BUILD" = false ]]; then
   echo "==> Building Python wheel..."
   BUILD_VENV="$REPO_ROOT/.brew-test-venv"
   "$PYTHON" -m venv "$BUILD_VENV"
@@ -117,11 +117,11 @@ esac
 
 TUI_PATH="$REPO_ROOT/dist/tui/murmur-tui-$OS-$ARCH.tar.gz"
 
-if [ -z "$WHEEL_PATH" ] || [ ! -f "$WHEEL_PATH" ]; then
+if [[ -z "$WHEEL_PATH" ]] || [[ ! -f "$WHEEL_PATH" ]]; then
   echo "Error: No wheel found in dist/. Run without --skip-build." >&2
   exit 1
 fi
-if [ ! -f "$TUI_PATH" ]; then
+if [[ ! -f "$TUI_PATH" ]]; then
   echo "Error: TUI tarball not found at $TUI_PATH. Run without --skip-build." >&2
   exit 1
 fi
@@ -172,20 +172,20 @@ brew tap "$TAP_NAME" "$TAP_DIR"
 # 4. Validate
 # ---------------------------------------------------------------------------
 echo "==> Running brew style..."
-if [ "$STRICT" = true ]; then
+if [[ "$STRICT" = true ]]; then
   brew style --formula "$TAP_NAME/$FORMULA_NAME"
 else
   brew style --formula "$TAP_NAME/$FORMULA_NAME" || true
 fi
 
 echo "==> Running brew audit..."
-if [ "$STRICT" = true ]; then
+if [[ "$STRICT" = true ]]; then
   brew audit --formula "$TAP_NAME/$FORMULA_NAME"
 else
   brew audit --formula "$TAP_NAME/$FORMULA_NAME" || true
 fi
 
-if [ "$AUDIT_ONLY" = true ]; then
+if [[ "$AUDIT_ONLY" = true ]]; then
   echo "==> Done (--audit-only). Skipping install."
   exit 0
 fi

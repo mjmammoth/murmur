@@ -9,9 +9,10 @@ TAP_NAME="local/murmur-lint"
 
 cleanup() {
   brew untap "$TAP_NAME" 2>/dev/null || true
-  if [ -n "${TAP_DIR:-}" ] && [ -d "$TAP_DIR" ]; then
+  if [[ -n "${TAP_DIR:-}" ]] && [[ -d "$TAP_DIR" ]]; then
     rm -rf "$TAP_DIR"
   fi
+  return 0
 }
 trap cleanup EXIT
 
