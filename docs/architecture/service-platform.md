@@ -7,7 +7,7 @@ Accepted
 2026-02-23
 
 ## Context
-`whisper.local` is evolving from a single process (bridge + TUI lifecycle coupled) to a service-first model with:
+`murmur` is evolving from a single process (bridge + TUI lifecycle coupled) to a service-first model with:
 
 - background backend lifecycle independent from the TUI
 - attachable/detachable TUI sessions
@@ -41,7 +41,7 @@ We define and own these contracts:
 
 2. Service state contracts
 - `src/whisper_local/service_state.py`
-  - state directory: `~/.local/state/whisper.local`
+  - state directory: `~/.local/state/murmur`
   - service file: `service.json`
   - transcript database: `transcripts.sqlite3`
   - typed `ServiceState` and `ServiceStatus`

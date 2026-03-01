@@ -30,7 +30,7 @@ function restoreTerminalState() {
 }
 
 const captureSeconds = Number.parseFloat(
-  process.env.WHISPER_LOCAL_TUI_CAPTURE_SECONDS ?? "",
+  process.env.MURMUR_TUI_CAPTURE_SECONDS ?? "",
 );
 const captureMode = Number.isFinite(captureSeconds) && captureSeconds > 0;
 

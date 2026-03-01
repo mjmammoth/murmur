@@ -11,8 +11,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TAP_NAME="local/whisper-local-dev"
-FORMULA_NAME="whisper-local"
+TAP_NAME="local/murmur-dev"
+FORMULA_NAME="murmur"
 
 # Prefer python3 (pyenv may not expose bare "python").
 PYTHON="${PYTHON:-python3}"
@@ -95,7 +95,7 @@ fi
 # 2. Locate artifacts and compute checksums
 # ---------------------------------------------------------------------------
 WHEEL_PATH="$(find "$REPO_ROOT/dist" -maxdepth 1 -type f -name '*.whl' -print -quit 2>/dev/null)"
-TUI_PATH="$REPO_ROOT/dist/tui/whisper-local-tui-darwin-arm64.tar.gz"
+TUI_PATH="$REPO_ROOT/dist/tui/murmur-tui-darwin-arm64.tar.gz"
 
 if [ -z "$WHEEL_PATH" ] || [ ! -f "$WHEEL_PATH" ]; then
   echo "Error: No wheel found in dist/. Run without --skip-build." >&2
@@ -135,7 +135,7 @@ git -C "$TAP_DIR" config user.email "local-test@localhost"
   --wheel-sha256 "$WHEEL_SHA" \
   --tui-url "file://$TUI_PATH" \
   --tui-sha256 "$TUI_SHA" \
-  --repository "local/whisper-local" \
+  --repository "local/murmur" \
   --tap-repo-path "$TAP_DIR"
 
 git -C "$TAP_DIR" add -A

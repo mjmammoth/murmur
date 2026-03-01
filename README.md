@@ -5,15 +5,15 @@
 </div>
 
 <p align="center">
-  <a href="https://github.com/mjmammoth/whisper.local/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/mjmammoth/whisper.local/ci.yml?style=for-the-badge&labelColor=171717&branch=main" alt="CI"></a>
-  <a href="https://github.com/mjmammoth/whisper.local/releases/latest"><img src="https://img.shields.io/github/v/release/mjmammoth/whisper.local?display_name=tag&labelColor=171717&color=0AB2FF&logo=github&style=for-the-badge&label=Version" alt="Latest Release"></a>
+  <a href="https://github.com/mjmammoth/murmur/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/mjmammoth/murmur/ci.yml?style=for-the-badge&labelColor=171717&branch=main" alt="CI"></a>
+  <a href="https://github.com/mjmammoth/murmur/releases/latest"><img src="https://img.shields.io/github/v/release/mjmammoth/murmur?display_name=tag&labelColor=171717&color=0AB2FF&logo=github&style=for-the-badge&label=Version" alt="Latest Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?labelColor=171717&color=0AB2FF&style=for-the-badge" alt="License: Apache 2.0"></a>
-  <a href="https://coderabbit.ai/"><img src="https://img.shields.io/coderabbit/prs/github/mjmammoth/whisper.local?utm_source=oss&utm_medium=github&utm_campaign=mjmammoth%2Fwhisper.local&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews&style=for-the-badge" alt="CodeRabbit Pull Request Reviews"></a>
+  <a href="https://coderabbit.ai/"><img src="https://img.shields.io/coderabbit/prs/github/mjmammoth/murmur?utm_source=oss&utm_medium=github&utm_campaign=mjmammoth%2Fmurmur&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews&style=for-the-badge" alt="CodeRabbit Pull Request Reviews"></a>
 </p>
 
 
 <!-- tui-showcase:start -->
-![whisper.local TUI home across themes](docs/assets/tui-home-themes.png)
+![murmur TUI home across themes](docs/assets/tui-home-themes.png)
 <!-- tui-showcase:end -->
 
 ---
@@ -44,49 +44,49 @@
 #### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | bash
+curl -fsSL https://raw.githubusercontent.com/mjmammoth/murmur/main/install | bash
 ```
 
 <details>
   <summary>Alternative Installation Methods</summary>
 
   ```bash
-  brew install mjmammoth/tap/whisper.local
+  brew install mjmammoth/tap/murmur
   ```
 </details>
 
 <details>
   <summary>Windows</summary>
 
-  Download the latest `whisper-local-tui-windows-x64.tar.gz` from [Releases](https://github.com/mjmammoth/whisper.local/releases/latest), extract, and run.
+  Download the latest `murmur-tui-windows-x64.tar.gz` from [Releases](https://github.com/mjmammoth/murmur/releases/latest), extract, and run.
 </details>
 
 ### Quick Start
 
 ```bash
-whisper.local tui     # guided onboarding, starts background service and opens terminal UI - useful for first-time configuration
-whisper.local start   # start background service only
+murmur tui     # guided onboarding, starts background service and opens terminal UI - useful for first-time configuration
+murmur start   # start background service only
 ```
 
 #### Upgrade
 
 ```bash
-whisper.local upgrade # upgrade to latest version
+murmur upgrade # upgrade to latest version
 ```
 
 ### Troubleshooting
 
 #### macOS permissions
 
-Global hotkeys require **Input Monitoring** and auto-paste requires **Accessibility** permission for your terminal. Grant both in `System Settings` → `Privacy & Security`, then restart whisper.local.
+Global hotkeys require **Input Monitoring** and auto-paste requires **Accessibility** permission for your terminal. Grant both in `System Settings` → `Privacy & Security`, then restart murmur.
 
 #### Common issues
 
 - **Hotkey does nothing** — grant Input Monitoring permission (see above)
 - **Auto-paste fails** — grant Accessibility permission (see above)
-- **No model selected** — run `whisper.local models pull small && whisper.local models select small`
+- **No model selected** — run `murmur models pull small && murmur models select small`
 - **PortAudio / input device errors** — check microphone selection and macOS microphone permissions
-- **Wayland** — global key swallow isn't guaranteed; bind `whisper.local trigger toggle` to a desktop shortcut instead
+- **Wayland** — global key swallow isn't guaranteed; bind `murmur trigger toggle` to a desktop shortcut instead
 
 > [!IMPORTANT]
 > The code in this repo has mostly been created by AI-assisted workflows

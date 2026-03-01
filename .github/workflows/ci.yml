@@ -11,7 +11,7 @@ jobs:
       contents: read
     runs-on: macos-14
     env:
-      WHISPER_LOCAL_SKIP_TUI_SHOWCASE: "1"
+      MURMUR_SKIP_TUI_SHOWCASE: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -194,8 +194,8 @@ jobs:
 
       - name: Verify CLI works (catches missing deps)
         run: |
-          venv/bin/whisper-local --help
-          venv/bin/whisper-local bridge --help
+          venv/bin/murmur --help
+          venv/bin/murmur bridge --help
 
       - name: Startup timing smoke
         run: |
@@ -213,9 +213,9 @@ jobs:
 
           env = os.environ.copy()
           env["PATH"] = f"{fakebin.resolve()}:{env['PATH']}"
-          env["WHISPER_LOCAL_TUI_BIN"] = "/usr/bin/true"
+          env["MURMUR_TUI_BIN"] = "/usr/bin/true"
 
-          cmd = ["venv/bin/whisper-local", "run", "--no-status-indicator"]
+          cmd = ["venv/bin/murmur", "run", "--no-status-indicator"]
 
           def measure() -> float:
               started = time.perf_counter()
@@ -286,10 +286,10 @@ jobs:
       - name: Render formula and register local tap
         run: |
           WHEEL_PATH="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
-          TUI_DARWIN_ARM64="dist/tui/whisper-local-tui-darwin-arm64.tar.gz"
-          TUI_DARWIN_X64="dist/tui/whisper-local-tui-darwin-x64.tar.gz"
-          TUI_LINUX_X64="dist/tui/whisper-local-tui-linux-x64.tar.gz"
-          TUI_LINUX_ARM64="dist/tui/whisper-local-tui-linux-arm64.tar.gz"
+          TUI_DARWIN_ARM64="dist/tui/murmur-tui-darwin-arm64.tar.gz"
+          TUI_DARWIN_X64="dist/tui/murmur-tui-darwin-x64.tar.gz"
+          TUI_LINUX_X64="dist/tui/murmur-tui-linux-x64.tar.gz"
+          TUI_LINUX_ARM64="dist/tui/murmur-tui-linux-arm64.tar.gz"
 
           if [ -z "$WHEEL_PATH" ] || [ ! -f "$WHEEL_PATH" ]; then
             echo "Error: No wheel artifact found in dist/" >&2
@@ -354,7 +354,7 @@ jobs:
             --tui-sha256-linux-x64 "$TUI_LINUX_X64_SHA" \
             --tui-url-linux-arm64 "file://$PWD/$TUI_LINUX_ARM64" \
             --tui-sha256-linux-arm64 "$TUI_LINUX_ARM64_SHA" \
-            --repository "local/whisper-local" \
+            --repository "local/murmur" \
             --tap-repo-path "$TAP_DIR"
 
           # brew style/audit require formulae to live in a tap
@@ -362,13 +362,13 @@ jobs:
           git -C "$TAP_DIR" config user.name "ci"
           git -C "$TAP_DIR" config user.email "ci@localhost"
           git -C "$TAP_DIR" add -A && git -C "$TAP_DIR" commit -q -m "ci"
-          brew tap local/whisper-local-ci "$TAP_DIR"
+          brew tap local/murmur-ci "$TAP_DIR"
 
       - name: Brew style check
-        run: brew style --formula local/whisper-local-ci/whisper-local
+        run: brew style --formula local/murmur-ci/murmur
 
       - name: Brew audit check
-        run: brew audit --formula local/whisper-local-ci/whisper-local
+        run: brew audit --formula local/murmur-ci/murmur
 
   tui_build_smoke:
     permissions:
@@ -406,16 +406,16 @@ jobs:
 
       - name: Assert TUI artifacts exist for all targets
         run: |
-          test -f dist/tui/darwin-arm64/whisper-local-tui
-          test -f dist/tui/darwin-x64/whisper-local-tui
-          test -f dist/tui/linux-x64/whisper-local-tui
-          test -f dist/tui/linux-arm64/whisper-local-tui
-          test -f dist/tui/windows-x64/whisper-local-tui.exe
-          test -f dist/tui/whisper-local-tui-darwin-arm64.tar.gz
-          test -f dist/tui/whisper-local-tui-darwin-x64.tar.gz
-          test -f dist/tui/whisper-local-tui-linux-x64.tar.gz
-          test -f dist/tui/whisper-local-tui-linux-arm64.tar.gz
-          test -f dist/tui/whisper-local-tui-windows-x64.tar.gz
+          test -f dist/tui/darwin-arm64/murmur-tui
+          test -f dist/tui/darwin-x64/murmur-tui
+          test -f dist/tui/linux-x64/murmur-tui
+          test -f dist/tui/linux-arm64/murmur-tui
+          test -f dist/tui/windows-x64/murmur-tui.exe
+          test -f dist/tui/murmur-tui-darwin-arm64.tar.gz
+          test -f dist/tui/murmur-tui-darwin-x64.tar.gz
+          test -f dist/tui/murmur-tui-linux-x64.tar.gz
+          test -f dist/tui/murmur-tui-linux-arm64.tar.gz
+          test -f dist/tui/murmur-tui-windows-x64.tar.gz
           test -f dist/tui/manifest.json
 
       - name: Upload TUI artifacts

@@ -1,4 +1,4 @@
-title = "whisper.local gitleaks config"
+title = "murmur gitleaks config"
 
 [extend]
 useDefault = true

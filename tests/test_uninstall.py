@@ -29,8 +29,8 @@ def _write_primary_launcher(path: Path) -> None:
     path.write_text(
         """#!/usr/bin/env bash
 set -euo pipefail
-APP_HOME="${WHISPER_LOCAL_HOME:-${HOME}/.local/share/whisper.local}"
-export WHISPER_LOCAL_TUI_BIN="${APP_HOME}/tui/linux-x64/whisper-local-tui"
+APP_HOME="${MURMUR_HOME:-${HOME}/.local/share/murmur}"
+export MURMUR_TUI_BIN="${APP_HOME}/tui/linux-x64/murmur-tui"
 exec "${PYTHON_BIN}" -m whisper_local.cli "$@"
 """,
         encoding="utf-8",
@@ -43,7 +43,7 @@ def _write_alt_launcher(path: Path) -> None:
         """#!/usr/bin/env bash
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "${SCRIPT_DIR}/whisper.local" "$@"
+exec "${SCRIPT_DIR}/murmur" "$@"
 """,
         encoding="utf-8",
     )
@@ -60,8 +60,8 @@ def _prepare_installer_layout(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_run_uninstall_installer_app_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     installer_home, python_exe = _prepare_installer_layout(tmp_path)
-    primary_launcher = tmp_path / "bin" / "whisper.local"
-    alt_launcher = tmp_path / "bin" / "whisper-local"
+    primary_launcher = tmp_path / "bin" / "murmur"
+    alt_launcher = tmp_path / "bin" / "murmur-link"
     _write_primary_launcher(primary_launcher)
     _write_alt_launcher(alt_launcher)
     _write_manifest(installer_home, [primary_launcher, alt_launcher])
@@ -87,14 +87,14 @@ def test_run_uninstall_installer_app_only(tmp_path: Path, monkeypatch: pytest.Mo
 
 def test_run_uninstall_installer_with_all_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     installer_home, python_exe = _prepare_installer_layout(tmp_path)
-    primary_launcher = tmp_path / "bin" / "whisper.local"
-    alt_launcher = tmp_path / "bin" / "whisper-local"
+    primary_launcher = tmp_path / "bin" / "murmur"
+    alt_launcher = tmp_path / "bin" / "murmur-link"
     _write_primary_launcher(primary_launcher)
     _write_alt_launcher(alt_launcher)
     _write_manifest(installer_home, [primary_launcher, alt_launcher])
 
-    state_dir = tmp_path / "state" / "whisper.local"
-    config_dir = tmp_path / "config" / "whisper.local"
+    state_dir = tmp_path / "state" / "murmur"
+    config_dir = tmp_path / "config" / "murmur"
     cache_a = tmp_path / "hf" / "hub" / "models--repo-a"
     cache_b = tmp_path / "hf" / "hub" / "models--repo-b"
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -135,7 +135,7 @@ def test_run_uninstall_non_installer_returns_guidance(tmp_path: Path) -> None:
             )
 
     assert exc_info.value.channel == "homebrew"
-    assert "brew uninstall whisper-local" in exc_info.value.command
+    assert "brew uninstall murmur" in exc_info.value.command
 
 
 def test_run_uninstall_pip_channel_returns_guidance(tmp_path: Path) -> None:
@@ -147,18 +147,18 @@ def test_run_uninstall_pip_channel_returns_guidance(tmp_path: Path) -> None:
             )
 
     assert exc_info.value.channel == "pip"
-    assert "python -m pip uninstall whisper-local" in exc_info.value.command
+    assert "python -m pip uninstall murmur" in exc_info.value.command
 
 
 def test_run_uninstall_skips_unknown_launchers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     installer_home, python_exe = _prepare_installer_layout(tmp_path)
-    unknown_launcher = tmp_path / "bin" / "whisper.local"
+    unknown_launcher = tmp_path / "bin" / "murmur"
     unknown_launcher.parent.mkdir(parents=True, exist_ok=True)
     unknown_launcher.write_text("#!/usr/bin/env bash\necho custom\n", encoding="utf-8")
     _write_manifest(installer_home, [unknown_launcher])
 
     monkeypatch.setattr(uninstall, "DEFAULT_LAUNCHER_PATH", unknown_launcher)
-    monkeypatch.setattr(uninstall, "ALT_LAUNCHER_PATH", tmp_path / "bin" / "whisper-local")
+    monkeypatch.setattr(uninstall, "ALT_LAUNCHER_PATH", tmp_path / "bin" / "murmur-link")
 
     result = uninstall.run_uninstall(
         options=uninstall.UninstallOptions(),
@@ -173,12 +173,12 @@ def test_run_uninstall_skips_unknown_launchers(tmp_path: Path, monkeypatch: pyte
 
 def test_run_uninstall_collects_removal_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     installer_home, python_exe = _prepare_installer_layout(tmp_path)
-    primary_launcher = tmp_path / "bin" / "whisper.local"
+    primary_launcher = tmp_path / "bin" / "murmur"
     _write_primary_launcher(primary_launcher)
     _write_manifest(installer_home, [primary_launcher])
 
     monkeypatch.setattr(uninstall, "DEFAULT_LAUNCHER_PATH", primary_launcher)
-    monkeypatch.setattr(uninstall, "ALT_LAUNCHER_PATH", tmp_path / "bin" / "whisper-local")
+    monkeypatch.setattr(uninstall, "ALT_LAUNCHER_PATH", tmp_path / "bin" / "murmur-link")
 
     original_remove_path = uninstall._remove_path
 
@@ -255,9 +255,9 @@ def test_remove_path_failure(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_looks_like_installer_launcher_symlink(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper.local"
+    installer_home = tmp_path / "murmur"
     installer_home.mkdir()
-    target = installer_home / "bin" / "whisper.local"
+    target = installer_home / "bin" / "murmur"
     target.parent.mkdir(parents=True)
     target.write_text("#!/bin/bash")
     link = tmp_path / "launcher"
@@ -266,7 +266,7 @@ def test_looks_like_installer_launcher_symlink(tmp_path: Path) -> None:
 
 
 def test_looks_like_installer_launcher_script_content(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper.local"
+    installer_home = tmp_path / "murmur"
     installer_home.mkdir()
     script = tmp_path / "launcher"
     script.write_text(f"#!/bin/bash\n{installer_home}/venv/bin/python -m whisper_local.cli \"$@\"")
@@ -274,7 +274,7 @@ def test_looks_like_installer_launcher_script_content(tmp_path: Path) -> None:
 
 
 def test_looks_like_installer_launcher_not_file(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper.local"
+    installer_home = tmp_path / "murmur"
     installer_home.mkdir()
     d = tmp_path / "notfile"
     d.mkdir()
@@ -332,7 +332,7 @@ def test_path_exists_or_symlink_broken_symlink(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_run_uninstall_wraps_unexpected_exception(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper.local"
+    installer_home = tmp_path / "murmur"
     venv_dir = installer_home / "venv" / "bin"
     venv_dir.mkdir(parents=True)
     python_exe = venv_dir / "python"
@@ -357,7 +357,7 @@ def test_run_uninstall_wraps_unexpected_exception(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_run_installer_uninstall_service_stop_failure(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper.local"
+    installer_home = tmp_path / "murmur"
     installer_home.mkdir()
 
     manager = Mock()
@@ -376,7 +376,7 @@ def test_run_installer_uninstall_service_stop_failure(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_run_installer_uninstall_model_cache_error(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper.local"
+    installer_home = tmp_path / "murmur"
     installer_home.mkdir()
 
     with patch("whisper_local.uninstall.whisper_local_model_cache_paths", side_effect=Exception("fail")):
@@ -393,7 +393,7 @@ def test_run_installer_uninstall_model_cache_error(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_looks_like_installer_launcher_read_error(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper.local"
+    installer_home = tmp_path / "murmur"
     installer_home.mkdir()
     f = tmp_path / "launcher"
     f.write_text("content")
@@ -402,7 +402,7 @@ def test_looks_like_installer_launcher_read_error(tmp_path: Path) -> None:
 
 
 def test_run_uninstall_propagates_action_required(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper.local"
+    installer_home = tmp_path / "murmur"
     venv_dir = installer_home / "venv" / "bin"
     venv_dir.mkdir(parents=True)
     python_exe = venv_dir / "python"
@@ -423,7 +423,7 @@ def test_run_uninstall_propagates_action_required(tmp_path: Path) -> None:
 
 
 def test_run_uninstall_propagates_uninstall_error(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper.local"
+    installer_home = tmp_path / "murmur"
     venv_dir = installer_home / "venv" / "bin"
     venv_dir.mkdir(parents=True)
     python_exe = venv_dir / "python"
@@ -448,10 +448,10 @@ def test_run_uninstall_propagates_uninstall_error(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_looks_like_installer_launcher_symlink_resolve_error(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper.local"
+    installer_home = tmp_path / "murmur"
     installer_home.mkdir()
     link = tmp_path / "link"
-    target = installer_home / "bin" / "whisper.local"
+    target = installer_home / "bin" / "murmur"
     target.parent.mkdir(parents=True)
     target.write_text("x")
     link.symlink_to(target)

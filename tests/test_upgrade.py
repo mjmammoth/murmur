@@ -13,7 +13,7 @@ from whisper_local.upgrade import ReleaseAssetBundle, UpgradeActionRequired, Upg
 def test_read_install_manifest_valid_payload(tmp_path: Path) -> None:
     manifest_path = tmp_path / "install-manifest.json"
     manifest_path.write_text(
-        '{"channel":"installer","installer_home":"/tmp/whisper.local"}',
+        '{"channel":"installer","installer_home":"/tmp/murmur"}',
         encoding="utf-8",
     )
 
@@ -33,7 +33,7 @@ def test_read_install_manifest_invalid_payload_returns_none(tmp_path: Path) -> N
 def test_detect_install_channel_manifest_does_not_override_non_installer_executable(
     tmp_path: Path,
 ) -> None:
-    installer_home = tmp_path / "whisper-local"
+    installer_home = tmp_path / "murmur"
     (installer_home / "venv").mkdir(parents=True, exist_ok=True)
     (installer_home / "tui").mkdir(parents=True, exist_ok=True)
     (installer_home / upgrade.INSTALLER_MANIFEST_NAME).write_text(
@@ -56,7 +56,7 @@ def test_detect_install_channel_manifest_does_not_override_non_installer_executa
 
 
 def test_detect_install_channel_manifest_does_not_override_homebrew_executable(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper-local"
+    installer_home = tmp_path / "murmur"
     (installer_home / "venv").mkdir(parents=True, exist_ok=True)
     (installer_home / "tui").mkdir(parents=True, exist_ok=True)
     (installer_home / upgrade.INSTALLER_MANIFEST_NAME).write_text(
@@ -70,7 +70,7 @@ def test_detect_install_channel_manifest_does_not_override_homebrew_executable(t
     )
 
     channel = upgrade.detect_install_channel(
-        executable="/opt/homebrew/Cellar/whisper-local/1.0.0/bin/python3",
+        executable="/opt/homebrew/Cellar/murmur/1.0.0/bin/python3",
         installer_home=installer_home,
     )
 
@@ -78,7 +78,7 @@ def test_detect_install_channel_manifest_does_not_override_homebrew_executable(t
 
 
 def test_detect_install_channel_installer(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper-local"
+    installer_home = tmp_path / "murmur"
     executable = installer_home / "venv" / "bin" / "python"
     executable.parent.mkdir(parents=True, exist_ok=True)
     executable.write_text("", encoding="utf-8")
@@ -93,7 +93,7 @@ def test_detect_install_channel_installer(tmp_path: Path) -> None:
 
 
 def test_detect_install_channel_installer_without_tui_dir(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper-local"
+    installer_home = tmp_path / "murmur"
     executable = installer_home / "venv" / "bin" / "python"
     executable.parent.mkdir(parents=True, exist_ok=True)
     executable.write_text("", encoding="utf-8")
@@ -107,7 +107,7 @@ def test_detect_install_channel_installer_without_tui_dir(tmp_path: Path) -> Non
 
 
 def test_detect_install_channel_stale_manifest_falls_back_to_path_heuristic(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper-local"
+    installer_home = tmp_path / "murmur"
     executable = installer_home / "venv" / "bin" / "python"
     executable.parent.mkdir(parents=True, exist_ok=True)
     executable.write_text("", encoding="utf-8")
@@ -126,7 +126,7 @@ def test_detect_install_channel_stale_manifest_falls_back_to_path_heuristic(tmp_
 
 
 def test_detect_install_channel_stale_manifest_falls_back_to_pip(tmp_path: Path) -> None:
-    installer_home = tmp_path / "whisper-local"
+    installer_home = tmp_path / "murmur"
     installer_home.mkdir(parents=True, exist_ok=True)
     (installer_home / upgrade.INSTALLER_MANIFEST_NAME).write_text(
         '{"channel":"installer","installer_home":"/different/path"}',
@@ -144,7 +144,7 @@ def test_detect_install_channel_stale_manifest_falls_back_to_pip(tmp_path: Path)
 
 def test_detect_install_channel_homebrew_by_executable_path(tmp_path: Path) -> None:
     channel = upgrade.detect_install_channel(
-        executable="/opt/homebrew/Cellar/whisper-local/1.0.0/bin/python3",
+        executable="/opt/homebrew/Cellar/murmur/1.0.0/bin/python3",
         installer_home=tmp_path,
     )
 
@@ -162,18 +162,18 @@ def test_detect_install_channel_pip_fallback(tmp_path: Path) -> None:
 
 
 def test_looks_like_homebrew_install_requires_executable_under_prefix() -> None:
-    result = SimpleNamespace(returncode=0, stdout="/opt/homebrew/opt/whisper-local\n", stderr="")
+    result = SimpleNamespace(returncode=0, stdout="/opt/homebrew/opt/murmur\n", stderr="")
     with patch("whisper_local.upgrade.shutil.which", return_value="/opt/homebrew/bin/brew"), patch(
         "whisper_local.upgrade.subprocess.run", return_value=result
     ):
         assert (
-            upgrade._looks_like_homebrew_install(Path("/opt/homebrew/opt/whisper-local/bin/python3"))
+            upgrade._looks_like_homebrew_install(Path("/opt/homebrew/opt/murmur/bin/python3"))
             is True
         )
 
 
 def test_looks_like_homebrew_install_rejects_executable_outside_prefix() -> None:
-    result = SimpleNamespace(returncode=0, stdout="/opt/homebrew/opt/whisper-local\n", stderr="")
+    result = SimpleNamespace(returncode=0, stdout="/opt/homebrew/opt/murmur\n", stderr="")
     with patch("whisper_local.upgrade.shutil.which", return_value="/opt/homebrew/bin/brew"), patch(
         "whisper_local.upgrade.subprocess.run", return_value=result
     ):
@@ -196,7 +196,7 @@ def test_resolve_release_assets_uses_target_bundle() -> None:
                 "browser_download_url": "https://example.invalid/whl",
             },
             {
-                "name": "whisper-local-tui-linux-x64.tar.gz",
+                "name": "murmur-tui-linux-x64.tar.gz",
                 "browser_download_url": "https://example.invalid/tui",
             },
             {
@@ -259,7 +259,7 @@ def test_resolve_release_assets_multiple_wheels_raises() -> None:
                 "browser_download_url": "https://example.invalid/whl2",
             },
             {
-                "name": "whisper-local-tui-linux-x64.tar.gz",
+                "name": "murmur-tui-linux-x64.tar.gz",
                 "browser_download_url": "https://example.invalid/tui",
             },
             {
@@ -287,7 +287,7 @@ def test_resolve_release_assets_missing_checksums_raises() -> None:
                 "browser_download_url": "https://example.invalid/whl",
             },
             {
-                "name": "whisper-local-tui-linux-x64.tar.gz",
+                "name": "murmur-tui-linux-x64.tar.gz",
                 "browser_download_url": "https://example.invalid/tui",
             },
         ],
@@ -307,7 +307,7 @@ def test_resolve_release_assets_missing_signature_raises() -> None:
                 "browser_download_url": "https://example.invalid/whl",
             },
             {
-                "name": "whisper-local-tui-linux-x64.tar.gz",
+                "name": "murmur-tui-linux-x64.tar.gz",
                 "browser_download_url": "https://example.invalid/tui",
             },
             {
@@ -345,7 +345,7 @@ def test_parse_checksums_manifest_parses_sha256_and_optional_star(tmp_path: Path
                 "# comment",
                 "invalid line",
                 "A" * 64 + "  whisper_local-0.2.0-py3-none-any.whl",
-                "b" * 64 + "\t*whisper-local-tui-linux-x64.tar.gz",
+                "b" * 64 + "\t*murmur-tui-linux-x64.tar.gz",
             ]
         )
         + "\n",
@@ -356,7 +356,7 @@ def test_parse_checksums_manifest_parses_sha256_and_optional_star(tmp_path: Path
 
     assert parsed == {
         "whisper_local-0.2.0-py3-none-any.whl": "a" * 64,
-        "whisper-local-tui-linux-x64.tar.gz": "b" * 64,
+        "murmur-tui-linux-x64.tar.gz": "b" * 64,
     }
 
 
@@ -393,7 +393,7 @@ def test_run_upgrade_installer_running_service_restarts(tmp_path: Path, monkeypa
         tag="v0.2.0",
         wheel_name="whisper_local-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="whisper-local-tui-linux-x64.tar.gz",
+        tui_name="murmur-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -432,7 +432,7 @@ def test_run_upgrade_installer_running_service_restarts(tmp_path: Path, monkeypa
     assert mock_extract.call_count == 1
     extract_kwargs = mock_extract.call_args.kwargs
     assert extract_kwargs["target_dir"] == tmp_path / "tui" / "linux-x64"
-    assert extract_kwargs["expected_binary_name"] == "whisper-local-tui"
+    assert extract_kwargs["expected_binary_name"] == "murmur-tui"
     assert extract_kwargs["archive_path"].name == assets.tui_name
 
 
@@ -451,7 +451,7 @@ def test_run_upgrade_installer_when_service_stopped(tmp_path: Path, monkeypatch:
         tag="v0.2.0",
         wheel_name="whisper_local-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="whisper-local-tui-linux-x64.tar.gz",
+        tui_name="murmur-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -481,7 +481,7 @@ def test_run_upgrade_installer_when_service_stopped(tmp_path: Path, monkeypatch:
     assert mock_extract.call_count == 1
     extract_kwargs = mock_extract.call_args.kwargs
     assert extract_kwargs["target_dir"] == tmp_path / "tui" / "linux-x64"
-    assert extract_kwargs["expected_binary_name"] == "whisper-local-tui"
+    assert extract_kwargs["expected_binary_name"] == "murmur-tui"
     assert extract_kwargs["archive_path"].name == assets.tui_name
 
 
@@ -500,7 +500,7 @@ def test_run_upgrade_installer_maps_windows_binary_name(tmp_path: Path, monkeypa
         tag="v0.2.0",
         wheel_name="whisper_local-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="whisper-local-tui-windows-x64.tar.gz",
+        tui_name="murmur-tui-windows-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -525,7 +525,7 @@ def test_run_upgrade_installer_maps_windows_binary_name(tmp_path: Path, monkeypa
         )
 
     assert mock_extract.call_count == 1
-    assert mock_extract.call_args.kwargs["expected_binary_name"] == "whisper-local-tui.exe"
+    assert mock_extract.call_args.kwargs["expected_binary_name"] == "murmur-tui.exe"
 
 
 def test_run_upgrade_wraps_archive_extraction_error(
@@ -546,7 +546,7 @@ def test_run_upgrade_wraps_archive_extraction_error(
         tag="v0.2.0",
         wheel_name="whisper_local-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="whisper-local-tui-linux-x64.tar.gz",
+        tui_name="murmur-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -579,7 +579,7 @@ def test_run_upgrade_non_installer_returns_guidance(tmp_path: Path) -> None:
             upgrade.run_upgrade(installer_home=tmp_path)
 
     assert exc_info.value.channel == "homebrew"
-    assert "brew upgrade whisper-local" in exc_info.value.command
+    assert "brew upgrade murmur" in exc_info.value.command
 
 
 def test_run_upgrade_failure_attempts_service_recovery(
@@ -600,7 +600,7 @@ def test_run_upgrade_failure_attempts_service_recovery(
         tag="v0.2.0",
         wheel_name="whisper_local-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="whisper-local-tui-linux-x64.tar.gz",
+        tui_name="murmur-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -646,7 +646,7 @@ def test_run_upgrade_failure_surfaces_restart_failure(
         tag="v0.2.0",
         wheel_name="whisper_local-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="whisper-local-tui-linux-x64.tar.gz",
+        tui_name="murmur-tui-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -722,19 +722,19 @@ def test_detect_target_unsupported():
 
 
 def test_expected_signing_fingerprint_default(monkeypatch):
-    monkeypatch.delenv("WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT", raising=False)
+    monkeypatch.delenv("MURMUR_SIGNING_KEY_FINGERPRINT", raising=False)
     result = upgrade._expected_signing_fingerprint()
     assert len(result) > 0
 
 
 def test_expected_signing_fingerprint_from_env(monkeypatch):
-    monkeypatch.setenv("WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT", "AB CD EF 12")
+    monkeypatch.setenv("MURMUR_SIGNING_KEY_FINGERPRINT", "AB CD EF 12")
     result = upgrade._expected_signing_fingerprint()
     assert result == "ABCDEF12"
 
 
 def test_expected_signing_fingerprint_empty(monkeypatch):
-    monkeypatch.setenv("WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT", "   ")
+    monkeypatch.setenv("MURMUR_SIGNING_KEY_FINGERPRINT", "   ")
     with pytest.raises(UpgradeError, match="empty"):
         upgrade._expected_signing_fingerprint()
 
@@ -745,7 +745,7 @@ def test_signing_key_url_default():
 
 
 def test_signing_key_url_override(monkeypatch):
-    monkeypatch.setenv("WHISPER_LOCAL_SIGNING_KEY_URL", "https://example.com/key.gpg")
+    monkeypatch.setenv("MURMUR_SIGNING_KEY_URL", "https://example.com/key.gpg")
     url = upgrade._signing_key_url_for_repository("owner/repo")
     assert url == "https://example.com/key.gpg"
 
@@ -876,11 +876,11 @@ def test_run_command_or_error_not_found():
 
 
 def test_expected_tui_binary_name_windows():
-    assert upgrade._expected_tui_binary_name("windows-x64") == "whisper-local-tui.exe"
+    assert upgrade._expected_tui_binary_name("windows-x64") == "murmur-tui.exe"
 
 
 def test_expected_tui_binary_name_unix():
-    assert upgrade._expected_tui_binary_name("darwin-arm64") == "whisper-local-tui"
+    assert upgrade._expected_tui_binary_name("darwin-arm64") == "murmur-tui"
 
 
 def test_installed_version_success():
@@ -926,7 +926,7 @@ def test_detect_install_channel_installer_relative_to(tmp_path: Path):
 
 
 def test_detect_install_channel_homebrew(tmp_path: Path):
-    exe_path = tmp_path / "Cellar" / "whisper-local" / "bin" / "python"
+    exe_path = tmp_path / "Cellar" / "murmur" / "bin" / "python"
     exe_path.parent.mkdir(parents=True)
     exe_path.write_text("#!/usr/bin/env python", encoding="utf-8")
 
@@ -972,7 +972,7 @@ def test_download_to_file(tmp_path: Path):
 
 
 def test_looks_like_homebrew_cellar():
-    exe = Path("/opt/homebrew/Cellar/whisper-local/1.0/bin/python")
+    exe = Path("/opt/homebrew/Cellar/murmur/1.0/bin/python")
     assert upgrade._looks_like_homebrew_install(exe) is True
 
 
@@ -1057,7 +1057,7 @@ def test_resolve_release_assets_success():
         "tag_name": "v1.0.0",
         "assets": [
             _make_asset("whisper_local-1.0.0.whl", "https://example.com/whl"),
-            _make_asset("whisper-local-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
+            _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("checksums.txt.asc", "https://example.com/sig"),
         ],
@@ -1072,7 +1072,7 @@ def test_resolve_release_assets_missing_wheel():
     payload = {
         "tag_name": "v1.0.0",
         "assets": [
-            _make_asset("whisper-local-tui-darwin-arm64.tar.gz"),
+            _make_asset("murmur-tui-darwin-arm64.tar.gz"),
             _make_asset("checksums.txt"),
             _make_asset("checksums.txt.asc"),
         ],
@@ -1101,7 +1101,7 @@ def test_resolve_release_assets_missing_checksums():
         "tag_name": "v1.0.0",
         "assets": [
             _make_asset("whisper_local-1.0.0.whl"),
-            _make_asset("whisper-local-tui-darwin-arm64.tar.gz"),
+            _make_asset("murmur-tui-darwin-arm64.tar.gz"),
         ],
     }
     with patch("whisper_local.upgrade._github_get_json", return_value=payload):
@@ -1114,7 +1114,7 @@ def test_resolve_release_assets_missing_signature():
         "tag_name": "v1.0.0",
         "assets": [
             _make_asset("whisper_local-1.0.0.whl"),
-            _make_asset("whisper-local-tui-darwin-arm64.tar.gz"),
+            _make_asset("murmur-tui-darwin-arm64.tar.gz"),
             _make_asset("checksums.txt"),
         ],
     }
@@ -1128,7 +1128,7 @@ def test_resolve_release_assets_with_version_tag():
         "tag_name": "v2.0.0",
         "assets": [
             _make_asset("whisper_local-2.0.0.whl", "https://example.com/whl"),
-            _make_asset("whisper-local-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
+            _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("checksums.txt.asc", "https://example.com/sig"),
         ],
@@ -1153,7 +1153,7 @@ def test_resolve_release_assets_multiple_wheels():
         "assets": [
             _make_asset("a.whl"),
             _make_asset("b.whl"),
-            _make_asset("whisper-local-tui-darwin-arm64.tar.gz"),
+            _make_asset("murmur-tui-darwin-arm64.tar.gz"),
             _make_asset("checksums.txt"),
             _make_asset("checksums.txt.asc"),
         ],
@@ -1350,7 +1350,7 @@ def test_resolve_release_assets_release_asc_signature():
         "tag_name": "v1.0.0",
         "assets": [
             _make_asset("whisper_local-1.0.0.whl", "https://example.com/whl"),
-            _make_asset("whisper-local-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
+            _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("release.asc", "https://example.com/sig"),
         ],
@@ -1365,7 +1365,7 @@ def test_resolve_release_assets_checksum_asc_fallback():
         "tag_name": "v1.0.0",
         "assets": [
             _make_asset("whisper_local-1.0.0.whl", "https://example.com/whl"),
-            _make_asset("whisper-local-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
+            _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("checksum-release.asc", "https://example.com/sig"),
         ],
@@ -1393,7 +1393,7 @@ def test_resolve_release_assets_missing_download_urls():
         "tag_name": "v1.0.0",
         "assets": [
             {"name": "test.whl", "browser_download_url": ""},
-            {"name": "whisper-local-tui-darwin-arm64.tar.gz", "browser_download_url": "https://x.com/tui"},
+            {"name": "murmur-tui-darwin-arm64.tar.gz", "browser_download_url": "https://x.com/tui"},
             {"name": "checksums.txt", "browser_download_url": "https://x.com/cs"},
             {"name": "checksums.txt.asc", "browser_download_url": "https://x.com/sig"},
         ],

@@ -35,7 +35,7 @@ NO_STATUS_INDICATOR_AUTOSTART_HELP = (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
+    parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "murmur"))
     parser.add_argument(
         "--version",
         action="version",
@@ -140,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     upgrade_parser = subparsers.add_parser(
         "upgrade",
-        help="Upgrade whisper.local (auto-upgrade only for installer-managed installs)",
+        help="Upgrade murmur (auto-upgrade only for installer-managed installs)",
     )
     upgrade_parser.add_argument(
         "--version",
@@ -149,7 +149,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     uninstall_parser = subparsers.add_parser(
         "uninstall",
-        help="Uninstall whisper.local (auto-uninstall only for installer-managed installs)",
+        help="Uninstall murmur (auto-uninstall only for installer-managed installs)",
     )
     uninstall_parser.add_argument(
         "--yes",
@@ -159,17 +159,17 @@ def build_parser() -> argparse.ArgumentParser:
     uninstall_parser.add_argument(
         "--remove-state",
         action="store_true",
-        help="Remove ~/.local/state/whisper.local during uninstall",
+        help="Remove ~/.local/state/murmur during uninstall",
     )
     uninstall_parser.add_argument(
         "--remove-config",
         action="store_true",
-        help="Remove ~/.config/whisper.local during uninstall",
+        help="Remove ~/.config/murmur during uninstall",
     )
     uninstall_parser.add_argument(
         "--remove-model-cache",
         action="store_true",
-        help="Remove whisper.local model caches under ~/.cache/huggingface",
+        help="Remove murmur model caches under ~/.cache/huggingface",
     )
     uninstall_parser.add_argument(
         "--all-data",
@@ -177,7 +177,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Equivalent to --remove-state --remove-config --remove-model-cache",
     )
 
-    subparsers.add_parser("version", help="Print installed whisper.local version")
+    subparsers.add_parser("version", help="Print installed murmur version")
 
     return parser
 
@@ -430,7 +430,7 @@ def _upgrade(*, requested_version: str | None) -> None:
         raise SystemExit(1)
 
     print(
-        f"Upgraded whisper.local {result.previous_version} -> {result.new_version} "
+        f"Upgraded murmur {result.previous_version} -> {result.new_version} "
         f"({result.tag})"
     )
     if result.restarted_service:
@@ -467,13 +467,13 @@ def _prompt_uninstall_scope() -> tuple[bool, bool, bool]:
 
 def _print_uninstall_plan(*, remove_state: bool, remove_config: bool, remove_model_cache: bool) -> None:
     print("Uninstall plan:")
-    print("  - Remove installer launchers and runtime under ~/.local/share/whisper.local")
+    print("  - Remove installer launchers and runtime under ~/.local/share/murmur")
     if remove_state:
-        print("  - Remove ~/.local/state/whisper.local")
+        print("  - Remove ~/.local/state/murmur")
     if remove_config:
-        print("  - Remove ~/.config/whisper.local")
+        print("  - Remove ~/.config/murmur")
     if remove_model_cache:
-        print("  - Remove whisper.local model caches under ~/.cache/huggingface/hub")
+        print("  - Remove murmur model caches under ~/.cache/huggingface/hub")
 
 
 def _confirm_uninstall() -> bool:

@@ -123,7 +123,7 @@ export function Settings(): JSX.Element {
   );
 
   const configPath = createMemo(
-    () => backend.configFilePath() || "~/.config/whisper.local/config.toml",
+    () => backend.configFilePath() || "~/.config/murmur/config.toml",
   );
 
   const modalHeight = createMemo(() => {
@@ -483,7 +483,7 @@ export function Settings(): JSX.Element {
         id: "system.version",
         section: "Advanced",
         title: "Version",
-        description: "whisper.local version",
+        description: "murmur version",
         keywords: ["version", "about"],
         controlKind: "read-only",
         affordance: "read-only",

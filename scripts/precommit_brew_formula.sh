@@ -5,7 +5,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PYTHON="${PYTHON:-python3}"
-TAP_NAME="local/whisper-local-lint"
+TAP_NAME="local/murmur-lint"
 
 cleanup() {
   brew untap "$TAP_NAME" 2>/dev/null || true
@@ -23,9 +23,9 @@ DUMMY_SHA="$(printf 'a%.0s' {1..64})"
 "$PYTHON" "$REPO_ROOT/scripts/update_tap_formula.py" \
   --wheel-url "https://example.com/whisper_local-0.0.0-py3-none-any.whl" \
   --wheel-sha256 "$DUMMY_SHA" \
-  --tui-url "https://example.com/whisper-local-tui-darwin-arm64.tar.gz" \
+  --tui-url "https://example.com/murmur-tui-darwin-arm64.tar.gz" \
   --tui-sha256 "$DUMMY_SHA" \
-  --repository "test/whisper-local" \
+  --repository "test/murmur" \
   --tap-repo-path "$TAP_DIR"
 
 git -C "$TAP_DIR" init -q
@@ -36,5 +36,5 @@ git -C "$TAP_DIR" add -A && git -C "$TAP_DIR" commit -q -m "lint"
 brew untap "$TAP_NAME" 2>/dev/null || true
 brew tap "$TAP_NAME" "$TAP_DIR" 2>/dev/null
 
-brew style --formula "$TAP_NAME/whisper-local"
-brew audit --formula "$TAP_NAME/whisper-local"
+brew style --formula "$TAP_NAME/murmur"
+brew audit --formula "$TAP_NAME/murmur"

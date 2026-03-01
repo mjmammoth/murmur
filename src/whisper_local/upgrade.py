@@ -18,9 +18,9 @@ from whisper_local.archive_extract import ArchiveExtractionError, install_tui_bi
 from whisper_local.service_manager import ServiceManager
 
 
-DEFAULT_REPOSITORY = os.environ.get("WHISPER_LOCAL_REPO", "mjmammoth/whisper.local")
+DEFAULT_REPOSITORY = os.environ.get("MURMUR_REPO", "mjmammoth/murmur")
 DEFAULT_EXPECTED_SIGNING_FINGERPRINT = "031A071DD2F8736D5AB270EF239D1750F8F92826"
-INSTALLER_HOME = Path("~/.local/share/whisper.local").expanduser()
+INSTALLER_HOME = Path("~/.local/share/murmur").expanduser()
 INSTALLER_MANIFEST_NAME = "install-manifest.json"
 INSTALLER_MANIFEST = INSTALLER_HOME / INSTALLER_MANIFEST_NAME
 CHECKSUM_MANIFEST_NAMES = {"checksums.txt", "checksums.sha256", "checksums.sha256sum"}
@@ -139,7 +139,7 @@ def read_install_manifest(
 
 def _looks_like_homebrew_install(executable: Path) -> bool:
     executable_text = str(executable)
-    if "Cellar/whisper-local" in executable_text:
+    if "Cellar/murmur" in executable_text:
         return True
 
     brew_bin = shutil.which("brew")
@@ -148,7 +148,7 @@ def _looks_like_homebrew_install(executable: Path) -> bool:
 
     try:
         result = subprocess.run(
-            [brew_bin, "--prefix", "whisper-local"],
+            [brew_bin, "--prefix", "murmur"],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -199,20 +199,20 @@ def _normalize_fingerprint(value: str) -> str:
 
 def _expected_signing_fingerprint() -> str:
     configured = os.environ.get(
-        "WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT",
+        "MURMUR_SIGNING_KEY_FINGERPRINT",
         DEFAULT_EXPECTED_SIGNING_FINGERPRINT,
     )
     fingerprint = _normalize_fingerprint(configured)
     if not fingerprint:
         raise UpgradeError(
             "Upgrade verification failed: signing key fingerprint is empty "
-            "(set WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT)."
+            "(set MURMUR_SIGNING_KEY_FINGERPRINT)."
         )
     return fingerprint
 
 
 def _signing_key_url_for_repository(repository: str) -> str:
-    override = os.environ.get("WHISPER_LOCAL_SIGNING_KEY_URL")
+    override = os.environ.get("MURMUR_SIGNING_KEY_URL")
     if override and override.strip():
         return override.strip()
 
@@ -229,7 +229,7 @@ def _github_get_json(url: str) -> dict[str, object]:
         url,
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "whisper-local-upgrade",
+            "User-Agent": "murmur-upgrade",
         },
     )
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -263,7 +263,7 @@ def _classify_assets(
     wheel_assets: list[dict[str, object]] = []
     tui_asset: dict[str, object] | None = None
     checksums_asset: dict[str, object] | None = None
-    expected_tui = f"whisper-local-tui-{target_name}.tar.gz"
+    expected_tui = f"murmur-tui-{target_name}.tar.gz"
 
     for name, asset in named_assets:
         if name.endswith(".whl"):
@@ -404,7 +404,7 @@ def _download_to_file(url: str, destination: Path, *, max_attempts: int = 3) -> 
         url,
         headers={
             "Accept": "application/octet-stream",
-            "User-Agent": "whisper-local-upgrade",
+            "User-Agent": "murmur-upgrade",
         },
     )
     last_exc: Exception | None = None
@@ -523,7 +523,7 @@ def _verify_release_signature(
     signing_key_url = _signing_key_url_for_repository(repository)
 
     with _temporary_directory(
-        prefix="whisper-local-upgrade-gpg-",
+        prefix="murmur-upgrade-gpg-",
         base_dir=temp_dir_base,
     ) as tmp_dir:
         tmp_root = Path(tmp_dir)
@@ -601,8 +601,8 @@ def _verify_downloaded_release_assets(
 
 def _expected_tui_binary_name(target: str) -> str:
     if target.startswith("windows-"):
-        return "whisper-local-tui.exe"
-    return "whisper-local-tui"
+        return "murmur-tui.exe"
+    return "murmur-tui"
 
 
 def _installed_version(python_executable: str) -> str:
@@ -626,8 +626,8 @@ def _installed_version(python_executable: str) -> str:
 
 def _guidance_command_for_channel(channel: str) -> str:
     if channel == "homebrew":
-        return "brew update && brew upgrade whisper-local"
-    return "python -m pip install -U whisper-local"
+        return "brew update && brew upgrade murmur"
+    return "python -m pip install -U murmur"
 
 
 def run_upgrade(
@@ -659,7 +659,7 @@ def run_upgrade(
         )
 
         with _temporary_directory(
-            prefix="whisper-local-upgrade-",
+            prefix="murmur-upgrade-",
             base_dir=installer_home,
         ) as tmp_dir:
             tmp_root = Path(tmp_dir)

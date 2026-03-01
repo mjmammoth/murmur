@@ -405,7 +405,7 @@ def test_whisper_cpp_runtime_transcribe_uses_secure_temp_dir(tmp_path: Path):
     assert mock_tmp_dir.call_count == 1
     kwargs = mock_tmp_dir.call_args.kwargs
     assert kwargs["dir"] == str(tmp_path)
-    assert kwargs["prefix"] == "whisper-local-whispercpp-"
+    assert kwargs["prefix"] == "murmur-whispercpp-"
     assert result.text == "whisper output"
     assert result.language == "en"
 

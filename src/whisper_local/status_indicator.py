@@ -138,7 +138,7 @@ class MenuBarStatusApp(NSObject):  # type: ignore[misc]
 
         menu = NSMenu.alloc().init()
         title_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "whisper.local",
+            "murmur",
             None,
             "",
         )
@@ -217,13 +217,13 @@ class MenuBarStatusApp(NSObject):  # type: ignore[misc]
         title = NSMutableAttributedString.alloc().initWithString_("●")
         title.addAttribute_value_range_(NSForegroundColorAttributeName, color, (0, 1))
         self._button.setAttributedTitle_(title)
-        self._button.setToolTip_(f"whisper.local: {message}")
+        self._button.setToolTip_(f"murmur: {message}")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m whisper_local.status_indicator",
-        description="whisper.local macOS menu bar status indicator",
+        description="murmur macOS menu bar status indicator",
     )
     parser.add_argument("--host", default="localhost", help="Bridge host")
     parser.add_argument("--port", type=int, default=7878, help="Bridge port")

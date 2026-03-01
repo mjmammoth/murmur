@@ -226,7 +226,7 @@ jobs:
           generate_release_notes: true
           files: |
             release-assets/python-dist/*
-            release-assets/tui-dist/whisper-local-tui-*.tar.gz
+            release-assets/tui-dist/murmur-tui-*.tar.gz
             release-assets/tui-dist/manifest.json
             release-assets/checksums.txt
             release-assets/checksums.txt.asc
@@ -288,21 +288,21 @@ jobs:
           RELEASE_KIND: ${{ needs.classify_release.outputs.release_kind }}
         run: |
           if [ "${RELEASE_KIND}" = "prerelease" ]; then
-            echo "formula_path=Formula/whisper.local-preview.rb" >> "${GITHUB_OUTPUT}"
-            echo "alias_name=whisper-local-preview" >> "${GITHUB_OUTPUT}"
-            echo "alias_target=../Formula/whisper.local-preview.rb" >> "${GITHUB_OUTPUT}"
-            echo "legacy_formula_path=Formula/whisper-local-preview.rb" >> "${GITHUB_OUTPUT}"
-            echo "legacy_alias_name=whisper.local-preview" >> "${GITHUB_OUTPUT}"
-            echo "template_path=scripts/templates/whisper-local-preview.rb.tpl" >> "${GITHUB_OUTPUT}"
-            echo "commit_label=whisper.local-preview" >> "${GITHUB_OUTPUT}"
+            echo "formula_path=Formula/murmur-preview.rb" >> "${GITHUB_OUTPUT}"
+            echo "alias_name=murmur-preview" >> "${GITHUB_OUTPUT}"
+            echo "alias_target=../Formula/murmur-preview.rb" >> "${GITHUB_OUTPUT}"
+            echo "legacy_formula_path=Formula/murmur-preview.rb" >> "${GITHUB_OUTPUT}"
+            echo "legacy_alias_name=murmur-preview" >> "${GITHUB_OUTPUT}"
+            echo "template_path=scripts/templates/murmur-preview.rb.tpl" >> "${GITHUB_OUTPUT}"
+            echo "commit_label=murmur-preview" >> "${GITHUB_OUTPUT}"
           else
-            echo "formula_path=Formula/whisper.local.rb" >> "${GITHUB_OUTPUT}"
-            echo "alias_name=whisper-local" >> "${GITHUB_OUTPUT}"
-            echo "alias_target=../Formula/whisper.local.rb" >> "${GITHUB_OUTPUT}"
-            echo "legacy_formula_path=Formula/whisper-local.rb" >> "${GITHUB_OUTPUT}"
-            echo "legacy_alias_name=whisper.local" >> "${GITHUB_OUTPUT}"
-            echo "template_path=scripts/templates/whisper-local.rb.tpl" >> "${GITHUB_OUTPUT}"
-            echo "commit_label=whisper.local" >> "${GITHUB_OUTPUT}"
+            echo "formula_path=Formula/murmur.rb" >> "${GITHUB_OUTPUT}"
+            echo "alias_name=murmur" >> "${GITHUB_OUTPUT}"
+            echo "alias_target=../Formula/murmur.rb" >> "${GITHUB_OUTPUT}"
+            echo "legacy_formula_path=Formula/murmur.rb" >> "${GITHUB_OUTPUT}"
+            echo "legacy_alias_name=murmur" >> "${GITHUB_OUTPUT}"
+            echo "template_path=scripts/templates/murmur.rb.tpl" >> "${GITHUB_OUTPUT}"
+            echo "commit_label=murmur" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Render formula from release assets
@@ -313,10 +313,10 @@ jobs:
           TEMPLATE_PATH: ${{ steps.tap_target.outputs.template_path }}
         run: |
           WHEEL_FILE="$(basename "$(ls release-assets/python-dist/*.whl | head -n 1)")"
-          TUI_DARWIN_ARM64="whisper-local-tui-darwin-arm64.tar.gz"
-          TUI_DARWIN_X64="whisper-local-tui-darwin-x64.tar.gz"
-          TUI_LINUX_X64="whisper-local-tui-linux-x64.tar.gz"
-          TUI_LINUX_ARM64="whisper-local-tui-linux-arm64.tar.gz"
+          TUI_DARWIN_ARM64="murmur-tui-darwin-arm64.tar.gz"
+          TUI_DARWIN_X64="murmur-tui-darwin-x64.tar.gz"
+          TUI_LINUX_X64="murmur-tui-linux-x64.tar.gz"
+          TUI_LINUX_ARM64="murmur-tui-linux-arm64.tar.gz"
 
           if [ -z "${WHEEL_FILE}" ] || [ ! -f "release-assets/python-dist/${WHEEL_FILE}" ]; then
             echo "Missing wheel artifact"
@@ -365,7 +365,12 @@ jobs:
           LEGACY_FORMULA_PATH: ${{ steps.tap_target.outputs.legacy_formula_path }}
           LEGACY_ALIAS_NAME: ${{ steps.tap_target.outputs.legacy_alias_name }}
         run: |
-          rm -f "homebrew-tap/${LEGACY_FORMULA_PATH}" "homebrew-tap/Aliases/${LEGACY_ALIAS_NAME}"
+          if [ -n "${LEGACY_FORMULA_PATH}" ] && [ "${LEGACY_FORMULA_PATH}" != "${ALIAS_TARGET#../}" ]; then
+            rm -f "homebrew-tap/${LEGACY_FORMULA_PATH}"
+          fi
+          if [ -n "${LEGACY_ALIAS_NAME}" ] && [ "${LEGACY_ALIAS_NAME}" != "${ALIAS_NAME}" ]; then
+            rm -f "homebrew-tap/Aliases/${LEGACY_ALIAS_NAME}"
+          fi
           mkdir -p homebrew-tap/Aliases
           ln -sfn "${ALIAS_TARGET}" "homebrew-tap/Aliases/${ALIAS_NAME}"
 

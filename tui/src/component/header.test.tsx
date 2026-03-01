@@ -9,7 +9,7 @@ import { createRoot } from "solid-js";
  */
 
 describe("Header", () => {
-  const TITLE = "whisper.local";
+  const TITLE = "murmur";
 
   describe("color interpolation functions", () => {
     test("hexToRgb should convert hex color to RGB", () => {
@@ -206,20 +206,20 @@ describe("Header", () => {
       expect(titleStripChars.length).toBe(TITLE.length + 2);
     });
 
-    test("should find peak index at dot position", () => {
+    test("should find peak index at strip center", () => {
       const titleChars = TITLE.split("");
       const titleStripChars = [" ", ...titleChars, " "];
-      const peakIndex = Math.max(0, TITLE.indexOf(".")) + 1;
+      const titleLastIndex = Math.max(1, titleStripChars.length - 1);
+      const peakIndex = Math.floor(titleLastIndex / 2);
 
-      expect(peakIndex).toBe(7 + 1); // "whisper" is 7 chars, dot at index 7
-      expect(TITLE[7]).toBe(".");
+      expect(peakIndex).toBe(3);
     });
 
     test("should calculate max distance from peak", () => {
       const titleChars = TITLE.split("");
       const titleStripChars = [" ", ...titleChars, " "];
       const titleLastIndex = Math.max(1, titleStripChars.length - 1);
-      const peakIndex = Math.max(0, TITLE.indexOf(".")) + 1;
+      const peakIndex = Math.floor(titleLastIndex / 2);
       const maxDistanceFromPeak = Math.max(1, Math.max(peakIndex, titleLastIndex - peakIndex));
 
       expect(maxDistanceFromPeak).toBeGreaterThan(0);
@@ -261,15 +261,15 @@ describe("Header", () => {
 
   describe("title content", () => {
     test("should have correct title", () => {
-      expect(TITLE).toBe("whisper.local");
+      expect(TITLE).toBe("murmur");
     });
 
-    test("should contain dot character", () => {
-      expect(TITLE.includes(".")).toBe(true);
+    test("should not contain dot character", () => {
+      expect(TITLE.includes(".")).toBe(false);
     });
 
     test("should have expected length", () => {
-      expect(TITLE.length).toBe(13);
+      expect(TITLE.length).toBe(6);
     });
   });
 

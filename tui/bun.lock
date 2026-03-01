@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "whisper-local-tui",
+      "name": "murmur-tui",
       "dependencies": {
         "@opentui/core": "^0.1.79",
         "@opentui/solid": "^0.1.79",

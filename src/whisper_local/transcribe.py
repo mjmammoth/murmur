@@ -37,7 +37,7 @@ from whisper_local.model_manager import (
 
 logger = logging.getLogger(__name__)
 WHISPER_CPP_BINARIES = ("whisper-cli", "whisper-cpp", "main")
-APP_HOME = Path(os.environ.get("WHISPER_LOCAL_HOME", "~/.local/share/whisper.local")).expanduser()
+APP_HOME = Path(os.environ.get("MURMUR_HOME", "~/.local/share/murmur")).expanduser()
 
 
 def _secure_temp_root(base_dir: Path | None = None) -> Path:
@@ -392,7 +392,7 @@ class WhisperCppRuntime(_RuntimeBase):
             audio = resample_audio(audio, sample_rate, 16000)
 
         with tempfile.TemporaryDirectory(
-            prefix="whisper-local-whispercpp-",
+            prefix="murmur-whispercpp-",
             dir=str(_secure_temp_root()),
         ) as tmpdir:
             base_dir = Path(tmpdir)

@@ -17,8 +17,8 @@ from whisper_local.upgrade import (
 )
 
 
-DEFAULT_LAUNCHER_PATH = Path("~/.local/bin/whisper.local").expanduser()
-ALT_LAUNCHER_PATH = Path("~/.local/bin/whisper-local").expanduser()
+DEFAULT_LAUNCHER_PATH = Path("~/.local/bin/murmur").expanduser()
+ALT_LAUNCHER_PATH = Path("~/.local/bin/murmur").expanduser()
 
 
 class UninstallError(RuntimeError):
@@ -200,13 +200,13 @@ def _looks_like_installer_launcher(path: Path, installer_home: Path) -> bool:
     if str(installer_home) in content and "whisper_local.cli" in content:
         return True
     if (
-        "WHISPER_LOCAL_TUI_BIN" in content
+        "MURMUR_TUI_BIN" in content
         and 'exec "${PYTHON_BIN}" -m whisper_local.cli "$@"' in content
         and "APP_HOME=" in content
     ):
         return True
     if (
-        'exec "${SCRIPT_DIR}/whisper.local" "$@"' in content
+        'exec "${SCRIPT_DIR}/murmur" "$@"' in content
         and "SCRIPT_DIR=" in content
         and "set -euo pipefail" in content
     ):
@@ -229,5 +229,5 @@ def _path_is_within(path: Path, root: Path) -> bool:
 
 def _guidance_command_for_channel(channel: str) -> str:
     if channel == "homebrew":
-        return "brew uninstall whisper-local"
-    return "python -m pip uninstall whisper-local"
+        return "brew uninstall murmur"
+    return "python -m pip uninstall murmur"

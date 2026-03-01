@@ -1,6 +1,6 @@
-# Contributing to whisper.local
+# Contributing to murmur
 
-Thanks for helping improve whisper.local.
+Thanks for helping improve murmur.
 
 ## Development environment
 
@@ -15,8 +15,8 @@ Prerequisites:
 Setup:
 
 ```bash
-git clone https://github.com/mjmammoth/whisper.local.git
-cd whisper.local
+git clone https://github.com/mjmammoth/murmur.git
+cd murmur
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -31,10 +31,10 @@ cd tui
 bun install
 ```
 
-When running whisper.local for local UI development, set:
+When running murmur for local UI development, set:
 
 ```bash
-WHISPER_LOCAL_DEV_USE_BUN=1
+MURMUR_DEV_USE_BUN=1
 ```
 
 ## TUI showcase refresh

@@ -95,7 +95,7 @@ function WelcomeStep(): JSX.Element {
   return (
     <box flexDirection="column" gap={1} paddingX={2} paddingY={1} flexShrink={0}>
       <text>
-        <span style={{ fg: colors().primary, bold: true }}>Welcome to whisper.local</span>
+        <span style={{ fg: colors().primary, bold: true }}>Welcome to murmur</span>
       </text>
       <Paragraph>
         Local speech-to-text transcription, entirely on your machine.

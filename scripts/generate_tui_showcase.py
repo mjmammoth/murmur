@@ -382,7 +382,7 @@ def run_capture_termtosvg(
     capture_env.setdefault("TZ", "UTC")
     capture_env.setdefault("LANG", "C.UTF-8")
     capture_env.setdefault("LC_ALL", "C.UTF-8")
-    capture_env["WHISPER_LOCAL_TUI_CAPTURE_SECONDS"] = f"{capture_seconds:.2f}"
+    capture_env["MURMUR_TUI_CAPTURE_SECONDS"] = f"{capture_seconds:.2f}"
     server = _start_mock_backend(repo_root=repo_root, theme=theme, port=port)
     try:
         stdin_read_fd, stdin_write_fd = os.pipe()
@@ -755,7 +755,7 @@ def update_readme(readme_path: Path, image_path: Path) -> None:
     rel_image = image_path.as_posix()
     block = (
         f"{README_START}\n"
-        f"![whisper.local TUI home across themes]({rel_image})\n"
+        f"![murmur TUI home across themes]({rel_image})\n"
         f"{README_END}"
     )
 
@@ -796,14 +796,14 @@ def main() -> int:
     parser.add_argument("--readme", default="README.md", help="README path")
     parser.add_argument(
         "--capture-seconds",
-        default=float(os.environ.get("WHISPER_LOCAL_SHOWCASE_CAPTURE_SECONDS", str(DEFAULT_CAPTURE_SECONDS))),
+        default=float(os.environ.get("MURMUR_SHOWCASE_CAPTURE_SECONDS", str(DEFAULT_CAPTURE_SECONDS))),
         type=float,
         help="Seconds to keep TUI alive during each capture",
     )
     parser.add_argument(
         "--output-format",
         choices=[OUTPUT_SVG, OUTPUT_PNG],
-        default=os.environ.get("WHISPER_LOCAL_SHOWCASE_OUTPUT_FORMAT", OUTPUT_PNG),
+        default=os.environ.get("MURMUR_SHOWCASE_OUTPUT_FORMAT", OUTPUT_PNG),
         help=(
             "Final showcase file format. "
             "'png' avoids GitHub SVG renderer differences; "
@@ -812,7 +812,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--png-scale",
-        default=float(os.environ.get("WHISPER_LOCAL_SHOWCASE_PNG_SCALE", str(DEFAULT_PNG_SCALE))),
+        default=float(os.environ.get("MURMUR_SHOWCASE_PNG_SCALE", str(DEFAULT_PNG_SCALE))),
         type=float,
         help="Rasterization scale for PNG output (higher is sharper, larger file).",
     )
@@ -835,7 +835,7 @@ def main() -> int:
     final_png = assets_dir / "tui-home-themes.png"
 
     with tempfile.TemporaryDirectory(
-        prefix="whisper-local-showcase-",
+        prefix="murmur-showcase-",
         dir=str(_secure_temp_root(repo_root)),
     ) as temp_dir:
         capture_dir = Path(temp_dir)

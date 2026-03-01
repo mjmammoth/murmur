@@ -21,7 +21,7 @@ TMP_REQUIREMENTS="$(mktemp)"
 trap 'rm -f "${TMP_REQUIREMENTS}"' EXIT
 
 "${PYTHON_BIN}" -m pip freeze --all \
-  | awk 'BEGIN { IGNORECASE=1 } $0 !~ /^whisper-local(\[.*\])?([= ]|@)/ { print }' \
+  | awk 'BEGIN { IGNORECASE=1 } $0 !~ /^murmur(\[.*\])?([= ]|@)/ { print }' \
   > "${TMP_REQUIREMENTS}"
 
 cmd=("${PYTHON_BIN}" -m pip_audit --strict --skip-editable -r "${TMP_REQUIREMENTS}")

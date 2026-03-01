@@ -588,7 +588,7 @@ def test_uninstall_success_outputs_summary(mock_run_uninstall: Mock, capsys) -> 
     args = parser.parse_args(["uninstall", "--yes"])
     mock_run_uninstall.return_value = UninstallResult(
         channel="installer",
-        removed_paths=(Path("/var/lib/whisper-local/a"), Path("/var/lib/whisper-local/b")),
+        removed_paths=(Path("/var/lib/murmur/a"), Path("/var/lib/murmur/b")),
         failed_paths=(),
         warnings=("warn",),
     )
@@ -607,7 +607,7 @@ def test_uninstall_action_required_exits_with_guidance(mock_run_uninstall: Mock,
     args = parser.parse_args(["uninstall", "--yes"])
     mock_run_uninstall.side_effect = UninstallActionRequired(
         channel="homebrew",
-        command="brew uninstall whisper-local",
+        command="brew uninstall murmur",
     )
 
     with pytest.raises(SystemExit) as exc_info:
@@ -615,7 +615,7 @@ def test_uninstall_action_required_exits_with_guidance(mock_run_uninstall: Mock,
 
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
-    assert "brew uninstall whisper-local" in captured.out
+    assert "brew uninstall murmur" in captured.out
 
 
 @patch("whisper_local.uninstall.run_uninstall")
@@ -638,8 +638,8 @@ def test_uninstall_reports_failed_paths_as_non_zero(mock_run_uninstall: Mock, ca
     args = parser.parse_args(["uninstall", "--yes"])
     mock_run_uninstall.return_value = UninstallResult(
         channel="installer",
-        removed_paths=(Path("/var/lib/whisper-local/a"),),
-        failed_paths=(RemovalFailure(path=Path("/var/lib/whisper-local/b"), reason="permission denied"),),
+        removed_paths=(Path("/var/lib/murmur/a"),),
+        failed_paths=(RemovalFailure(path=Path("/var/lib/murmur/b"), reason="permission denied"),),
         warnings=(),
     )
 
@@ -672,7 +672,7 @@ def test_upgrade_success_output(mock_run_upgrade: Mock, capsys) -> None:
 def test_upgrade_action_required_exits_with_guidance(mock_run_upgrade: Mock, capsys) -> None:
     mock_run_upgrade.side_effect = UpgradeActionRequired(
         channel="homebrew",
-        command="brew update && brew upgrade whisper-local",
+        command="brew update && brew upgrade murmur",
     )
 
     with pytest.raises(SystemExit) as exc_info:
@@ -680,7 +680,7 @@ def test_upgrade_action_required_exits_with_guidance(mock_run_upgrade: Mock, cap
 
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
-    assert "brew upgrade whisper-local" in captured.out
+    assert "brew upgrade murmur" in captured.out
 
 
 @patch("whisper_local.upgrade.run_upgrade", side_effect=UpgradeError("network error"))
@@ -744,9 +744,9 @@ def test_main_config_command(mock_load_config: Mock, monkeypatch: pytest.MonkeyP
 
 
 def test_prog_name_uses_argv() -> None:
-    with patch.object(sys, "argv", ["/usr/bin/whisper-local"]):
+    with patch.object(sys, "argv", ["/usr/bin/murmur"]):
         parser = cli.build_parser()
-        assert "whisper-local" in parser.prog
+        assert "murmur" in parser.prog
 
 
 @patch("whisper_local.cli.ServiceManager")
@@ -1349,7 +1349,7 @@ def test_main_unknown_command_prints_help() -> None:
 
 
 def test_cli_module_entrypoint_calls_main(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    monkeypatch.setattr(sys, "argv", ["whisper-local"])
+    monkeypatch.setattr(sys, "argv", ["murmur"])
 
     runpy.run_path(str(Path(cli.__file__)), run_name="__main__")
 

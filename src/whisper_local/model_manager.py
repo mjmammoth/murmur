@@ -211,7 +211,7 @@ def _cache_path_for_repo_id(repo_id: str) -> Path:
 
 def whisper_local_model_cache_paths() -> tuple[Path, ...]:
     """
-    Return all Hugging Face cache directories managed by whisper.local model operations.
+    Return all Hugging Face cache directories managed by murmur model operations.
 
     Includes faster-whisper model repositories (primary + aliases) and the whisper.cpp
     repository cache root. Paths are deduplicated while preserving order.

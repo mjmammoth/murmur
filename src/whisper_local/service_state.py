@@ -7,7 +7,7 @@ from typing import Any
 
 
 def state_directory() -> Path:
-    return Path("~/.local/state/whisper.local").expanduser()
+    return Path("~/.local/state/murmur").expanduser()
 
 
 def service_state_path() -> Path:

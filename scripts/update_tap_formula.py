@@ -17,7 +17,7 @@ VERSION_PATTERN = re.compile(
 
 def parse_args() -> argparse.Namespace:
     """
-    Parse command-line arguments for rendering and writing a Homebrew formula for whisper-local.
+    Parse command-line arguments for rendering and writing a Homebrew formula for murmur.
 
     The returned namespace contains:
     - `version`, `wheel_url`, `wheel_sha256`, `repository`, `tap_repo_path`, `formula_path`, and `template`
@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     Returns:
         args (argparse.Namespace): Parsed command-line arguments with attributes used to render and write the formula.
     """
-    parser = argparse.ArgumentParser(description="Render Homebrew formula for whisper-local.")
+    parser = argparse.ArgumentParser(description="Render Homebrew formula for murmur.")
     parser.add_argument("--version", default="", help="Release version without v prefix")
     parser.add_argument("--wheel-url", required=True, help="URL to Python wheel")
     parser.add_argument("--wheel-sha256", required=True, help="SHA256 for Python wheel")
@@ -77,12 +77,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--formula-path",
-        default="Formula/whisper-local.rb",
+        default="Formula/murmur.rb",
         help="Formula path relative to tap repo",
     )
     parser.add_argument(
         "--template",
-        default=str(Path(__file__).resolve().parent / "templates" / "whisper-local.rb.tpl"),
+        default=str(Path(__file__).resolve().parent / "templates" / "murmur.rb.tpl"),
         help="Path to formula template",
     )
     return parser.parse_args()

@@ -214,7 +214,7 @@ def normalize_runtime_name(name: str) -> str:
 
 
 def default_config_path() -> Path:
-    return Path("~/.config/whisper.local/config.toml").expanduser()
+    return Path("~/.config/murmur/config.toml").expanduser()
 
 
 def _load_default_config() -> dict[str, Any]:

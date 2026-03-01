@@ -2,14 +2,14 @@
 set -euo pipefail
 
 DEFAULT_EXPECTED_SIGNING_FINGERPRINT="031A071DD2F8736D5AB270EF239D1750F8F92826"
-REPO="${WHISPER_LOCAL_REPO:-mjmammoth/whisper.local}"
+REPO="${MURMUR_REPO:-mjmammoth/murmur}"
 CLI_NO_VERIFY=false
 REQUESTED_TAG="latest"
 INSTALLER_MANIFEST_VERSION="1"
 REPO_OWNER="${REPO%%/*}"
-SIGNING_KEY_URL="${WHISPER_LOCAL_SIGNING_KEY_URL:-https://github.com/${REPO_OWNER}.gpg}"
+SIGNING_KEY_URL="${MURMUR_SIGNING_KEY_URL:-https://github.com/${REPO_OWNER}.gpg}"
 EXPECTED_SIGNING_FINGERPRINT="$(
-  printf '%s' "${WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT:-${DEFAULT_EXPECTED_SIGNING_FINGERPRINT}}" |
+  printf '%s' "${MURMUR_SIGNING_KEY_FINGERPRINT:-${DEFAULT_EXPECTED_SIGNING_FINGERPRINT}}" |
     tr -d '[:space:]' |
     tr '[:lower:]' '[:upper:]'
 )"
@@ -64,16 +64,16 @@ if [ "${#POSITIONAL_ARGS[@]}" -eq 1 ]; then
 fi
 
 VERIFY_RELEASE=true
-if [ "${CLI_NO_VERIFY}" = "true" ] || is_truthy "${NO_VERIFY:-}" || is_truthy "${WHISPER_LOCAL_NO_VERIFY:-}"; then
+if [ "${CLI_NO_VERIFY}" = "true" ] || is_truthy "${NO_VERIFY:-}" || is_truthy "${MURMUR_NO_VERIFY:-}"; then
   VERIFY_RELEASE=false
 fi
 
-APP_HOME="${HOME}/.local/share/whisper.local"
+APP_HOME="${HOME}/.local/share/murmur"
 VENV_DIR="${APP_HOME}/venv"
 TUI_ROOT="${APP_HOME}/tui"
 BIN_DIR="${HOME}/.local/bin"
-LAUNCHER_PATH="${BIN_DIR}/whisper.local"
-ALT_LAUNCHER_PATH="${BIN_DIR}/whisper-local"
+LAUNCHER_PATH="${BIN_DIR}/murmur"
+ALT_LAUNCHER_PATH="${BIN_DIR}/murmur"
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "Error: curl is required" >&2
@@ -101,7 +101,7 @@ if [ "${VERIFY_RELEASE}" = "true" ]; then
     exit 1
   fi
 else
-  echo "Warning: release verification disabled via --no-verify/NO_VERIFY/WHISPER_LOCAL_NO_VERIFY" >&2
+  echo "Warning: release verification disabled via --no-verify/NO_VERIFY/MURMUR_NO_VERIFY" >&2
 fi
 
 os_name="$(uname -s)"
@@ -273,7 +273,7 @@ with open(release_path, "r", encoding="utf-8") as handle:
 
 assets = data.get("assets", [])
 wheel_assets = [asset for asset in assets if str(asset.get("name", "")).endswith(".whl")]
-archive_name = f"whisper-local-tui-{target}.tar.gz"
+archive_name = f"murmur-tui-{target}.tar.gz"
 tui = next((asset for asset in assets if asset.get("name") == archive_name), None)
 
 wheel = None
@@ -393,7 +393,7 @@ tui_name="${asset_urls[3]}"
 checksums_url="${asset_urls[4]}"
 signature_url="${asset_urls[5]}"
 
-echo "Installing whisper.local ${release_tag} (${target})"
+echo "Installing murmur ${release_tag} (${target})"
 
 action_dir="${tmp_dir}/download"
 mkdir -p "${action_dir}"
@@ -439,11 +439,11 @@ else
 fi
 
 if [[ "${target}" == windows-* ]]; then
-  expected_tui_binary="whisper-local-tui.exe"
+  expected_tui_binary="murmur-tui.exe"
 else
-  expected_tui_binary="whisper-local-tui"
+  expected_tui_binary="murmur-tui"
 fi
-rm -f "${TUI_ROOT}/${target}/whisper-local-tui" "${TUI_ROOT}/${target}/whisper-local-tui.exe"
+rm -f "${TUI_ROOT}/${target}/murmur-tui" "${TUI_ROOT}/${target}/murmur-tui.exe"
 if ! "${VENV_PYTHON}" - "${tui_archive_path}" "${TUI_ROOT}/${target}" "${expected_tui_binary}" <<'PY'
 from pathlib import Path
 import sys
@@ -470,8 +470,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-APP_HOME="${WHISPER_LOCAL_HOME:-${LOCAL_ROOT}/share/whisper.local}"
-VENV_DIR="${WHISPER_VENV_DIR:-${APP_HOME}/venv}"
+APP_HOME="${MURMUR_HOME:-${LOCAL_ROOT}/share/murmur}"
+VENV_DIR="${MURMUR_VENV_DIR:-${APP_HOME}/venv}"
 
 resolve_target() {
   local os_name arch_name
@@ -502,7 +502,7 @@ resolve_target() {
   esac
 }
 
-TARGET="${WHISPER_LOCAL_TARGET:-}"
+TARGET="${MURMUR_TARGET:-}"
 if [ -z "${TARGET}" ]; then
   if ! TARGET="$(resolve_target)"; then
     echo "Error: unable to resolve runtime target for this platform" >&2
@@ -510,12 +510,12 @@ if [ -z "${TARGET}" ]; then
   fi
 fi
 
-if [ -n "${WHISPER_LOCAL_TUI_BIN:-}" ]; then
-  TUI_BIN="${WHISPER_LOCAL_TUI_BIN}"
+if [ -n "${MURMUR_TUI_BIN:-}" ]; then
+  TUI_BIN="${MURMUR_TUI_BIN}"
 elif [[ "${TARGET}" == windows-* ]]; then
-  TUI_BIN="${APP_HOME}/tui/${TARGET}/whisper-local-tui.exe"
+  TUI_BIN="${APP_HOME}/tui/${TARGET}/murmur-tui.exe"
 else
-  TUI_BIN="${APP_HOME}/tui/${TARGET}/whisper-local-tui"
+  TUI_BIN="${APP_HOME}/tui/${TARGET}/murmur-tui"
 fi
 
 if [ ! -f "${TUI_BIN}" ]; then
@@ -535,18 +535,20 @@ else
   exit 1
 fi
 
-export WHISPER_LOCAL_TUI_BIN="${TUI_BIN}"
+export MURMUR_TUI_BIN="${TUI_BIN}"
 exec "${PYTHON_BIN}" -m whisper_local.cli "$@"
 EOF
 chmod +x "${LAUNCHER_PATH}"
 
-cat > "${ALT_LAUNCHER_PATH}" <<'EOF'
+if [ "${ALT_LAUNCHER_PATH}" != "${LAUNCHER_PATH}" ]; then
+  cat > "${ALT_LAUNCHER_PATH}" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "${SCRIPT_DIR}/whisper.local" "$@"
+exec "${SCRIPT_DIR}/murmur" "$@"
 EOF
-chmod +x "${ALT_LAUNCHER_PATH}"
+  chmod +x "${ALT_LAUNCHER_PATH}"
+fi
 
 MANIFEST_PATH="${APP_HOME}/install-manifest.json"
 MANIFEST_TMP="$(mktemp "${APP_HOME}/install-manifest.tmp.XXXXXX")"
@@ -567,10 +569,14 @@ payload = {
     "tag": os.environ["release_tag"],
     "installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     "installer_version": os.environ["INSTALLER_MANIFEST_VERSION"],
-    "launchers": [
-        os.environ["LAUNCHER_PATH"],
-        os.environ["ALT_LAUNCHER_PATH"],
-    ],
+    "launchers": list(
+        dict.fromkeys(
+            [
+                os.environ["LAUNCHER_PATH"],
+                os.environ["ALT_LAUNCHER_PATH"],
+            ]
+        )
+    ),
 }
 tmp_path.write_text(f"{json.dumps(payload, indent=2)}\n", encoding="utf-8")
 tmp_path.replace(manifest_path)
@@ -578,8 +584,8 @@ PY
 
 if [[ ":${PATH}:" != *":${BIN_DIR}:"* ]]; then
   echo
-  echo "Add ${BIN_DIR} to your PATH to use whisper.local from any shell."
+  echo "Add ${BIN_DIR} to your PATH to use murmur from any shell."
 fi
 
 echo "Installed launcher: ${LAUNCHER_PATH}"
-echo "Run: whisper.local"
+echo "Run: murmur"

@@ -175,7 +175,7 @@ def detect_platform_capabilities() -> PlatformCapabilities:
                 auto_paste=False,
                 hotkey_guidance=(
                     "Wayland does not guarantee global key swallowing. "
-                    "Bind a desktop shortcut to 'whisper.local trigger toggle'."
+                    "Bind a desktop shortcut to 'murmur trigger toggle'."
                 ),
             )
 
@@ -191,7 +191,7 @@ def detect_platform_capabilities() -> PlatformCapabilities:
 
         guidance = reason or (
             "X11 hotkey capture unavailable. "
-            "Bind a desktop shortcut to 'whisper.local trigger toggle'."
+            "Bind a desktop shortcut to 'murmur trigger toggle'."
         )
         return PlatformCapabilities(
             hotkey_capture=False,
@@ -246,7 +246,7 @@ def create_hotkey_provider(
             return NoopHotkeyProvider(
                 reason=(
                     "Wayland does not guarantee global key swallowing. "
-                    "Bind a desktop shortcut to 'whisper.local trigger toggle'."
+                    "Bind a desktop shortcut to 'murmur trigger toggle'."
                 )
             )
 

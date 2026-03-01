@@ -36,10 +36,10 @@ def test_run_pip_audit_script_uses_ignore_file(run_pip_audit_script: Path) -> No
 
 
 def test_run_pip_audit_script_filters_whisper_local(run_pip_audit_script: Path) -> None:
-    """Test that script filters out whisper-local package from requirements."""
+    """Test that script filters out murmur package from requirements."""
     content = run_pip_audit_script.read_text(encoding="utf-8")
-    # Should filter out whisper-local from pip freeze output
-    assert "whisper-local" in content
+    # Should filter out murmur from pip freeze output
+    assert "murmur" in content
     assert "awk" in content or "grep" in content
 
 

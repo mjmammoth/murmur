@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Mapping
 
 
-ENV_TUI_BIN = "WHISPER_LOCAL_TUI_BIN"
-ENV_DEV_USE_BUN = "WHISPER_LOCAL_DEV_USE_BUN"
-TUI_EXECUTABLE = "whisper-local-tui"
+ENV_TUI_BIN = "MURMUR_TUI_BIN"
+ENV_DEV_USE_BUN = "MURMUR_DEV_USE_BUN"
+TUI_EXECUTABLE = "murmur-tui"
 
 
 @dataclass(frozen=True)
@@ -91,7 +91,7 @@ def resolve_tui_runtime(
         )
 
     raise FileNotFoundError(
-        "Unable to locate packaged TUI runtime executable 'whisper-local-tui'. "
+        "Unable to locate packaged TUI runtime executable 'murmur-tui'. "
         f"Set {ENV_TUI_BIN} to an executable path. "
         f"For local contributors, set {ENV_DEV_USE_BUN}=1 to run from ./tui with bun."
     )
