@@ -412,7 +412,7 @@ export function SettingsSelectModal(): JSX.Element {
     if (options.length === 0) return;
     let next = selectedIndex();
 
-    for (let i = 0; i < options.length; i++) {
+    for (const _ of options) {
       next += delta;
       if (next < 0) next = options.length - 1;
       if (next >= options.length) next = 0;

@@ -243,7 +243,7 @@ def _wait_for_server(port: int, timeout: float = 5.0, interval: float = 0.1) -> 
         except urllib.error.HTTPError:
             # Any HTTP response confirms the server is up.
             return True
-        except (OSError, urllib.error.URLError):
+        except OSError:
             time.sleep(interval)
     return False
 
@@ -689,7 +689,7 @@ def compose_stacked_svg(theme_svgs: list[tuple[str, Path]], output_path: Path) -
         theme_svgs (list[tuple[str, Path]]): List of (theme_name, svg_path) pairs to include in the composition.
         output_path (Path): Destination path for the generated stacked SVG file.
     """
-    theme_to_svg = {theme: path for theme, path in theme_svgs}
+    theme_to_svg = dict(theme_svgs)
     ordered_themes = [theme for theme in THEMES if theme in theme_to_svg and theme != "dark"]
     if "dark" in theme_to_svg:
         ordered_themes.append("dark")

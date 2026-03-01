@@ -286,7 +286,7 @@ export { useTheme };
 export function ThemeContextProvider(props: { children: JSX.Element }): JSX.Element {
   const backend = useBackend();
   const [currentThemeId, setCurrentThemeId] = createSignal<string>(DEFAULT_THEME_ID);
-  const theme = createMemo(() => themes[currentThemeId()] ?? themes[DEFAULT_THEME_ID]!);
+  const theme = createMemo(() => themes[currentThemeId()] ?? themes[DEFAULT_THEME_ID]);
 
   const colors = () => theme().colors;
 

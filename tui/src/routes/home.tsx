@@ -25,7 +25,7 @@ import {
 import { Welcome } from "../component/welcome";
 import { exitApp } from "../util/exit";
 import { setSigintHandler } from "../util/interrupt";
-import type { ModelManagerDialogData } from "../types";
+
 
 /**
  * Render the application's Home screen and manage its UI state, global input handlers, backend interactions, and modal overlays.

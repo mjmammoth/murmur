@@ -59,7 +59,7 @@ for (let i = 0; i < args.length; i++) {
     host = args[i + 1];
     i++;
   } else if (args[i] === "--port" && args[i + 1]) {
-    port = parseInt(args[i + 1], 10);
+    port = Number.parseInt(args[i + 1], 10);
     i++;
   }
 }

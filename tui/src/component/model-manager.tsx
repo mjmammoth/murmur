@@ -14,7 +14,7 @@ import { useTheme } from "../context/theme";
 import { useBackend } from "../context/backend";
 import { useDialog } from "../context/dialog";
 import { useConfig } from "../context/config";
-import { ModelItem, MODEL_TABLE_LAYOUT } from "./model-item";
+import { ModelItem } from "./model-item";
 import { useSpinnerFrame } from "./spinner";
 import type { RuntimeName, ModelManagerDialogData } from "../types";
 import { removeHotkeys } from "./model-manager-config";

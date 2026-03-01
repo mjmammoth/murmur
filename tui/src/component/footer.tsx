@@ -52,7 +52,7 @@ function KeyHint(props: KeyHintProps): JSX.Element {
     <box onMouseUp={() => props.onClick?.()}>
       <text>
         <span style={{ fg: colors().textMuted }}>{before}</span>
-        {key !== null ? <span style={{ fg: colors().secondary, bold: true }}>{key}</span> : null}
+        {key === null ? null : <span style={{ fg: colors().secondary, bold: true }}>{key}</span>}
         <span style={{ fg: colors().textMuted }}>{after}</span>
       </text>
     </box>
@@ -191,7 +191,7 @@ export function Footer(props: FooterProps): JSX.Element {
   };
 
   const statusDisplay = () => {
-    const oneLine = transcriber.statusMessage().replace(/\s+/g, " ").trim();
+    const oneLine = transcriber.statusMessage().replaceAll(/\s+/g, " ").trim();
     return truncateLabel(oneLine || "-", statusMaxChars());
   };
 

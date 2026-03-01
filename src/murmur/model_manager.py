@@ -824,7 +824,6 @@ def _make_progress_tqdm(
                 for item in self._iterable:
                     _ProgressTqdm._raise_if_cancelled()
                     yield item
-            return
 
         def __len__(self) -> int:
             if isinstance(self._iterable, Sized):
@@ -841,6 +840,7 @@ def _make_progress_tqdm(
                 self._emit_progress_locked()
 
         def close(self) -> None:
+            # No resources to release; required by tqdm protocol.
             pass
 
         def __enter__(self) -> _ProgressTqdm:
@@ -852,15 +852,12 @@ def _make_progress_tqdm(
 
         def set_description(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         def set_postfix(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         def set_postfix_str(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         def refresh(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
@@ -872,7 +869,6 @@ def _make_progress_tqdm(
 
         def clear(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         def reset(self, total: float | None = None) -> None:
             _ProgressTqdm._raise_if_cancelled()
@@ -885,7 +881,6 @@ def _make_progress_tqdm(
 
         def display(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         @classmethod
         def get_lock(cls) -> threading.Lock:
@@ -897,11 +892,9 @@ def _make_progress_tqdm(
 
         def moveto(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         def unpause(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
     # Reset class-level counters for each download
     return _ProgressTqdm

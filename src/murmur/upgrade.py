@@ -395,7 +395,6 @@ def resolve_release_assets(
 
 def _download_to_file(url: str, destination: Path, *, max_attempts: int = 3) -> None:
     import logging
-    import socket
     import time
     import urllib.error
 
@@ -418,7 +417,7 @@ def _download_to_file(url: str, destination: Path, *, max_attempts: int = 3) -> 
                             break
                         handle.write(chunk)
             return
-        except (urllib.error.URLError, socket.timeout, OSError) as exc:
+        except OSError as exc:
             last_exc = exc
             if attempt < max_attempts:
                 delay = 2 ** (attempt - 1)

@@ -151,7 +151,7 @@ export function BackendContextProvider(props: {
     handlers: Array<(...args: TArgs) => void>,
     ...args: TArgs
   ) {
-    for (const handler of [...handlers]) {
+    for (const handler of handlers) {
       handler(...args);
     }
   }

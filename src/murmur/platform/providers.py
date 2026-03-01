@@ -222,7 +222,7 @@ class X11HotkeyProvider(HotkeyProvider):
         root = None
         keycode = 0
         modifier_mask = 0
-        grab_masks: tuple[int, ...] = tuple()
+        grab_masks: tuple[int, ...] = ()
         try:
             display, root, keycode, modifier_mask, grab_masks, xlib_x = self._setup_grab()
 

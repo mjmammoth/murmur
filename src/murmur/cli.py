@@ -799,7 +799,6 @@ def _handle_models_command(args: argparse.Namespace) -> None:
     if args.models_command in ("select", "set-default"):
         set_selected_model(args.name)
         print(f"Selected model set to {args.name}")
-        return
 
 
 def _handle_config_command(args: argparse.Namespace) -> None:

@@ -63,7 +63,7 @@ export function ThemePickerModal(): JSX.Element {
     const current = themeId();
     setInitialThemeId(current);
     const index = availableThemes.findIndex((theme) => theme.id === current);
-    setSelectedIndex(index >= 0 ? index : 0);
+    setSelectedIndex(Math.max(index, 0));
   });
 
   createEffect(() => {
