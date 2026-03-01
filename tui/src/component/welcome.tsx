@@ -911,105 +911,107 @@ export function Welcome(): JSX.Element {
     resolveNextHint(currentStep(), isLastStep(), canClose()),
   );
 
+  function handleScrollableStepKey(key: KeyEvent): boolean {
+    if (!contentScroll || contentScroll.isDestroyed) return false;
+    if (key.name === "up" || key.name === "k") {
+      key.preventDefault();
+      contentScroll.scrollBy(-1, "step");
+      return true;
+    }
+    if (key.name === "down" || key.name === "j") {
+      key.preventDefault();
+      contentScroll.scrollBy(1, "step");
+      return true;
+    }
+    return false;
+  }
+
+  function handleDeviceDetectionKey(key: KeyEvent): boolean {
+    if (key.name === "up" || key.name === "k") {
+      key.preventDefault();
+      setSelectedHardwareFieldIndex((value) => Math.max(0, value - 1));
+      return true;
+    }
+    if (key.name === "down" || key.name === "j") {
+      key.preventDefault();
+      setSelectedHardwareFieldIndex((value) => Math.min(hardwareFields.length - 1, value + 1));
+      return true;
+    }
+    if (key.name === "return" || key.name === "enter") {
+      key.preventDefault();
+      openHardwareSettingSelector(selectedHardwareField());
+      return true;
+    }
+    return false;
+  }
+
+  function handleModelDownloadKey(key: KeyEvent): boolean {
+    const selectedRuntime =
+      (backend.config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
+    if (key.name === "up" || key.name === "k") {
+      key.preventDefault();
+      setModelIndex((i) => Math.max(0, i - 1));
+      return true;
+    }
+    if (key.name === "down" || key.name === "j") {
+      key.preventDefault();
+      setModelIndex((i) => Math.min(backend.models().length - 1, i + 1));
+      return true;
+    }
+    if (key.name === "return" || key.name === "enter") {
+      key.preventDefault();
+      handleModelDownloadAction(selectedRuntime);
+      return true;
+    }
+    if (key.name === "x") {
+      const pulling = backend.activeModelOp();
+      if (pulling?.type === "pulling") {
+        backend.cancelModelDownload(pulling.model, pulling.runtime);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function handleModelDownloadAction(selectedRuntime: RuntimeName) {
+    const model = backend.models()[modelIndex()];
+    const op = backend.activeModelOp();
+    if (!model) return;
+    const pulling =
+      op?.type === "pulling" && op.model === model.name && op.runtime === selectedRuntime;
+    const queued = backend.isModelPullQueued(model.name, selectedRuntime);
+    if (pulling || queued) {
+      backend.cancelModelDownload(model.name, selectedRuntime);
+    } else if (model.variants?.[selectedRuntime]?.installed) {
+      if (op) return;
+      backend.send({ type: "set_selected_model", name: model.name });
+    } else {
+      backend.downloadModel(model.name, selectedRuntime);
+    }
+  }
+
   // Keyboard navigation
   useKeyHandler((key: KeyEvent) => {
     if (dialog.currentDialog()?.type !== "welcome") return;
     if (key.eventType === "release" || key.repeated) return;
 
-    // Scroll content for text-only steps (help, welcome)
     const step = currentStep();
-    if (step === "help" || step === "welcome") {
-      if (contentScroll && !contentScroll.isDestroyed) {
-        if (key.name === "up" || key.name === "k") {
-          key.preventDefault();
-          contentScroll.scrollBy(-1, "step");
-          return;
-        }
-        if (key.name === "down" || key.name === "j") {
-          key.preventDefault();
-          contentScroll.scrollBy(1, "step");
-          return;
-        }
-      }
-    }
 
-    if (currentStep() === "device-detection") {
-      if (key.name === "up" || key.name === "k") {
-        key.preventDefault();
-        setSelectedHardwareFieldIndex((value) => Math.max(0, value - 1));
-        return;
-      }
-      if (key.name === "down" || key.name === "j") {
-        key.preventDefault();
-        setSelectedHardwareFieldIndex((value) => Math.min(hardwareFields.length - 1, value + 1));
-        return;
-      }
-      if (key.name === "return" || key.name === "enter") {
-        key.preventDefault();
-        openHardwareSettingSelector(selectedHardwareField());
-        return;
-      }
-    }
-
-    // Model download step: arrow keys navigate model list
-    if (currentStep() === "model-download") {
-      const selectedRuntime =
-        (backend.config()?.model.runtime as RuntimeName | undefined) ?? "faster-whisper";
-      if (key.name === "up" || key.name === "k") {
-        key.preventDefault();
-        setModelIndex((i) => Math.max(0, i - 1));
-        return;
-      }
-      if (key.name === "down" || key.name === "j") {
-        key.preventDefault();
-        setModelIndex((i) => Math.min(backend.models().length - 1, i + 1));
-        return;
-      }
-      if (key.name === "return" || key.name === "enter") {
-        key.preventDefault();
-        const model = backend.models()[modelIndex()];
-        const op = backend.activeModelOp();
-        if (!model) return;
-        const pulling =
-          op?.type === "pulling" && op.model === model.name && op.runtime === selectedRuntime;
-        const queued = backend.isModelPullQueued(model.name, selectedRuntime);
-        if (pulling || queued) {
-          backend.cancelModelDownload(model.name, selectedRuntime);
-        } else if (model.variants?.[selectedRuntime]?.installed) {
-          if (op) return;
-          backend.send({ type: "set_selected_model", name: model.name });
-        } else {
-          backend.downloadModel(model.name, selectedRuntime);
-        }
-        return;
-      }
-      if (key.name === "x") {
-        const pulling = backend.activeModelOp();
-        if (pulling?.type === "pulling") {
-          backend.cancelModelDownload(pulling.model, pulling.runtime);
-        }
-        return;
-      }
-    }
+    if ((step === "help" || step === "welcome") && handleScrollableStepKey(key)) return;
+    if (step === "device-detection" && handleDeviceDetectionKey(key)) return;
+    if (step === "model-download" && handleModelDownloadKey(key)) return;
 
     switch (key.name) {
       case "escape":
       case "q":
-        if (canClose()) {
-          handleClose();
-        }
+        if (canClose()) handleClose();
         break;
       case "return":
       case "enter":
-        // Enter already handled in model-download step above
-        if (currentStep() !== "model-download") {
-          handleNext();
-        }
+        if (step !== "model-download") handleNext();
         break;
       case "right":
-        if (shouldAdvanceOnRightKey(currentStep())) {
-          handleNext();
-        }
+        if (shouldAdvanceOnRightKey(step)) handleNext();
         break;
       case "left":
         handleBack();
