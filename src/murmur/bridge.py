@@ -935,6 +935,171 @@ class BridgeServer:
 
         await self._set_status(final_status, final_message)
 
+    def _apply_noise_suppression(
+        self, audio: Any, sample_rate: int
+    ) -> tuple[Any, bool, bool, int]:
+        """Apply noise suppression if available, returning (audio, available, applied, post_samples)."""
+        if not self.noise:
+            return audio, False, False, int(audio.shape[0])
+        noise_result = self.noise.process(audio, sample_rate)
+        return (
+            noise_result.audio,
+            noise_result.available,
+            noise_result.applied,
+            int(noise_result.audio.shape[0]),
+        )
+
+    def _apply_vad(self, audio: Any, sample_rate: int) -> tuple[Any, bool, bool]:
+        """Apply VAD trimming if enabled, returning (audio, available, applied)."""
+        if not (self.config.vad.enabled and self.vad):
+            return audio, bool(self.vad and getattr(self.vad, "_vad", None)), False
+        vad_result = self.vad.trim(audio, sample_rate)
+        return vad_result.audio, vad_result.available, vad_result.applied
+
+    async def _run_transcription(
+        self, audio: Any, transcriber: Any, sample_rate: int, language: str | None
+    ) -> tuple[Any, int]:
+        """Run transcription in executor, returning (result, transcribe_ms)."""
+        transcribe_started = monotonic()
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: transcriber.transcribe(
+                audio,
+                sample_rate=sample_rate,
+                language=language,
+            ),
+        )
+        transcribe_ms = int((monotonic() - transcribe_started) * 1000)
+        return result, transcribe_ms
+
+    async def _store_and_broadcast_transcript(self, text: str) -> TranscriptRecord | None:
+        """Persist transcript to store and broadcast to connected clients."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        stored: TranscriptRecord | None = None
+        try:
+            stored = await asyncio.to_thread(
+                self._transcript_store.append,
+                text,
+                timestamp=timestamp,
+            )
+        except Exception as exc:
+            logger.exception("Failed to persist transcript history entry: %s", exc)
+        transcript_payload: dict[str, Any] = {
+            "type": "transcript",
+            "timestamp": timestamp,
+            "text": text,
+        }
+        if stored is not None:
+            transcript_payload["id"] = stored.id
+            transcript_payload["created_at"] = stored.created_at
+        await self._broadcast(transcript_payload)
+        return stored
+
+    async def _handle_clipboard_output(self, text: str) -> bool:
+        """Copy text to clipboard and optionally auto-paste, returning whether the copy succeeded."""
+        if not (self.config.output.clipboard or self._auto_copy or self._auto_paste):
+            return True
+
+        async with self._clipboard_output_lock:
+            should_revert = self._auto_paste and self._auto_revert_clipboard
+            snapshot = None
+            snapshot_available = False
+            if should_revert:
+                try:
+                    snapshot = await asyncio.to_thread(capture_clipboard_snapshot)
+                    snapshot_available = True
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to capture clipboard snapshot before auto-paste: %s",
+                        exc,
+                    )
+
+            copied = copy_to_clipboard(text)
+            if self._auto_paste and copied:
+                await self._broadcast(
+                    {"type": "suppress_paste_input", "duration_ms": AUTO_PASTE_INPUT_SUPPRESS_MS}
+                )
+                pasted = await asyncio.to_thread(
+                    self._paste_provider.paste_from_clipboard
+                )
+                if should_revert and snapshot_available:
+                    if pasted:
+                        await asyncio.sleep(AUTO_REVERT_CLIPBOARD_DELAY_MS / 1000)
+                    await self._restore_clipboard_snapshot_safe(snapshot)
+            elif should_revert and snapshot_available:
+                await self._restore_clipboard_snapshot_safe(snapshot)
+
+            return copied
+
+    @staticmethod
+    async def _restore_clipboard_snapshot_safe(snapshot: Any) -> None:
+        """Restore a clipboard snapshot, logging a warning on failure."""
+        try:
+            await asyncio.to_thread(restore_clipboard_snapshot, snapshot)
+        except Exception as exc:
+            logger.warning(
+                "Failed to restore clipboard snapshot: %s",
+                exc,
+            )
+
+    def _log_transcription_metrics(
+        self,
+        *,
+        pipeline_started: float,
+        input_samples: int,
+        post_noise_samples: int,
+        post_vad_samples: int,
+        transcribe_ms: int,
+        job_sample_rate: int,
+        job_transcriber: Any,
+        job_language: str | None,
+        output_language: str | None,
+        noise_enabled: bool,
+        noise_available: bool,
+        noise_applied: bool,
+        noise_backend: str,
+        vad_enabled: bool,
+        vad_available: bool,
+        vad_applied: bool,
+    ) -> None:
+        """Compute and log transcription pipeline timing metrics."""
+        total_ms = int((monotonic() - pipeline_started) * 1000)
+        input_ms = int((input_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
+        post_noise_ms = (
+            int((post_noise_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
+        )
+        post_vad_ms = int((post_vad_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
+        preprocess_ms = max(0, total_ms - transcribe_ms)
+        rtf = (transcribe_ms / input_ms) if input_ms > 0 else 0.0
+        runtime_info = job_transcriber.runtime_info()
+
+        logger.info(
+            "bench runtime=%s model_size=%s device=%s compute_type=%s input_ms=%d post_noise_ms=%d post_ms=%d "
+            "noise(enabled=%s,available=%s,applied=%s,runtime=%s) "
+            "vad(enabled=%s,available=%s,applied=%s) preprocess_ms=%d transcribe_ms=%d total_ms=%d rtf=%.3f "
+            "language(requested=%s,detected=%s)",
+            runtime_info.get("runtime", self.config.model.runtime),
+            runtime_info.get("model_name", self.config.model.name),
+            runtime_info.get("effective_device", self.config.model.device),
+            runtime_info.get("effective_compute_type", self.config.model.compute_type),
+            input_ms,
+            post_noise_ms,
+            post_vad_ms,
+            noise_enabled,
+            noise_available,
+            noise_applied,
+            noise_backend,
+            vad_enabled,
+            vad_available,
+            vad_applied,
+            preprocess_ms,
+            transcribe_ms,
+            total_ms,
+            rtf,
+            job_language if job_language else "auto",
+            output_language if output_language else "unknown",
+        )
+
     async def _process_audio(
         self,
         audio: Any,
@@ -995,34 +1160,15 @@ class BridgeServer:
             return final_status, final_message
 
         try:
-            # Noise suppression
-            if self.noise:
-                noise_result = self.noise.process(audio, job_sample_rate)
-                audio = noise_result.audio
-                noise_available = noise_result.available
-                noise_applied = noise_result.applied
-                post_noise_samples = int(audio.shape[0])
-
-            # VAD
-            if self.config.vad.enabled and self.vad:
-                vad_result = self.vad.trim(audio, job_sample_rate)
-                audio = vad_result.audio
-                vad_available = vad_result.available
-                vad_applied = vad_result.applied
-
+            audio, noise_available, noise_applied, post_noise_samples = (
+                self._apply_noise_suppression(audio, job_sample_rate)
+            )
+            audio, vad_available, vad_applied = self._apply_vad(audio, job_sample_rate)
             post_vad_samples = int(audio.shape[0])
 
-            # Transcription
-            transcribe_started = monotonic()
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: job_transcriber.transcribe(
-                    audio,
-                    sample_rate=job_sample_rate,
-                    language=job_language,
-                ),
+            result, transcribe_ms = await self._run_transcription(
+                audio, job_transcriber, job_sample_rate, job_language
             )
-            transcribe_ms = int((monotonic() - transcribe_started) * 1000)
             output_language = result.language
 
             if not result.text:
@@ -1030,71 +1176,9 @@ class BridgeServer:
                 final_message = "No speech detected"
                 return final_status, final_message
 
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            stored: TranscriptRecord | None = None
-            try:
-                stored = await asyncio.to_thread(
-                    self._transcript_store.append,
-                    result.text,
-                    timestamp=timestamp,
-                )
-            except Exception as exc:
-                logger.exception("Failed to persist transcript history entry: %s", exc)
-            transcript_payload: dict[str, Any] = {
-                "type": "transcript",
-                "timestamp": timestamp,
-                "text": result.text,
-            }
-            if stored is not None:
-                transcript_payload["id"] = stored.id
-                transcript_payload["created_at"] = stored.created_at
-            await self._broadcast(transcript_payload)
+            await self._store_and_broadcast_transcript(result.text)
+            await self._handle_clipboard_output(result.text)
 
-            # Handle output
-            copied_to_clipboard = True
-            if self.config.output.clipboard or self._auto_copy or self._auto_paste:
-                async with self._clipboard_output_lock:
-                    should_revert_clipboard = self._auto_paste and self._auto_revert_clipboard
-                    clipboard_snapshot = None
-                    clipboard_snapshot_available = False
-                    if should_revert_clipboard:
-                        try:
-                            clipboard_snapshot = await asyncio.to_thread(capture_clipboard_snapshot)
-                            clipboard_snapshot_available = True
-                        except Exception as exc:
-                            logger.warning(
-                                "Failed to capture clipboard snapshot before auto-paste: %s",
-                                exc,
-                            )
-
-                    copied_to_clipboard = copy_to_clipboard(result.text)
-                    if self._auto_paste and copied_to_clipboard:
-                        await self._broadcast(
-                            {"type": "suppress_paste_input", "duration_ms": AUTO_PASTE_INPUT_SUPPRESS_MS}
-                        )
-                        pasted = await asyncio.to_thread(
-                            self._paste_provider.paste_from_clipboard
-                        )
-                        if should_revert_clipboard and clipboard_snapshot_available:
-                            if pasted:
-                                await asyncio.sleep(AUTO_REVERT_CLIPBOARD_DELAY_MS / 1000)
-                            try:
-                                await asyncio.to_thread(
-                                    restore_clipboard_snapshot, clipboard_snapshot
-                                )
-                            except Exception as exc:
-                                logger.warning(
-                                    "Failed to restore clipboard snapshot after auto-paste: %s",
-                                    exc,
-                                )
-                    elif should_revert_clipboard and clipboard_snapshot_available:
-                        try:
-                            await asyncio.to_thread(restore_clipboard_snapshot, clipboard_snapshot)
-                        except Exception as exc:
-                            logger.warning(
-                                "Failed to restore clipboard snapshot after copy: %s",
-                                exc,
-                            )
             if self.config.output.file.enabled:
                 append_to_file(self.config.output.file.path, result.text)
             final_status = "ready"
@@ -1115,43 +1199,24 @@ class BridgeServer:
             final_status = "error"
             final_message = f"Transcription failed: {exc}"
         finally:
-            total_ms = int((monotonic() - pipeline_started) * 1000)
-            input_ms = int((input_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
-            post_noise_ms = (
-                int((post_noise_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
+            self._log_transcription_metrics(
+                pipeline_started=pipeline_started,
+                input_samples=input_samples,
+                post_noise_samples=post_noise_samples,
+                post_vad_samples=post_vad_samples,
+                transcribe_ms=transcribe_ms,
+                job_sample_rate=job_sample_rate,
+                job_transcriber=job_transcriber,
+                job_language=job_language,
+                output_language=output_language,
+                noise_enabled=noise_enabled,
+                noise_available=noise_available,
+                noise_applied=noise_applied,
+                noise_backend=noise_backend,
+                vad_enabled=vad_enabled,
+                vad_available=vad_available,
+                vad_applied=vad_applied,
             )
-            post_vad_ms = int((post_vad_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
-            preprocess_ms = max(0, total_ms - transcribe_ms)
-            rtf = (transcribe_ms / input_ms) if input_ms > 0 else 0.0
-            runtime_info = job_transcriber.runtime_info()
-
-            logger.info(
-                "bench runtime=%s model_size=%s device=%s compute_type=%s input_ms=%d post_noise_ms=%d post_ms=%d "
-                "noise(enabled=%s,available=%s,applied=%s,runtime=%s) "
-                "vad(enabled=%s,available=%s,applied=%s) preprocess_ms=%d transcribe_ms=%d total_ms=%d rtf=%.3f "
-                "language(requested=%s,detected=%s)",
-                runtime_info.get("runtime", self.config.model.runtime),
-                runtime_info.get("model_name", self.config.model.name),
-                runtime_info.get("effective_device", self.config.model.device),
-                runtime_info.get("effective_compute_type", self.config.model.compute_type),
-                input_ms,
-                post_noise_ms,
-                post_vad_ms,
-                noise_enabled,
-                noise_available,
-                noise_applied,
-                noise_backend,
-                vad_enabled,
-                vad_available,
-                vad_applied,
-                preprocess_ms,
-                transcribe_ms,
-                total_ms,
-                rtf,
-                job_language if job_language else "auto",
-                output_language if output_language else "unknown",
-            )
-
             await self._finalize_transcription_job(final_status, final_message)
 
         return final_status, final_message
