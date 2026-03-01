@@ -92,3 +92,30 @@ def test_main_non_darwin(status_indicator_module):
 
     assert return_value is None
     mock_ns_application.sharedApplication.assert_not_called()
+
+
+def test_single_instance_lock_blocks_second_holder(status_indicator_module, tmp_path):
+    lock_path = tmp_path / "status-indicator.lock"
+    first = status_indicator_module._SingleInstanceLock(lock_path)
+    second = status_indicator_module._SingleInstanceLock(lock_path)
+
+    assert first.acquire() is True
+    assert second.acquire() is False
+
+    first.release()
+
+    assert second.acquire() is True
+    second.release()
+
+
+def test_main_exits_when_singleton_lock_unavailable(status_indicator_module):
+    fake_lock = MagicMock()
+    fake_lock.acquire.return_value = False
+
+    with patch.object(status_indicator_module, "sys") as mock_sys, patch.object(
+        status_indicator_module, "_status_indicator_lock", return_value=fake_lock
+    ), patch.object(status_indicator_module, "NSApplication") as mock_ns_application:
+        mock_sys.platform = "darwin"
+        status_indicator_module.main()
+
+    mock_ns_application.sharedApplication.assert_not_called()

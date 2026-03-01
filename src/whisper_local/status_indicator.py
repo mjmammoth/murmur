@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import atexit
 import json
+import os
 import signal
 import sys
 import threading
+from pathlib import Path
 from typing import Any, Callable, TypeVar, cast
 
 import objc
@@ -23,10 +26,60 @@ from AppKit import (
 )
 from Foundation import NSMutableAttributedString, NSObject
 from PyObjCTools import AppHelper
+from whisper_local.service_state import ensure_state_directory
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-posix fallback
+    fcntl = None  # type: ignore[assignment]
 
 _F = TypeVar("_F", bound=Callable[..., object])
 python_method = cast(Callable[[_F], _F], objc.python_method)
 StatusCallback = Callable[[str, str], None]
+
+
+class _SingleInstanceLock:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._handle: Any | None = None
+        self._acquired = False
+
+    def acquire(self) -> bool:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        handle = self.path.open("a+", encoding="utf-8")
+        if fcntl is not None:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                handle.close()
+                return False
+        handle.seek(0)
+        handle.truncate()
+        handle.write(str(os.getpid()))
+        handle.flush()
+        self._handle = handle
+        self._acquired = True
+        return True
+
+    def release(self) -> None:
+        handle = self._handle
+        if handle is None:
+            return
+        try:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            handle.close()
+        finally:
+            self._handle = None
+            self._acquired = False
+
+
+def _status_indicator_lock() -> _SingleInstanceLock:
+    state_dir = ensure_state_directory()
+    return _SingleInstanceLock(state_dir / "status-indicator.lock")
 
 
 class StatusListenerThread(threading.Thread):
@@ -181,6 +234,11 @@ def main() -> None:
     if sys.platform != "darwin":
         return
 
+    singleton_lock = _status_indicator_lock()
+    if not singleton_lock.acquire():
+        return
+    atexit.register(singleton_lock.release)
+
     args = build_parser().parse_args()
 
     NSApplication.sharedApplication()
@@ -194,7 +252,10 @@ def main() -> None:
     signal.signal(signal.SIGTERM, lambda *_: AppHelper.callAfter(app.quitIndicator_, None))
     signal.signal(signal.SIGINT, lambda *_: AppHelper.callAfter(app.quitIndicator_, None))
 
-    AppHelper.runEventLoop()
+    try:
+        AppHelper.runEventLoop()
+    finally:
+        singleton_lock.release()
 
 
 if __name__ == "__main__":
