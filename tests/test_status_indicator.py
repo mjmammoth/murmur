@@ -116,6 +116,7 @@ def test_main_exits_when_singleton_lock_unavailable(status_indicator_module):
         status_indicator_module, "_status_indicator_lock", return_value=fake_lock
     ), patch.object(status_indicator_module, "NSApplication") as mock_ns_application:
         mock_sys.platform = "darwin"
-        status_indicator_module.main()
+        result = status_indicator_module.main()
 
+    assert result is None
     mock_ns_application.sharedApplication.assert_not_called()

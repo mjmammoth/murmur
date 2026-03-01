@@ -109,7 +109,7 @@ describe("Welcome", () => {
       const isLastStep = true;
       const canClose = true;
 
-      expect(shouldAdvanceOnRightKey("model-download")).toBe(false);
+      expect(shouldAdvanceOnRightKey(step)).toBe(false);
       const hint = resolveNextHint(step, isLastStep, canClose);
       expect(hint.keys).toBe("Esc/q");
       expect(hint.label).toBe("finish");

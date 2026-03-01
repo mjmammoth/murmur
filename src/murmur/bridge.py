@@ -77,6 +77,9 @@ AUTO_REVERT_CLIPBOARD_DELAY_MS = 120
 StartupPhase = Literal["idle", "running", "ready", "error"]
 StartupTaskState = Literal["pending", "running", "ready", "degraded", "error"]
 StartupModelState = Literal["pending", "running", "ready", "error"]
+FIRST_RUN_SETUP_MESSAGE = "First run setup required. Download and select a model in Model Manager."
+RUNTIME_INITIALIZING_MESSAGE = "Runtime is still initializing. Please wait."
+FIRST_RUN_SETUP_FALLBACK_DELAY_SECONDS = 5.0
 
 
 class WebSocketLogHandler(logging.Handler):
@@ -458,9 +461,7 @@ class BridgeServer:
         self._startup_model = "pending"
         if self._first_run_setup_required:
             self._status = "connecting"
-            self._status_message = (
-                "First run setup required. Download and select a model in Model Manager."
-            )
+            self._status_message = FIRST_RUN_SETUP_MESSAGE
         else:
             self._status = "connecting"
             self._status_message = "Starting runtime..."
@@ -476,7 +477,9 @@ class BridgeServer:
 
         async with websockets.serve(self._handle_client, host, port):
             logger.info(f"Bridge server running on ws://{host}:{port}")
-            if not self._first_run_setup_required:
+            if self._first_run_setup_required:
+                self._spawn_task(self._ensure_first_run_setup_fallback())
+            else:
                 self._spawn_task(self._initialize_runtime_after_server_start())
             await asyncio.Future()  # Run forever
 
@@ -699,7 +702,7 @@ class BridgeServer:
             self._startup_model = "pending"
             await self._set_status(
                 "connecting",
-                "First run setup required. Download and select a model in Model Manager.",
+                FIRST_RUN_SETUP_MESSAGE,
             )
             return
 
@@ -713,7 +716,7 @@ class BridgeServer:
                 self._startup_model = "pending"
                 await self._set_status(
                     "connecting",
-                    "First run setup required. Download and select a model in Model Manager.",
+                    FIRST_RUN_SETUP_MESSAGE,
                 )
                 await self._broadcast_config()
                 return
@@ -753,6 +756,17 @@ class BridgeServer:
         self._startup_components = "running"
         self._onboarding_setup_task = self._spawn_task(self._initialize_runtime_after_server_start())
         await self._broadcast_config()
+
+    async def _ensure_first_run_setup_fallback(self) -> None:
+        await asyncio.sleep(FIRST_RUN_SETUP_FALLBACK_DELAY_SECONDS)
+        if self._shutdown_requested.is_set():
+            return
+        if not self._first_run_setup_required:
+            return
+        if self._onboarding_setup_started:
+            return
+        logger.info("First-run setup fallback triggered without onboarding message")
+        await self._begin_onboarding_setup()
 
     async def _load_model_async(self) -> None:
         """
@@ -840,7 +854,27 @@ class BridgeServer:
 
     async def _start_recording(self) -> None:
         """Start audio recording."""
-        if self._recording or not self.recorder:
+        if self._recording:
+            return
+        if self._first_run_setup_required:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Recording unavailable: complete first-run model setup.",
+                    "level": "info",
+                }
+            )
+            await self._set_status("connecting", FIRST_RUN_SETUP_MESSAGE)
+            return
+        if self.recorder is None or self.transcriber is None or not self._model_loaded:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Recording unavailable: model/runtime is still starting.",
+                    "level": "info",
+                }
+            )
+            await self._set_status("connecting", RUNTIME_INITIALIZING_MESSAGE)
             return
         try:
             self.recorder.start()
@@ -2136,7 +2170,7 @@ class BridgeServer:
             self._hotkey_started = False
         await self._set_status(
             "connecting",
-            "First run setup required. Download and select a model in Model Manager.",
+            FIRST_RUN_SETUP_MESSAGE,
         )
         await self._broadcast_config()
 

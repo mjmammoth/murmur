@@ -32,6 +32,12 @@ logger = logging.getLogger(__name__)
 NO_STATUS_INDICATOR_AUTOSTART_HELP = (
     "Disable macOS menu bar status indicator while auto-starting service"
 )
+STATUS_SNAPSHOT_TIMEOUT_SECONDS = 1.5
+FIRST_RUN_SETUP_MESSAGE = "First run setup required. Download and select a model in Model Manager."
+SETUP_GUIDANCE_MODEL = "small"
+RUNNING_LOOP_STATUS_MESSAGE = (
+    "Runtime snapshot unavailable while an event loop is active; run murmur status from a synchronous shell."
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -290,6 +296,29 @@ def _service_status() -> None:
             else ""
         )
         print(f"running pid={status.pid} host={status.host} port={status.port}{indicator}")
+        host = status.host or "localhost"
+        port = status.port if status.port is not None else 7878
+        try:
+            loop_running = False
+            try:
+                asyncio.get_running_loop()
+                loop_running = True
+            except RuntimeError:
+                pass
+            if loop_running:
+                raise RuntimeError(RUNNING_LOOP_STATUS_MESSAGE)
+            snapshot = asyncio.run(
+                _runtime_status_snapshot(
+                    host,
+                    port,
+                    kickoff_onboarding=True,
+                    timeout_seconds=STATUS_SNAPSHOT_TIMEOUT_SECONDS,
+                )
+            )
+            _print_runtime_status_snapshot(snapshot)
+        except Exception as exc:
+            error_message = f"Unable to query runtime state: {exc}"
+            print(f"app_status=unknown message={json.dumps(error_message, ensure_ascii=True)}")
         return
     if status.stale:
         print(f"stale (cleaned) previous_pid={status.pid} host={status.host} port={status.port}")
@@ -347,6 +376,171 @@ def _extract_status_update(raw: str | bytes) -> tuple[str | None, str | None] | 
     return last_status, last_message
 
 
+def _extract_config_update(raw: str | bytes) -> dict[str, Any] | None:
+    if isinstance(raw, bytes):
+        try:
+            raw = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("type") != "config":
+        return None
+    config = payload.get("config")
+    if not isinstance(config, dict):
+        return None
+    return config
+
+
+async def _collect_runtime_snapshot(
+    websocket: WebSocketClientType,
+    *,
+    timeout_seconds: float,
+    initial_status: str | None = None,
+    initial_message: str | None = None,
+    initial_config: dict[str, Any] | None = None,
+) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    deadline = time.monotonic() + max(0.0, timeout_seconds)
+    status = initial_status
+    message = initial_message
+    config = initial_config
+
+    while True:
+        if status is not None and config is not None:
+            return status, message, config
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return status, message, config
+        try:
+            raw = await asyncio.wait_for(websocket.recv(), timeout=remaining)
+        except TimeoutError:
+            return status, message, config
+
+        status_update = _extract_status_update(raw)
+        if status_update is not None:
+            status, message = status_update
+            continue
+
+        config_update = _extract_config_update(raw)
+        if config_update is not None:
+            config = config_update
+            continue
+
+
+def _startup_phase_from_config(config: dict[str, Any] | None) -> str:
+    if not isinstance(config, dict):
+        return ""
+    startup = config.get("startup")
+    if not isinstance(startup, dict):
+        return ""
+    value = startup.get("phase")
+    if not isinstance(value, str):
+        return ""
+    return value.strip().lower()
+
+
+def _first_run_pending(config: dict[str, Any] | None) -> bool:
+    if not isinstance(config, dict):
+        return False
+    return bool(config.get("first_run_setup_required"))
+
+
+async def _runtime_status_snapshot(
+    host: str,
+    port: int,
+    *,
+    kickoff_onboarding: bool,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    import websockets
+
+    uri = f"ws://{host}:{port}?client=passive"
+    async with websockets.connect(uri, ping_interval=10, ping_timeout=10) as websocket:
+        snapshot_started = time.monotonic()
+        status, message, config = await _collect_runtime_snapshot(
+            websocket,
+            timeout_seconds=timeout_seconds,
+        )
+
+        kickoff_sent = False
+        if kickoff_onboarding and _first_run_pending(config):
+            phase = _startup_phase_from_config(config)
+            if phase in {"", "idle"}:
+                await websocket.send(json.dumps({"type": "begin_onboarding_setup"}))
+                kickoff_sent = True
+                remaining_timeout = max(0.0, timeout_seconds - (time.monotonic() - snapshot_started))
+                if remaining_timeout > 0:
+                    status, message, config = await _collect_runtime_snapshot(
+                        websocket,
+                        timeout_seconds=remaining_timeout,
+                        initial_status=status,
+                        initial_message=message,
+                        initial_config=config,
+                    )
+
+        return {
+            "status": status,
+            "message": message,
+            "config": config,
+            "kickoff_sent": kickoff_sent,
+        }
+
+
+def _print_runtime_status_snapshot(snapshot: dict[str, Any]) -> None:
+    status = snapshot.get("status")
+    message = snapshot.get("message")
+    config = snapshot.get("config")
+    kickoff_sent = bool(snapshot.get("kickoff_sent"))
+
+    status_text = status if isinstance(status, str) and status else "unknown"
+    message_text = message if isinstance(message, str) and message else "unknown"
+    print(f"app_status={status_text} message={json.dumps(message_text, ensure_ascii=True)}")
+
+    if not isinstance(config, dict):
+        print("runtime_detail=unavailable")
+        return
+
+    first_run = _first_run_pending(config)
+    startup = config.get("startup")
+    startup_dict = startup if isinstance(startup, dict) else {}
+    phase = _startup_phase_from_config(config) or "unknown"
+    blockers = startup_dict.get("blockers")
+    blocker_list = [str(item) for item in blockers] if isinstance(blockers, list) else []
+    close_ready = bool(startup_dict.get("onboarding_close_ready"))
+
+    if not first_run and status_text == "ready" and close_ready and not blocker_list:
+        print("app_ready=true")
+        return
+
+    runtime_probe = str(startup_dict.get("runtime_probe", "unknown"))
+    audio_scan = str(startup_dict.get("audio_scan", "unknown"))
+    components = str(startup_dict.get("components", "unknown"))
+    model_state = str(startup_dict.get("model", "unknown"))
+    print(
+        "startup "
+        f"phase={phase} runtime_probe={runtime_probe} "
+        f"audio_scan={audio_scan} components={components} model={model_state}"
+    )
+
+    if blocker_list:
+        print("startup_blockers:")
+        for blocker in blocker_list:
+            print(f"  - {blocker}")
+
+    if first_run:
+        if kickoff_sent:
+            print("setup_init=started_via_status")
+        print(f"setup_required=true message={json.dumps(FIRST_RUN_SETUP_MESSAGE, ensure_ascii=True)}")
+        print("next_steps:")
+        print(f"  murmur models pull {SETUP_GUIDANCE_MODEL}")
+        print(f"  murmur models select {SETUP_GUIDANCE_MODEL}")
+        print("  murmur status")
+
+
 async def _trigger_async(host: str, port: int, action: str, timeout_seconds: float) -> str:
     import websockets
 
@@ -362,12 +556,14 @@ async def _trigger_async(host: str, port: int, action: str, timeout_seconds: flo
         if action == "toggle":
             effective = "stop" if current_status == "recording" else "start"
 
-        expected_statuses = (
-            {"recording"}
-            if effective == "start"
-            else {"transcribing", "ready", "error"}
-        )
-        if current_status in expected_statuses:
+        if effective == "start":
+            expected_statuses = {"recording", "connecting", "error"}
+            should_return_without_send = current_status == "recording"
+        else:
+            expected_statuses = {"transcribing", "ready", "error"}
+            should_return_without_send = current_status in {"transcribing", "ready"}
+
+        if should_return_without_send:
             return current_status
 
         message_type = "start_recording" if effective == "start" else "stop_recording"
@@ -626,6 +822,8 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command is None:
+        _service_status()
+        print()
         parser.print_help()
         return
 

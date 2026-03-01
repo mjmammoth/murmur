@@ -95,7 +95,27 @@ fi
 # 2. Locate artifacts and compute checksums
 # ---------------------------------------------------------------------------
 WHEEL_PATH="$(find "$REPO_ROOT/dist" -maxdepth 1 -type f -name '*.whl' -print -quit 2>/dev/null)"
-TUI_PATH="$REPO_ROOT/dist/tui/murmur-tui-darwin-arm64.tar.gz"
+OS_RAW="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH_RAW="$(uname -m)"
+
+case "$OS_RAW" in
+  darwin|linux) OS="$OS_RAW" ;;
+  *)
+    echo "Error: Unsupported OS '$OS_RAW' for local TUI artifact lookup." >&2
+    exit 1
+    ;;
+esac
+
+case "$ARCH_RAW" in
+  arm64|aarch64) ARCH="arm64" ;;
+  x86_64|amd64) ARCH="amd64" ;;
+  *)
+    echo "Error: Unsupported architecture '$ARCH_RAW' for local TUI artifact lookup." >&2
+    exit 1
+    ;;
+esac
+
+TUI_PATH="$REPO_ROOT/dist/tui/murmur-tui-$OS-$ARCH.tar.gz"
 
 if [ -z "$WHEEL_PATH" ] || [ ! -f "$WHEEL_PATH" ]; then
   echo "Error: No wheel found in dist/. Run without --skip-build." >&2

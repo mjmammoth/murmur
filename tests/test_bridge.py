@@ -13,6 +13,9 @@ from murmur.audio import AudioInputDeviceInfo
 from murmur.bridge import (
     BridgeLogFilter,
     BridgeServer,
+    FIRST_RUN_SETUP_FALLBACK_DELAY_SECONDS,
+    FIRST_RUN_SETUP_MESSAGE,
+    RUNTIME_INITIALIZING_MESSAGE,
     WebSocketLogHandler,
 )
 from murmur.config import AppConfig
@@ -486,17 +489,50 @@ def test_first_run_start_defers_runtime_initialization_until_onboarding(mock_con
     async def _run():
         with patch.object(server, "_has_installed_models", return_value=False), patch(
             "murmur.bridge.websockets.serve", return_value=FakeServeContext()
-        ), patch.object(server, "_spawn_task") as mock_spawn_task:
+        ), patch.object(server, "_spawn_task", side_effect=spawn_task_stub) as mock_spawn_task:
             task = asyncio.create_task(server.start())
             await asyncio.sleep(0.01)
             assert server._first_run_setup_required is True
             assert server._startup_phase == "idle"
-            mock_spawn_task.assert_not_called()
+            assert mock_spawn_task.call_count == 1
+            spawned_coro = mock_spawn_task.call_args.args[0]
+            assert spawned_coro.cr_code.co_name == "_ensure_first_run_setup_fallback"
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
 
     asyncio.run(_run())
+
+
+def test_first_run_setup_fallback_starts_onboarding_when_idle(mock_config):
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = True
+    server._onboarding_setup_started = False
+    server._begin_onboarding_setup = AsyncMock()
+
+    async def _run():
+        with patch("murmur.bridge.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await server._ensure_first_run_setup_fallback()
+            mock_sleep.assert_awaited_once_with(FIRST_RUN_SETUP_FALLBACK_DELAY_SECONDS)
+
+    asyncio.run(_run())
+
+    server._begin_onboarding_setup.assert_awaited_once()
+
+
+def test_first_run_setup_fallback_noops_when_onboarding_already_started(mock_config):
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = True
+    server._onboarding_setup_started = True
+    server._begin_onboarding_setup = AsyncMock()
+
+    async def _run():
+        with patch("murmur.bridge.asyncio.sleep", new_callable=AsyncMock):
+            await server._ensure_first_run_setup_fallback()
+
+    asyncio.run(_run())
+
+    server._begin_onboarding_setup.assert_not_called()
 
 
 def test_non_first_run_start_spawns_runtime_initialization_task(mock_config):
@@ -516,6 +552,51 @@ def test_non_first_run_start_spawns_runtime_initialization_task(mock_config):
                 await task
 
     asyncio.run(_run())
+
+
+def test_start_recording_blocks_when_first_run_setup_required(mock_config):
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = True
+    server._broadcast = AsyncMock()
+    server._set_status = AsyncMock()
+    server.recorder = Mock()
+
+    asyncio.run(server._start_recording())
+
+    server.recorder.start.assert_not_called()
+    server._broadcast.assert_awaited_once_with(
+        {
+            "type": "toast",
+            "message": "Recording unavailable: complete first-run model setup.",
+            "level": "info",
+        }
+    )
+    server._set_status.assert_awaited_once_with("connecting", FIRST_RUN_SETUP_MESSAGE)
+
+
+def test_start_recording_blocks_when_runtime_or_model_not_ready(mock_config):
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = False
+    server._model_loaded = False
+    server.recorder = Mock()
+    server.transcriber = None
+    server._broadcast = AsyncMock()
+    server._set_status = AsyncMock()
+
+    asyncio.run(server._start_recording())
+
+    server.recorder.start.assert_not_called()
+    server._broadcast.assert_awaited_once_with(
+        {
+            "type": "toast",
+            "message": "Recording unavailable: model/runtime is still starting.",
+            "level": "info",
+        }
+    )
+    server._set_status.assert_awaited_once_with(
+        "connecting",
+        RUNTIME_INITIALIZING_MESSAGE,
+    )
 
 
 def test_handle_client_does_not_block_message_processing_on_transcript_history(mock_config):

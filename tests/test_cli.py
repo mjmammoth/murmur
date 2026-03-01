@@ -235,9 +235,9 @@ def test_run_tui_attach_exits_when_service_start_fails(mock_ensure_service: Mock
     mock_ensure_service.assert_called_once()
 
 
-@patch("murmur.cli._service_run")
+@patch("murmur.cli._service_status")
 def test_main_no_command_prints_help(
-    mock_service_run: Mock,
+    mock_service_status: Mock,
     monkeypatch: pytest.MonkeyPatch,
     capsys,
 ) -> None:
@@ -245,7 +245,7 @@ def test_main_no_command_prints_help(
 
     cli.main()
 
-    mock_service_run.assert_not_called()
+    mock_service_status.assert_called_once()
     captured = capsys.readouterr()
     assert "usage:" in captured.out
 
@@ -944,8 +944,13 @@ def test_service_stop_prints_stopped_when_state_exists(mock_service_manager: Moc
     assert "Service stopped" in captured.out
 
 
+@patch("murmur.cli._runtime_status_snapshot")
 @patch("murmur.cli.ServiceManager")
-def test_service_status_prints_running_with_indicator(mock_service_manager: Mock, capsys) -> None:
+def test_service_status_prints_running_with_indicator(
+    mock_service_manager: Mock,
+    mock_runtime_snapshot: Mock,
+    capsys,
+) -> None:
     manager = mock_service_manager.return_value
     manager.status.return_value = Mock(
         running=True,
@@ -955,11 +960,130 @@ def test_service_status_prints_running_with_indicator(mock_service_manager: Mock
         port=8787,
         status_indicator_pid=88,
     )
+    mock_runtime_snapshot.return_value = {
+        "status": "ready",
+        "message": "Ready",
+        "config": {
+            "first_run_setup_required": False,
+            "startup": {
+                "phase": "ready",
+                "onboarding_close_ready": True,
+                "blockers": [],
+            },
+        },
+        "kickoff_sent": False,
+    }
 
     cli._service_status()
 
     captured = capsys.readouterr()
     assert "running pid=55 host=127.0.0.1 port=8787 indicator_pid=88" in captured.out
+    assert 'app_status=ready message="Ready"' in captured.out
+    assert "app_ready=true" in captured.out
+    mock_runtime_snapshot.assert_called_once_with(
+        "127.0.0.1",
+        8787,
+        kickoff_onboarding=True,
+        timeout_seconds=cli.STATUS_SNAPSHOT_TIMEOUT_SECONDS,
+    )
+
+
+@patch("murmur.cli._runtime_status_snapshot")
+@patch("murmur.cli.ServiceManager")
+def test_service_status_prints_first_run_guidance_and_blockers(
+    mock_service_manager: Mock,
+    mock_runtime_snapshot: Mock,
+    capsys,
+) -> None:
+    manager = mock_service_manager.return_value
+    manager.status.return_value = Mock(
+        running=True,
+        stale=False,
+        pid=55,
+        host="localhost",
+        port=7878,
+        status_indicator_pid=None,
+    )
+    mock_runtime_snapshot.return_value = {
+        "status": "connecting",
+        "message": cli.FIRST_RUN_SETUP_MESSAGE,
+        "config": {
+            "first_run_setup_required": True,
+            "startup": {
+                "phase": "running",
+                "runtime_probe": "running",
+                "audio_scan": "running",
+                "components": "running",
+                "model": "pending",
+                "onboarding_close_ready": False,
+                "blockers": ["Download and select a model to continue."],
+            },
+        },
+        "kickoff_sent": True,
+    }
+
+    cli._service_status()
+
+    captured = capsys.readouterr()
+    assert "app_status=connecting" in captured.out
+    assert "startup phase=running" in captured.out
+    assert "startup_blockers:" in captured.out
+    assert "setup_init=started_via_status" in captured.out
+    assert "murmur models pull small" in captured.out
+    assert "murmur models select small" in captured.out
+
+
+@patch("murmur.cli._runtime_status_snapshot", side_effect=RuntimeError("boom"))
+@patch("murmur.cli.ServiceManager")
+def test_service_status_handles_runtime_snapshot_failure(
+    mock_service_manager: Mock,
+    mock_runtime_snapshot: Mock,
+    capsys,
+) -> None:
+    manager = mock_service_manager.return_value
+    manager.status.return_value = Mock(
+        running=True,
+        stale=False,
+        pid=11,
+        host="localhost",
+        port=7878,
+        status_indicator_pid=None,
+    )
+
+    cli._service_status()
+
+    captured = capsys.readouterr()
+    assert "running pid=11 host=localhost port=7878" in captured.out
+    assert 'app_status=unknown message="Unable to query runtime state: boom"' in captured.out
+    mock_runtime_snapshot.assert_called_once()
+
+
+@patch("murmur.cli._runtime_status_snapshot")
+@patch("murmur.cli.asyncio.get_running_loop", return_value=Mock())
+@patch("murmur.cli.ServiceManager")
+def test_service_status_handles_active_event_loop(
+    mock_service_manager: Mock,
+    mock_get_running_loop: Mock,
+    mock_runtime_snapshot: Mock,
+    capsys,
+) -> None:
+    manager = mock_service_manager.return_value
+    manager.status.return_value = Mock(
+        running=True,
+        stale=False,
+        pid=21,
+        host="localhost",
+        port=7878,
+        status_indicator_pid=None,
+    )
+
+    cli._service_status()
+
+    captured = capsys.readouterr()
+    assert "running pid=21 host=localhost port=7878" in captured.out
+    assert cli.RUNNING_LOOP_STATUS_MESSAGE in captured.out
+    mock_get_running_loop.assert_called_once()
+    mock_runtime_snapshot.assert_not_called()
 
 
 @patch("murmur.cli.ServiceManager")
@@ -1110,7 +1234,11 @@ def test_trigger_async_sends_start_command_and_returns_ack(monkeypatch: pytest.M
     assert [json.loads(msg)["type"] for msg in websocket.sent_messages] == ["start_recording"]
     assert wait_for_status.await_count == 2
     assert wait_for_status.await_args_list[0].kwargs["timeout_seconds"] == 0.75
-    assert wait_for_status.await_args_list[1].kwargs["expected_statuses"] == {"recording"}
+    assert wait_for_status.await_args_list[1].kwargs["expected_statuses"] == {
+        "recording",
+        "connecting",
+        "error",
+    }
 
 
 def test_trigger_async_toggle_recording_sends_stop_command(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1145,6 +1273,19 @@ def test_trigger_async_returns_immediately_when_status_already_matches(
     assert wait_for_status.await_count == 1
 
 
+def test_trigger_async_stop_from_error_sends_stop_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    websocket = _FakeWebSocket()
+    _install_fake_websockets_module(monkeypatch, websocket)
+    wait_for_status = AsyncMock(side_effect=[("error", "runtime not ready"), ("ready", "stopped")])
+
+    with patch("murmur.cli._wait_for_status", wait_for_status):
+        result = asyncio.run(cli._trigger_async("localhost", 7878, "stop", 1.0))
+
+    assert result == "ready"
+    assert [json.loads(msg)["type"] for msg in websocket.sent_messages] == ["stop_recording"]
+    assert wait_for_status.await_count == 2
+
+
 def test_trigger_async_timeout_raises_with_status_details(monkeypatch: pytest.MonkeyPatch) -> None:
     websocket = _FakeWebSocket()
     _install_fake_websockets_module(monkeypatch, websocket)
@@ -1156,6 +1297,84 @@ def test_trigger_async_timeout_raises_with_status_details(monkeypatch: pytest.Mo
 
     assert "Timed out waiting for trigger acknowledgement (start)" in str(exc_info.value)
     assert "last_status=unknown" in str(exc_info.value)
+
+
+def test_extract_config_update_rejects_invalid_json() -> None:
+    assert cli._extract_config_update("{broken-json") is None
+
+
+def test_extract_config_update_rejects_non_config_payload() -> None:
+    assert cli._extract_config_update('{"type":"status","status":"ready"}') is None
+
+
+def test_extract_config_update_returns_config_dict() -> None:
+    payload = '{"type":"config","config":{"first_run_setup_required":true}}'
+    assert cli._extract_config_update(payload) == {"first_run_setup_required": True}
+
+
+def test_runtime_status_snapshot_kicks_off_setup_when_first_run_idle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    websocket = _FakeWebSocket()
+    _install_fake_websockets_module(monkeypatch, websocket)
+    collect = AsyncMock(
+        side_effect=[
+            (
+                "connecting",
+                cli.FIRST_RUN_SETUP_MESSAGE,
+                {"first_run_setup_required": True, "startup": {"phase": "idle"}},
+            ),
+            (
+                "connecting",
+                cli.FIRST_RUN_SETUP_MESSAGE,
+                {"first_run_setup_required": True, "startup": {"phase": "running"}},
+            ),
+        ]
+    )
+
+    with patch("murmur.cli._collect_runtime_snapshot", collect):
+        result = asyncio.run(
+            cli._runtime_status_snapshot(
+                "localhost",
+                7878,
+                kickoff_onboarding=True,
+                timeout_seconds=1.0,
+            )
+        )
+
+    assert result["kickoff_sent"] is True
+    assert [json.loads(msg)["type"] for msg in websocket.sent_messages] == ["begin_onboarding_setup"]
+    assert collect.await_count == 2
+    assert collect.await_args_list[0].kwargs["timeout_seconds"] == 1.0
+    assert 0 <= collect.await_args_list[1].kwargs["timeout_seconds"] <= 1.0
+
+
+def test_runtime_status_snapshot_skips_kickoff_when_not_first_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    websocket = _FakeWebSocket()
+    _install_fake_websockets_module(monkeypatch, websocket)
+    collect = AsyncMock(
+        return_value=(
+            "ready",
+            "Ready",
+            {"first_run_setup_required": False, "startup": {"phase": "ready"}},
+        )
+    )
+
+    with patch("murmur.cli._collect_runtime_snapshot", collect):
+        result = asyncio.run(
+            cli._runtime_status_snapshot(
+                "localhost",
+                7878,
+                kickoff_onboarding=True,
+                timeout_seconds=1.0,
+            )
+        )
+
+    assert result["kickoff_sent"] is False
+    assert websocket.sent_messages == []
+    assert collect.await_count == 1
 
 
 @patch("murmur.cli._ensure_service_running", side_effect=RuntimeError("start failed"))

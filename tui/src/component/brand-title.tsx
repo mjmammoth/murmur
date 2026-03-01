@@ -3,6 +3,8 @@ import { useTheme } from "../context/theme";
 import { lerpColor } from "../util/color";
 
 const TITLE = "murmur";
+const EASING_EXPONENT = 1.35;
+const EDGE_INTENSITY_FACTOR = 0.45;
 
 /**
  * Renders the branded title "murmur" as a horizontal row of character tiles.
@@ -25,9 +27,9 @@ export function BrandTitle(): JSX.Element {
         {(ch, i) => {
           const distanceFromPeak = Math.abs(i() - peakIndex);
           const normalizedDistance = Math.min(1, distanceFromPeak / maxDistanceFromPeak);
-          const easedDistance = Math.pow(normalizedDistance, 1.35);
+          const easedDistance = Math.pow(normalizedDistance, EASING_EXPONENT);
           // Keep center dark and limit edge lightness for a softer gradient.
-          const intensity = 1 - 0.45 * easedDistance;
+          const intensity = 1 - EDGE_INTENSITY_FACTOR * easedDistance;
           const bgColor = lerpColor(colors().brandStart, colors().brandEnd, intensity);
           return (
             <box backgroundColor={bgColor}>

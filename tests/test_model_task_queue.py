@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from murmur.model_task_queue import SerialModelTaskQueue
+from murmur.model_task_queue import CancelResult, DownloadTaskSnapshot, SerialModelTaskQueue
 
 
 def test_queue_cancel_queued_task_marks_cancelled_and_calls_task_cancel():
@@ -457,7 +457,6 @@ def test_queue_concurrent_safety():
 
 def test_download_task_snapshot_immutability():
     """Test DownloadTaskSnapshot is immutable."""
-    from murmur.model_task_queue import DownloadTaskSnapshot
 
     snapshot = DownloadTaskSnapshot(
         key="test",
@@ -473,7 +472,6 @@ def test_download_task_snapshot_immutability():
 
 def test_cancel_result_immutability():
     """Test CancelResult is immutable."""
-    from murmur.model_task_queue import CancelResult, DownloadTaskSnapshot
 
     task_snapshot = DownloadTaskSnapshot(
         key="test",

@@ -680,7 +680,7 @@ function ModelDownloadStep(props: {
             <For each={startup()?.blockers ?? []}>
               {(blocker) => (
                 <text>
-                  <span style={{ fg: colors().textDim }}>- {blocker}</span>
+                  <span style={{ fg: colors().warning, bold: true }}>- {blocker}</span>
                 </text>
               )}
             </For>
