@@ -712,18 +712,16 @@ def _confirm_uninstall() -> bool:
     return response in {"y", "yes"}
 
 
-def _uninstall(args: argparse.Namespace) -> None:
-    from murmur.uninstall import (
-        UninstallActionRequired,
-        UninstallError,
-        UninstallOptions,
-        run_uninstall,
-    )
-
-    remove_state, remove_config, remove_model_cache, explicit_scope = _resolve_uninstall_scope(args)
-    tty_session = sys.stdin.isatty() and sys.stdout.isatty()
-    assume_yes = bool(getattr(args, "yes", False))
-
+def _resolve_interactive_scope(
+    args: argparse.Namespace,
+    remove_state: bool,
+    remove_config: bool,
+    remove_model_cache: bool,
+    explicit_scope: bool,
+    assume_yes: bool,
+    tty_session: bool,
+) -> tuple[bool, bool, bool]:
+    """Resolve uninstall scope interactively if needed, raising SystemExit on cancellation."""
     if not assume_yes and not tty_session and not explicit_scope:
         print(
             "Error: non-interactive uninstall requires --yes or explicit scope flags "
@@ -744,21 +742,11 @@ def _uninstall(args: argparse.Namespace) -> None:
             print("Uninstall cancelled.")
             raise SystemExit(1)
 
-    options = UninstallOptions(
-        remove_state=remove_state,
-        remove_config=remove_config,
-        remove_model_cache=remove_model_cache,
-    )
+    return remove_state, remove_config, remove_model_cache
 
-    try:
-        result = run_uninstall(options=options)
-    except UninstallActionRequired as exc:
-        print(str(exc))
-        raise SystemExit(2)
-    except UninstallError as exc:
-        print(f"Error: {exc}")
-        raise SystemExit(1)
 
+def _print_uninstall_result(result: Any) -> None:
+    """Print uninstall result details, raising SystemExit(1) on failures."""
     if result.removed_paths:
         print("Removed paths:")
         for path in result.removed_paths:
@@ -780,17 +768,90 @@ def _uninstall(args: argparse.Namespace) -> None:
     print("Uninstall complete.")
 
 
+def _uninstall(args: argparse.Namespace) -> None:
+    from murmur.uninstall import (
+        UninstallActionRequired,
+        UninstallError,
+        UninstallOptions,
+        run_uninstall,
+    )
+
+    remove_state, remove_config, remove_model_cache, explicit_scope = _resolve_uninstall_scope(args)
+    tty_session = sys.stdin.isatty() and sys.stdout.isatty()
+    assume_yes = bool(getattr(args, "yes", False))
+
+    remove_state, remove_config, remove_model_cache = _resolve_interactive_scope(
+        args, remove_state, remove_config, remove_model_cache,
+        explicit_scope, assume_yes, tty_session,
+    )
+
+    options = UninstallOptions(
+        remove_state=remove_state,
+        remove_config=remove_config,
+        remove_model_cache=remove_model_cache,
+    )
+
+    try:
+        result = run_uninstall(options=options)
+    except UninstallActionRequired as exc:
+        print(str(exc))
+        raise SystemExit(2)
+    except UninstallError as exc:
+        print(f"Error: {exc}")
+        raise SystemExit(1)
+
+    _print_uninstall_result(result)
+
+
 def _print_version() -> None:
     print(__version__)
 
 
+def _print_model_info(model: Any) -> None:
+    """Print a single model's variant information."""
+    variants = getattr(model, "variants", None)
+    if isinstance(variants, dict):
+        fw_variant = variants.get("faster-whisper")
+        cpp_variant = variants.get("whisper.cpp")
+        fw_state = "installed" if fw_variant and fw_variant.installed else "available"
+        wcpp_state = "installed" if cpp_variant and cpp_variant.installed else "available"
+        print(f"{model.name}: faster-whisper={fw_state}, whisper.cpp={wcpp_state}")
+    else:
+        state = "installed" if bool(getattr(model, "installed", False)) else "available"
+        print(f"{model.name}: {state}")
+
+
+def _handle_models_list() -> None:
+    from murmur.model_manager import list_installed_models
+
+    for model in list_installed_models():
+        _print_model_info(model)
+
+
+def _handle_models_pull(name: str, runtime: str) -> None:
+    from murmur.model_manager import download_model
+
+    if runtime == "faster-whisper":
+        download_model(name)
+        print(f"Downloaded {name}")
+    else:
+        download_model(name, runtime=runtime)
+        print(f"Downloaded {name} ({runtime})")
+
+
+def _handle_models_remove(name: str, runtime: str) -> None:
+    from murmur.model_manager import remove_model
+
+    if runtime == "faster-whisper":
+        remove_model(name)
+        print(f"Removed {name}")
+    else:
+        remove_model(name, runtime=runtime)
+        print(f"Removed {name} ({runtime})")
+
+
 def _handle_models_command(args: argparse.Namespace) -> None:
-    from murmur.model_manager import (
-        download_model,
-        list_installed_models,
-        remove_model,
-        set_selected_model,
-    )
+    from murmur.model_manager import set_selected_model
 
     if args.models_command is None:
         print(
@@ -800,35 +861,15 @@ def _handle_models_command(args: argparse.Namespace) -> None:
         raise SystemExit(2)
 
     if args.models_command == "list":
-        for model in list_installed_models():
-            variants = getattr(model, "variants", None)
-            if isinstance(variants, dict):
-                fw_variant = variants.get("faster-whisper")
-                cpp_variant = variants.get("whisper.cpp")
-                fw_state = "installed" if fw_variant and fw_variant.installed else "available"
-                wcpp_state = "installed" if cpp_variant and cpp_variant.installed else "available"
-                print(f"{model.name}: faster-whisper={fw_state}, whisper.cpp={wcpp_state}")
-            else:
-                state = "installed" if bool(getattr(model, "installed", False)) else "available"
-                print(f"{model.name}: {state}")
+        _handle_models_list()
         return
 
     if args.models_command == "pull":
-        if args.runtime == "faster-whisper":
-            download_model(args.name)
-            print(f"Downloaded {args.name}")
-        else:
-            download_model(args.name, runtime=args.runtime)
-            print(f"Downloaded {args.name} ({args.runtime})")
+        _handle_models_pull(args.name, args.runtime)
         return
 
     if args.models_command == "remove":
-        if args.runtime == "faster-whisper":
-            remove_model(args.name)
-            print(f"Removed {args.name}")
-        else:
-            remove_model(args.name, runtime=args.runtime)
-            print(f"Removed {args.name} ({args.runtime})")
+        _handle_models_remove(args.name, args.runtime)
         return
 
     if args.models_command in ("select", "set-default"):

@@ -333,60 +333,74 @@ class WindowsHotkeyProvider(HotkeyProvider):
         self._thread_id = None
         self._pressed = False
 
+    def _register_hotkey(self) -> tuple[Any, Any, Any, int, bool]:
+        """Import win32 modules, register the hotkey, and return (win32api, win32con, win32gui, modifier_mask, registered)."""
+        import win32api
+        import win32con
+        import win32gui
+
+        modifier_mask = _windows_modifier_mask(self._modifiers, win32con)
+        self._thread_id = int(win32api.GetCurrentThreadId())
+        registered = bool(
+            win32gui.RegisterHotKey(
+                None,
+                self._hotkey_id,
+                modifier_mask,
+                self._vk_code,
+            )
+        )
+        if not registered:
+            raise RuntimeError("RegisterHotKey returned false")
+        return win32api, win32con, win32gui, modifier_mask, registered
+
+    def _process_message(self, msg: Any, win32api: Any, win32con: Any) -> bool:
+        """Process a single Windows message. Returns False if the loop should exit."""
+        message = int(msg[1])
+        wparam = int(msg[2])
+        if message == int(win32con.WM_QUIT):
+            return False
+
+        if message == int(win32con.WM_HOTKEY) and wparam == self._hotkey_id:
+            if not self._pressed:
+                self._pressed = True
+                self._on_press()
+            self._start_release_monitor(win32api, win32con)
+        return True
+
+    def _message_loop(self, win32api: Any, win32con: Any, win32gui: Any) -> None:
+        """Run the Windows message loop until stop is requested."""
+        while not self._stop_event.is_set():
+            try:
+                msg = win32gui.GetMessage(None, 0, 0)
+            except Exception:
+                if self._stop_event.is_set():
+                    break
+                continue
+
+            if not self._process_message(msg, win32api, win32con):
+                break
+
+            try:
+                win32gui.TranslateMessage(msg)
+                win32gui.DispatchMessage(msg)
+            except Exception:
+                pass
+
     def _run(self) -> None:
         registered = False
+        win32gui_ref: Any = None
         try:
-            import win32api
-            import win32con
-            import win32gui
-
-            modifier_mask = _windows_modifier_mask(self._modifiers, win32con)
-            self._thread_id = int(win32api.GetCurrentThreadId())
-            registered = bool(
-                win32gui.RegisterHotKey(
-                    None,
-                    self._hotkey_id,
-                    modifier_mask,
-                    self._vk_code,
-                )
-            )
-            if not registered:
-                raise RuntimeError("RegisterHotKey returned false")
-
-            while not self._stop_event.is_set():
-                try:
-                    msg = win32gui.GetMessage(None, 0, 0)
-                except Exception:
-                    if self._stop_event.is_set():
-                        break
-                    continue
-
-                message = int(msg[1])
-                wparam = int(msg[2])
-                if message == int(win32con.WM_QUIT):
-                    break
-
-                if message == int(win32con.WM_HOTKEY) and wparam == self._hotkey_id:
-                    if not self._pressed:
-                        self._pressed = True
-                        self._on_press()
-                    self._start_release_monitor(win32api, win32con)
-
-                try:
-                    win32gui.TranslateMessage(msg)
-                    win32gui.DispatchMessage(msg)
-                except Exception:
-                    # Keep message loop alive; callbacks have already been handled.
-                    pass
+            win32api, win32con, win32gui_ref, modifier_mask, registered = self._register_hotkey()
+            self._message_loop(win32api, win32con, win32gui_ref)
         except Exception as exc:
             logger.error("Failed to start Windows hotkey provider: %s", exc)
         finally:
             self._pressed = False
             if registered:
                 try:
-                    import win32gui
-
-                    win32gui.UnregisterHotKey(None, self._hotkey_id)
+                    if win32gui_ref is None:
+                        import win32gui as win32gui_ref  # type: ignore[no-redef]
+                    win32gui_ref.UnregisterHotKey(None, self._hotkey_id)
                 except Exception:
                     pass
 
@@ -409,26 +423,31 @@ class WindowsHotkeyProvider(HotkeyProvider):
                 return
             time.sleep(0.01)
 
-    def _is_hotkey_down(self, win32api: Any, win32con: Any) -> bool:
+    @staticmethod
+    def _is_modifier_down(modifier: str, win32api: Any, win32con: Any) -> bool:
+        """Check whether a single modifier key is currently pressed."""
         def _is_vk_down(vk_code: int) -> bool:
             return bool(int(win32api.GetAsyncKeyState(vk_code)) & 0x8000)
 
-        if not _is_vk_down(self._vk_code):
-            return False
-
-        for modifier in self._modifiers:
-            if modifier == "ctrl" and not _is_vk_down(int(win32con.VK_CONTROL)):
-                return False
-            if modifier == "alt" and not _is_vk_down(int(win32con.VK_MENU)):
-                return False
-            if modifier == "shift" and not _is_vk_down(int(win32con.VK_SHIFT)):
-                return False
-            if modifier == "cmd":
-                left_down = _is_vk_down(int(win32con.VK_LWIN))
-                right_down = _is_vk_down(int(win32con.VK_RWIN))
-                if not (left_down or right_down):
-                    return False
+        _MODIFIER_VK: dict[str, str] = {
+            "ctrl": "VK_CONTROL",
+            "alt": "VK_MENU",
+            "shift": "VK_SHIFT",
+        }
+        vk_attr = _MODIFIER_VK.get(modifier)
+        if vk_attr is not None:
+            return _is_vk_down(int(getattr(win32con, vk_attr)))
+        if modifier == "cmd":
+            return _is_vk_down(int(win32con.VK_LWIN)) or _is_vk_down(int(win32con.VK_RWIN))
         return True
+
+    def _is_hotkey_down(self, win32api: Any, win32con: Any) -> bool:
+        if not bool(int(win32api.GetAsyncKeyState(self._vk_code)) & 0x8000):
+            return False
+        return all(
+            self._is_modifier_down(modifier, win32api, win32con)
+            for modifier in self._modifiers
+        )
 
 
 class NoopStatusIndicatorProvider(StatusIndicatorProvider):

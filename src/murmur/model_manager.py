@@ -777,6 +777,8 @@ def _make_progress_tqdm(
         DownloadCancelledError: If `cancel_check` returns `True` during an operation.
     """
 
+    _outer_expected_total_bytes = float(expected_total_bytes or 0)
+
     class _ProgressTqdm:
         _lock: threading.Lock = threading.Lock()
 
@@ -805,14 +807,12 @@ def _make_progress_tqdm(
             **kwargs: object,
         ) -> None:
             del args
-
             _ProgressTqdm._raise_if_cancelled()
-            # Iterable mode (file list wrapper)
             self._iterable = iterable
             self.total = self._coerce_float(kwargs.get("total", 0) or 0)
             self.n = self._coerce_float(kwargs.get("initial", 0) or 0)
             self.disable = bool(kwargs.get("disable", False))
-            self._expected_total_bytes = float(expected_total_bytes or 0)
+            self._expected_total_bytes = _outer_expected_total_bytes
             self._is_download_bytes_bar = self._detect_download_bytes_bar(kwargs)
             self._last_percent = -1
             if self._is_download_bytes_bar:
@@ -825,16 +825,25 @@ def _make_progress_tqdm(
                 return self._expected_total_bytes
             return 0.0
 
-        def _emit_progress_locked(self) -> None:
+        def _compute_percent(self) -> int:
             total = self._effective_total()
             if total <= 0:
-                percent = 0
-            else:
-                percent = int(max(0.0, min((self.n / total) * 100.0, 100.0)))
-            if percent == self._last_percent:
+                return 0
+            return int(max(0.0, min((self.n / total) * 100.0, 100.0)))
+
+        def _emit_progress_locked(self) -> None:
+            percent = self._compute_percent()
+            if percent != self._last_percent:
+                self._last_percent = percent
+                callback(percent)
+
+        def _emit_if_bytes_bar(self) -> None:
+            """Check cancellation and emit progress if this is a download bytes bar."""
+            _ProgressTqdm._raise_if_cancelled()
+            if not self._is_download_bytes_bar:
                 return
-            self._last_percent = percent
-            callback(percent)
+            with _ProgressTqdm._lock:
+                self._emit_progress_locked()
 
         def __iter__(self) -> Iterator[Any]:
             if self._iterable is not None:
@@ -851,13 +860,11 @@ def _make_progress_tqdm(
             _ProgressTqdm._raise_if_cancelled()
             if not self._is_download_bytes_bar:
                 return
-
             with _ProgressTqdm._lock:
                 self.n += float(n or 0)
                 self._emit_progress_locked()
 
         def close(self) -> None:
-            # No resources to release; required by tqdm protocol.
             pass
 
         def __enter__(self) -> _ProgressTqdm:
@@ -878,11 +885,7 @@ def _make_progress_tqdm(
 
         def refresh(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            _ProgressTqdm._raise_if_cancelled()
-            if not self._is_download_bytes_bar:
-                return
-            with _ProgressTqdm._lock:
-                self._emit_progress_locked()
+            self._emit_if_bytes_bar()
 
         def clear(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
@@ -913,7 +916,6 @@ def _make_progress_tqdm(
         def unpause(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
 
-    # Reset class-level counters for each download
     return _ProgressTqdm
 
 
