@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, TYPE_CHECKING, TypeAlias
+from typing import Any, TYPE_CHECKING, Union
 
 from murmur import __version__
 from murmur.config import SUPPORTED_RUNTIMES, load_config
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from websockets.asyncio.client import ClientConnection
     from websockets.legacy.client import WebSocketClientProtocol
 
-    WebSocketClientType: TypeAlias = ClientConnection | WebSocketClientProtocol
+    WebSocketClientType = Union[ClientConnection, WebSocketClientProtocol]
 else:
     WebSocketClientType = Any
 
