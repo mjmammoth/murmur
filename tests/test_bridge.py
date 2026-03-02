@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 from pathlib import Path
@@ -2044,3 +2045,1081 @@ def test_constants_defined():
     assert isinstance(MAX_DROP_AUDIO_SECONDS, int)
     assert isinstance(AUTO_PASTE_INPUT_SUPPRESS_MS, int)
     assert isinstance(AUTO_REVERT_CLIPBOARD_DELAY_MS, int)
+
+
+# ---------------------------------------------------------------------------
+# TranscriptionMetrics & _log_transcription_metrics
+# ---------------------------------------------------------------------------
+
+
+def test_transcription_metrics_dataclass_is_frozen():
+    """TranscriptionMetrics should be immutable."""
+    from murmur.bridge import TranscriptionMetrics
+
+    metrics = TranscriptionMetrics(
+        pipeline_started=0.0,
+        input_samples=16000,
+        post_noise_samples=16000,
+        post_vad_samples=16000,
+        transcribe_ms=200,
+        job_sample_rate=16000,
+        job_transcriber=Mock(runtime_info=lambda: {}),
+        job_language="en",
+        output_language="en",
+        noise_enabled=False,
+        noise_available=False,
+        noise_applied=False,
+        noise_backend="none",
+        vad_enabled=False,
+        vad_available=False,
+        vad_applied=False,
+    )
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        metrics.input_samples = 0  # type: ignore[misc]
+
+
+def test_log_transcription_metrics_calls_logger(mock_config):
+    """_log_transcription_metrics should invoke logger.info with bench data."""
+    from murmur.bridge import TranscriptionMetrics
+
+    server = BridgeServer(mock_config)
+    transcriber_mock = Mock()
+    transcriber_mock.runtime_info.return_value = {
+        "runtime": "faster-whisper",
+        "model_name": "tiny",
+        "effective_device": "cpu",
+        "effective_compute_type": "int8",
+    }
+    metrics = TranscriptionMetrics(
+        pipeline_started=monotonic() - 0.5,
+        input_samples=16000,
+        post_noise_samples=16000,
+        post_vad_samples=16000,
+        transcribe_ms=200,
+        job_sample_rate=16000,
+        job_transcriber=transcriber_mock,
+        job_language="en",
+        output_language="en",
+        noise_enabled=False,
+        noise_available=True,
+        noise_applied=False,
+        noise_backend="rnnoise",
+        vad_enabled=True,
+        vad_available=True,
+        vad_applied=True,
+    )
+
+    with patch("murmur.bridge.logger") as mock_logger:
+        server._log_transcription_metrics(metrics)
+
+    mock_logger.info.assert_called_once()
+    log_msg = mock_logger.info.call_args.args[0]
+    assert "bench" in log_msg
+    assert "rtf=" in log_msg
+
+
+def test_log_transcription_metrics_handles_zero_sample_rate(mock_config):
+    """_log_transcription_metrics should handle zero sample rate gracefully."""
+    from murmur.bridge import TranscriptionMetrics
+
+    server = BridgeServer(mock_config)
+    metrics = TranscriptionMetrics(
+        pipeline_started=monotonic(),
+        input_samples=0,
+        post_noise_samples=0,
+        post_vad_samples=0,
+        transcribe_ms=0,
+        job_sample_rate=0,
+        job_transcriber=Mock(runtime_info=lambda: {}),
+        job_language=None,
+        output_language=None,
+        noise_enabled=False,
+        noise_available=False,
+        noise_applied=False,
+        noise_backend="none",
+        vad_enabled=False,
+        vad_available=False,
+        vad_applied=False,
+    )
+
+    with patch("murmur.bridge.logger") as mock_logger:
+        server._log_transcription_metrics(metrics)
+
+    mock_logger.info.assert_called_once()
+    # Ensure "auto" and "unknown" are used for None languages
+    call_args = mock_logger.info.call_args.args
+    assert "auto" in call_args
+    assert "unknown" in call_args
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_settings_message
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_settings_message_routes_known_type(mock_config):
+    """_dispatch_settings_message should route a known message type to the handler."""
+    server = BridgeServer(mock_config)
+    server._set_theme = AsyncMock()
+
+    result = asyncio.run(
+        server._dispatch_settings_message("set_theme", {"theme": "dark"})
+    )
+
+    assert result is True
+    server._set_theme.assert_awaited_once_with("dark")
+
+
+def test_dispatch_settings_message_returns_false_for_unknown(mock_config):
+    """_dispatch_settings_message should return False for unknown message types."""
+    server = BridgeServer(mock_config)
+
+    result = asyncio.run(
+        server._dispatch_settings_message("totally_unknown", {})
+    )
+
+    assert result is False
+
+
+def test_dispatch_settings_message_handles_refresh_audio_inputs(mock_config):
+    """_dispatch_settings_message should handle refresh_audio_inputs specially."""
+    server = BridgeServer(mock_config)
+    server._handle_refresh_audio_inputs = AsyncMock()
+
+    result = asyncio.run(
+        server._dispatch_settings_message("refresh_audio_inputs", {})
+    )
+
+    assert result is True
+    server._handle_refresh_audio_inputs.assert_awaited_once()
+
+
+def test_dispatch_settings_message_uses_default_when_key_missing(mock_config):
+    """_dispatch_settings_message should use default value when param key is absent."""
+    server = BridgeServer(mock_config)
+    server._set_hotkey_mode = AsyncMock()
+
+    asyncio.run(server._dispatch_settings_message("set_hotkey_mode", {}))
+
+    server._set_hotkey_mode.assert_awaited_once_with("")
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_action_message
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_action_message_routes_download_model(mock_config):
+    """_dispatch_action_message should route download_model to handler."""
+    server = BridgeServer(mock_config)
+    server._handle_download_model_message = Mock()
+
+    asyncio.run(
+        server._dispatch_action_message(
+            Mock(), "download_model", {"name": "tiny", "runtime": "faster-whisper"}
+        )
+    )
+
+    server._handle_download_model_message.assert_called_once()
+
+
+def test_dispatch_action_message_routes_list_models(mock_config):
+    """_dispatch_action_message should route list_models to _send_models."""
+    server = BridgeServer(mock_config)
+    server._send_models = AsyncMock()
+    ws = Mock()
+
+    asyncio.run(server._dispatch_action_message(ws, "list_models", {}))
+
+    server._send_models.assert_awaited_once_with(ws)
+
+
+def test_dispatch_action_message_routes_get_config(mock_config):
+    """_dispatch_action_message should route get_config to _send_config."""
+    server = BridgeServer(mock_config)
+    server._send_config = AsyncMock()
+    ws = Mock()
+
+    asyncio.run(server._dispatch_action_message(ws, "get_config", {}))
+
+    server._send_config.assert_awaited_once_with(ws)
+
+
+def test_dispatch_action_message_routes_get_config_file(mock_config):
+    """_dispatch_action_message should route get_config_file to _send_config_file."""
+    server = BridgeServer(mock_config)
+    server._send_config_file = AsyncMock()
+    ws = Mock()
+
+    asyncio.run(server._dispatch_action_message(ws, "get_config_file", {}))
+
+    server._send_config_file.assert_awaited_once_with(ws)
+
+
+def test_dispatch_action_message_routes_get_capabilities(mock_config):
+    """_dispatch_action_message should route get_capabilities to _send_capabilities."""
+    server = BridgeServer(mock_config)
+    server._send_capabilities = AsyncMock()
+    ws = Mock()
+
+    asyncio.run(server._dispatch_action_message(ws, "get_capabilities", {}))
+
+    server._send_capabilities.assert_awaited_once_with(ws)
+
+
+def test_dispatch_action_message_logs_unknown_type(mock_config):
+    """_dispatch_action_message should log a warning for unknown message types."""
+    server = BridgeServer(mock_config)
+
+    with patch("murmur.bridge.logger") as mock_logger:
+        asyncio.run(
+            server._dispatch_action_message(Mock(), "unknown_action_xyz", {})
+        )
+
+    mock_logger.warning.assert_called_once()
+
+
+def test_dispatch_action_message_routes_begin_onboarding(mock_config):
+    """_dispatch_action_message should route begin_onboarding_setup."""
+    server = BridgeServer(mock_config)
+    server._begin_onboarding_setup = AsyncMock()
+
+    asyncio.run(
+        server._dispatch_action_message(Mock(), "begin_onboarding_setup", {})
+    )
+
+    server._begin_onboarding_setup.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# _resolve_enabled_device (static)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_enabled_device_returns_requested_when_enabled():
+    """_resolve_enabled_device should return requested device if enabled."""
+    devices = {"cuda": {"enabled": True}, "cpu": {"enabled": True}}
+    assert BridgeServer._resolve_enabled_device(devices, "cuda") == "cuda"
+
+
+def test_resolve_enabled_device_falls_back_when_disabled():
+    """_resolve_enabled_device should fall back to first available when requested is disabled."""
+    devices = {
+        "cuda": {"enabled": False},
+        "mps": {"enabled": False},
+        "cpu": {"enabled": True},
+    }
+    assert BridgeServer._resolve_enabled_device(devices, "cuda") == "cpu"
+
+
+def test_resolve_enabled_device_prefers_cuda_over_cpu():
+    """_resolve_enabled_device should prefer cuda > mps > cpu in fallback order."""
+    devices = {
+        "cuda": {"enabled": True},
+        "mps": {"enabled": True},
+        "cpu": {"enabled": True},
+    }
+    # requesting a non-existent device should fall back to cuda first
+    assert BridgeServer._resolve_enabled_device(devices, "tpu") == "cuda"
+
+
+def test_resolve_enabled_device_returns_requested_when_none_enabled():
+    """_resolve_enabled_device should return requested when no devices are enabled."""
+    devices = {"cpu": {"enabled": False}}
+    assert BridgeServer._resolve_enabled_device(devices, "cpu") == "cpu"
+
+
+# ---------------------------------------------------------------------------
+# _resolve_compute_type (static)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_compute_type_returns_requested_when_valid():
+    """_resolve_compute_type should return the requested type when it's in the valid set."""
+    valid = {"int8", "float32"}
+    assert BridgeServer._resolve_compute_type(valid, "float32") == "float32"
+
+
+def test_resolve_compute_type_falls_back_when_invalid():
+    """_resolve_compute_type should fall back to preferred type when requested is invalid."""
+    valid = {"default", "float32"}
+    assert BridgeServer._resolve_compute_type(valid, "int8") == "default"
+
+
+def test_resolve_compute_type_returns_requested_when_set_empty():
+    """_resolve_compute_type should accept any type when valid set is empty."""
+    assert BridgeServer._resolve_compute_type(set(), "int8") == "int8"
+
+
+def test_resolve_compute_type_falls_back_to_sorted_first():
+    """_resolve_compute_type should fall back to sorted first when no preferred match."""
+    valid = {"zzz_custom"}
+    assert BridgeServer._resolve_compute_type(valid, "int8") == "zzz_custom"
+
+
+# ---------------------------------------------------------------------------
+# _download_task_key (static)
+# ---------------------------------------------------------------------------
+
+
+def test_download_task_key():
+    """_download_task_key should produce 'runtime:name' format."""
+    assert BridgeServer._download_task_key("tiny", "faster-whisper") == "faster-whisper:tiny"
+
+
+# ---------------------------------------------------------------------------
+# _resolve_download_cancel_key
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_download_cancel_key_explicit_key(mock_config):
+    """_resolve_download_cancel_key should return a key containing ':' as-is."""
+    server = BridgeServer(mock_config)
+    assert server._resolve_download_cancel_key("faster-whisper:tiny", None) == "faster-whisper:tiny"
+
+
+def test_resolve_download_cancel_key_with_runtime(mock_config):
+    """_resolve_download_cancel_key should build key from model+runtime."""
+    server = BridgeServer(mock_config)
+    result = server._resolve_download_cancel_key("tiny", "faster-whisper")
+    assert result == "faster-whisper:tiny"
+
+
+def test_resolve_download_cancel_key_empty_resolves_single(mock_config):
+    """_resolve_download_cancel_key should resolve single queued entry when name is empty."""
+    server = BridgeServer(mock_config)
+    task = Mock()
+    task.done.return_value = False
+    server._download_queue.enqueue_download(
+        "faster-whisper:small", model="small", runtime="faster-whisper", task=task
+    )
+
+    result = server._resolve_download_cancel_key("", None)
+    assert result == "faster-whisper:small"
+
+
+def test_resolve_download_cancel_key_returns_none_when_ambiguous(mock_config):
+    """_resolve_download_cancel_key should return None when multiple candidates match."""
+    server = BridgeServer(mock_config)
+    for key, runtime in [("faster-whisper:tiny", "faster-whisper"), ("whisper.cpp:tiny", "whisper.cpp")]:
+        task = Mock()
+        task.done.return_value = False
+        server._download_queue.enqueue_download(key, model="tiny", runtime=runtime, task=task)
+
+    result = server._resolve_download_cancel_key("tiny", None)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _on_download_success / _on_download_cancelled / _on_download_error
+# ---------------------------------------------------------------------------
+
+
+def test_on_download_success_broadcasts_completion(mock_config):
+    """_on_download_success should broadcast progress 100% and success toast."""
+    server = BridgeServer(mock_config)
+    server._broadcast = AsyncMock()
+    server._broadcast_models = AsyncMock()
+    server._set_selected_model = AsyncMock()
+
+    asyncio.run(server._on_download_success("tiny", "faster-whisper", None))
+
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any(p.get("type") == "download_progress" and p.get("percent") == 100 for p in payloads)
+    assert any(p.get("action") == "download_complete" for p in payloads)
+    server._broadcast_models.assert_awaited_once()
+
+
+def test_on_download_success_activates_runtime_when_specified(mock_config):
+    """_on_download_success should switch runtime when activate_runtime_name is given."""
+    server = BridgeServer(mock_config)
+    server._broadcast = AsyncMock()
+    server._broadcast_models = AsyncMock()
+    server._set_model_runtime = AsyncMock()
+
+    with patch.object(server, "_persist_config", return_value=None):
+        asyncio.run(server._on_download_success("tiny", "whisper.cpp", "whisper.cpp"))
+
+    assert mock_config.model.name == "tiny"
+    assert mock_config.model.path is None
+    server._set_model_runtime.assert_awaited_once_with("whisper.cpp", allow_missing_variant_prompt=False)
+
+
+def test_on_download_success_selects_model_when_same_runtime(mock_config):
+    """_on_download_success should auto-select model when runtime matches config."""
+    server = BridgeServer(mock_config)
+    server._broadcast = AsyncMock()
+    server._broadcast_models = AsyncMock()
+    server._set_selected_model = AsyncMock()
+
+    asyncio.run(server._on_download_success("small", "faster-whisper", None))
+
+    server._set_selected_model.assert_awaited_once_with("small")
+
+
+def test_on_download_cancelled_broadcasts_when_not_shutting_down(mock_config):
+    """_on_download_cancelled should broadcast cancellation toast."""
+    server = BridgeServer(mock_config)
+    server._broadcast = AsyncMock()
+    server._broadcast_models = AsyncMock()
+
+    asyncio.run(server._on_download_cancelled("tiny", "faster-whisper"))
+
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any(p.get("action") == "download_cancelled" for p in payloads)
+    server._broadcast_models.assert_awaited_once()
+
+
+def test_on_download_cancelled_silent_during_shutdown(mock_config):
+    """_on_download_cancelled should not broadcast during shutdown."""
+    server = BridgeServer(mock_config)
+    server._shutdown_requested.set()
+    server._broadcast = AsyncMock()
+    server._broadcast_models = AsyncMock()
+
+    asyncio.run(server._on_download_cancelled("tiny", "faster-whisper"))
+
+    server._broadcast.assert_not_awaited()
+    server._broadcast_models.assert_not_awaited()
+
+
+def test_on_download_error_broadcasts_failure(mock_config):
+    """_on_download_error should broadcast error toast with exception message."""
+    server = BridgeServer(mock_config)
+    server._broadcast = AsyncMock()
+    server._broadcast_models = AsyncMock()
+
+    asyncio.run(server._on_download_error("tiny", "faster-whisper", RuntimeError("network error")))
+
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any(p.get("action") == "download_failed" and "network error" in p.get("message", "") for p in payloads)
+    server._broadcast_models.assert_awaited_once()
+
+
+def test_on_download_error_silent_during_shutdown(mock_config):
+    """_on_download_error should not broadcast during shutdown."""
+    server = BridgeServer(mock_config)
+    server._shutdown_requested.set()
+    server._broadcast = AsyncMock()
+    server._broadcast_models = AsyncMock()
+
+    asyncio.run(server._on_download_error("tiny", "faster-whisper", RuntimeError("err")))
+
+    server._broadcast.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _validate_audio_input_device
+# ---------------------------------------------------------------------------
+
+
+def test_validate_audio_input_device_none_is_valid(mock_config):
+    """_validate_audio_input_device should accept None (system default)."""
+    server = BridgeServer(mock_config)
+
+    valid, device = asyncio.run(server._validate_audio_input_device(None))
+
+    assert valid is True
+    assert device is None
+
+
+def test_validate_audio_input_device_missing_device(mock_config):
+    """_validate_audio_input_device should reject missing devices."""
+    server = BridgeServer(mock_config)
+    server._audio_inputs = []
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    valid, device = asyncio.run(server._validate_audio_input_device("Missing:Device"))
+
+    assert valid is False
+    assert device is None
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any("unavailable" in p.get("message", "") for p in payloads)
+
+
+def test_validate_audio_input_device_unsupported_sample_rate(mock_config):
+    """_validate_audio_input_device should reject devices with unsupported sample rate."""
+    server = BridgeServer(mock_config)
+    server._audio_inputs = [
+        AudioInputDeviceInfo(
+            key="CoreAudio:Bad Mic",
+            index=1,
+            name="Bad Mic",
+            hostapi="CoreAudio",
+            max_input_channels=1,
+            default_samplerate=44100.0,
+            is_default=False,
+            sample_rate_supported=False,
+            sample_rate_reason="Device does not support 16000 Hz",
+        )
+    ]
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    valid, device = asyncio.run(server._validate_audio_input_device("CoreAudio:Bad Mic"))
+
+    assert valid is False
+    assert device is None
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any("16000" in p.get("message", "") for p in payloads)
+
+
+def test_validate_audio_input_device_valid_device(mock_config):
+    """_validate_audio_input_device should accept a valid device."""
+    server = BridgeServer(mock_config)
+    good_device = AudioInputDeviceInfo(
+        key="CoreAudio:Good Mic",
+        index=2,
+        name="Good Mic",
+        hostapi="CoreAudio",
+        max_input_channels=2,
+        default_samplerate=48000.0,
+        is_default=True,
+        sample_rate_supported=True,
+        sample_rate_reason=None,
+    )
+    server._audio_inputs = [good_device]
+
+    valid, device = asyncio.run(server._validate_audio_input_device("CoreAudio:Good Mic"))
+
+    assert valid is True
+    assert device is good_device
+
+
+# ---------------------------------------------------------------------------
+# _apply_config_with_reload
+# ---------------------------------------------------------------------------
+
+
+def test_apply_config_with_reload_success_path(mock_config):
+    """_apply_config_with_reload should apply, persist, reload, and toast on success."""
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = False
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+    server._reload_transcriber = AsyncMock()
+    apply_fn = Mock()
+    rollback_fn = Mock()
+
+    with patch.object(server, "_persist_config", return_value=None):
+        asyncio.run(
+            server._apply_config_with_reload(
+                apply_fn=apply_fn,
+                rollback_fn=rollback_fn,
+                context="test context",
+                success_message="Test success",
+            )
+        )
+
+    apply_fn.assert_called_once()
+    rollback_fn.assert_not_called()
+    server._reload_transcriber.assert_awaited_once()
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any(p.get("message") == "Test success" for p in payloads)
+
+
+def test_apply_config_with_reload_first_run_skips_reload(mock_config):
+    """_apply_config_with_reload should skip reload during first run setup."""
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = True
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+    server._reload_transcriber = AsyncMock()
+
+    with patch.object(server, "_persist_config", return_value=None):
+        asyncio.run(
+            server._apply_config_with_reload(
+                apply_fn=Mock(),
+                rollback_fn=Mock(),
+                context="test",
+                success_message="Test OK",
+            )
+        )
+
+    server._reload_transcriber.assert_not_awaited()
+    server._broadcast_config.assert_awaited_once()
+
+
+def test_apply_config_with_reload_rollback_on_failure(mock_config):
+    """_apply_config_with_reload should rollback on reload failure."""
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = False
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+    server._reload_transcriber = AsyncMock(side_effect=RuntimeError("load failed"))
+    rollback_fn = Mock()
+
+    with patch.object(server, "_persist_config", return_value=None):
+        asyncio.run(
+            server._apply_config_with_reload(
+                apply_fn=Mock(),
+                rollback_fn=rollback_fn,
+                context="test",
+                success_message="Should not appear",
+            )
+        )
+
+    rollback_fn.assert_called_once()
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any("Failed to apply test" in p.get("message", "") for p in payloads)
+
+
+def test_apply_config_with_reload_persist_error_during_first_run(mock_config):
+    """_apply_config_with_reload should show persist error toast during first run."""
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = True
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    with patch.object(server, "_persist_config", return_value="disk full"):
+        asyncio.run(
+            server._apply_config_with_reload(
+                apply_fn=Mock(),
+                rollback_fn=Mock(),
+                context="test",
+                success_message="Test OK",
+            )
+        )
+
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any("disk full" in p.get("message", "") for p in payloads)
+
+
+# ---------------------------------------------------------------------------
+# _send_capabilities
+# ---------------------------------------------------------------------------
+
+
+def test_send_capabilities_cpu_fallback(mock_config):
+    """_send_capabilities should recommend cpu/faster-whisper when no GPU available."""
+    server = BridgeServer(mock_config)
+    server._runtime_capabilities = {
+        "model": {
+            "devices_by_runtime": {
+                "faster-whisper": {"cpu": {"enabled": True}, "cuda": {"enabled": False}},
+                "whisper.cpp": {"cpu": {"enabled": True}, "mps": {"enabled": False}},
+            }
+        }
+    }
+    ws = AsyncMock()
+
+    asyncio.run(server._send_capabilities(ws))
+
+    ws.send.assert_awaited_once()
+    payload = json.loads(ws.send.await_args.args[0])
+    assert payload["type"] == "capabilities"
+    assert payload["recommended"]["runtime"] == "faster-whisper"
+    assert payload["recommended"]["device"] == "cpu"
+
+
+def test_send_capabilities_cuda_recommendation(mock_config):
+    """_send_capabilities should recommend cuda when available."""
+    server = BridgeServer(mock_config)
+    server._runtime_capabilities = {
+        "model": {
+            "devices_by_runtime": {
+                "faster-whisper": {"cpu": {"enabled": True}, "cuda": {"enabled": True}},
+                "whisper.cpp": {"cpu": {"enabled": True}},
+            }
+        }
+    }
+    ws = AsyncMock()
+
+    with patch("murmur.bridge.sys") as mock_sys:
+        mock_sys.platform = "linux"
+        asyncio.run(server._send_capabilities(ws))
+
+    payload = json.loads(ws.send.await_args.args[0])
+    assert payload["recommended"]["runtime"] == "faster-whisper"
+    assert payload["recommended"]["device"] == "cuda"
+
+
+def test_send_capabilities_empty_caps(mock_config):
+    """_send_capabilities should handle empty capabilities gracefully."""
+    server = BridgeServer(mock_config)
+    server._runtime_capabilities = {}
+    ws = AsyncMock()
+
+    asyncio.run(server._send_capabilities(ws))
+
+    payload = json.loads(ws.send.await_args.args[0])
+    assert payload["type"] == "capabilities"
+    assert payload["recommended"]["runtime"] == "faster-whisper"
+    assert payload["recommended"]["device"] == "cpu"
+
+
+# ---------------------------------------------------------------------------
+# _send_config_file
+# ---------------------------------------------------------------------------
+
+
+def test_send_config_file_reads_existing_file(mock_config, tmp_path):
+    """_send_config_file should send the content of an existing config file."""
+    server = BridgeServer(mock_config)
+    config_file = tmp_path / "murmur.toml"
+    config_file.write_text("[model]\nname = 'tiny'\n")
+    ws = AsyncMock()
+
+    with patch("murmur.bridge.default_config_path", return_value=config_file):
+        asyncio.run(server._send_config_file(ws))
+
+    payload = json.loads(ws.send.await_args.args[0])
+    assert payload["type"] == "config_file"
+    assert "tiny" in payload["content"]
+    assert str(config_file) == payload["path"]
+
+
+def test_send_config_file_returns_empty_for_missing(mock_config, tmp_path):
+    """_send_config_file should return empty content when config file doesn't exist."""
+    server = BridgeServer(mock_config)
+    ws = AsyncMock()
+
+    with patch("murmur.bridge.default_config_path", return_value=tmp_path / "nonexistent.toml"):
+        asyncio.run(server._send_config_file(ws))
+
+    payload = json.loads(ws.send.await_args.args[0])
+    assert payload["content"] == ""
+
+
+def test_send_config_file_returns_empty_on_read_error(mock_config, tmp_path):
+    """_send_config_file should return empty content when read fails."""
+    server = BridgeServer(mock_config)
+    ws = AsyncMock()
+    config_path = Mock()
+    config_path.exists.return_value = True
+    config_path.read_text.side_effect = PermissionError("access denied")
+
+    with patch("murmur.bridge.default_config_path", return_value=config_path):
+        asyncio.run(server._send_config_file(ws))
+
+    payload = json.loads(ws.send.await_args.args[0])
+    assert payload["content"] == ""
+
+
+# ---------------------------------------------------------------------------
+# _send_config
+# ---------------------------------------------------------------------------
+
+
+def test_send_config_sends_config_payload(mock_config):
+    """_send_config should send config payload to a specific client."""
+    server = BridgeServer(mock_config)
+    mock_config.to_dict.return_value = {"model": {"runtime": "faster-whisper"}}
+    ws = AsyncMock()
+
+    asyncio.run(server._send_config(ws))
+
+    ws.send.assert_awaited_once()
+    payload = json.loads(ws.send.await_args.args[0])
+    assert payload["type"] == "config"
+    assert "config" in payload
+
+
+# ---------------------------------------------------------------------------
+# _handle_toggle_auto_copy with persist error
+# ---------------------------------------------------------------------------
+
+
+def test_toggle_auto_copy_on_with_persist_error(mock_config):
+    """Enabling auto copy with persist failure should show error toast."""
+    server = BridgeServer(mock_config)
+    server._auto_copy = False
+    server._auto_paste = False
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    with patch.object(server, "_persist_config", return_value="disk error"):
+        asyncio.run(
+            server._handle_toggle_auto_copy({"enabled": True})
+        )
+
+    assert server._auto_copy is True
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any("disk error" in p.get("message", "") for p in payloads)
+    assert any(p.get("level") == "error" for p in payloads)
+
+
+def test_toggle_auto_copy_enable_success(mock_config):
+    """Enabling auto copy should persist and broadcast success."""
+    server = BridgeServer(mock_config)
+    server._auto_copy = False
+    server._auto_paste = False
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    with patch.object(server, "_persist_config", return_value=None):
+        asyncio.run(server._handle_toggle_auto_copy({"enabled": True}))
+
+    assert server._auto_copy is True
+    assert mock_config.auto_copy is True
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any(p.get("message") == "Auto copy on" for p in payloads)
+
+
+# ---------------------------------------------------------------------------
+# _set_model_device
+# ---------------------------------------------------------------------------
+
+
+def test_set_model_device_rejects_invalid_device(mock_config):
+    """_set_model_device should reject invalid device names."""
+    server = BridgeServer(mock_config)
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    with patch.object(server, "_refresh_runtime_capabilities"):
+        asyncio.run(server._set_model_device("tpu"))
+
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any("Invalid model device" in p.get("message", "") for p in payloads)
+
+
+def test_set_model_device_rejects_disabled_device(mock_config):
+    """_set_model_device should reject a disabled device with reason."""
+    server = BridgeServer(mock_config)
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+    server._runtime_capabilities = {
+        "model": {
+            "devices": {
+                "cuda": {"enabled": False, "reason": "No CUDA GPU detected"},
+            }
+        }
+    }
+
+    with patch.object(server, "_refresh_runtime_capabilities"):
+        asyncio.run(server._set_model_device("cuda"))
+
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any("No CUDA GPU detected" in p.get("message", "") for p in payloads)
+
+
+def test_set_model_device_noops_when_same(mock_config):
+    """_set_model_device should no-op when device is already set."""
+    server = BridgeServer(mock_config)
+    mock_config.model.device = "cpu"
+    server._broadcast = AsyncMock()
+    server._runtime_capabilities = {
+        "model": {"devices": {"cpu": {"enabled": True}}}
+    }
+
+    with patch.object(server, "_refresh_runtime_capabilities"):
+        asyncio.run(server._set_model_device("cpu"))
+
+    server._broadcast.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _set_model_compute_type
+# ---------------------------------------------------------------------------
+
+
+def test_set_model_compute_type_rejects_invalid(mock_config):
+    """_set_model_compute_type should reject invalid compute types."""
+    server = BridgeServer(mock_config)
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+
+    with patch.object(server, "_refresh_runtime_capabilities"):
+        asyncio.run(server._set_model_compute_type("invalid_type"))
+
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any("Invalid compute type" in p.get("message", "") for p in payloads)
+
+
+def test_set_model_compute_type_rejects_float16_on_cpu(mock_config):
+    """_set_model_compute_type should reject float16 on CPU."""
+    server = BridgeServer(mock_config)
+    mock_config.model.device = "cpu"
+    server._broadcast = AsyncMock()
+    server._broadcast_config = AsyncMock()
+    server._runtime_capabilities = {"model": {"compute_types_by_device": {"cpu": ["int8", "float32"]}}}
+
+    with patch.object(server, "_refresh_runtime_capabilities"):
+        asyncio.run(server._set_model_compute_type("float16"))
+
+    payloads = [call.args[0] for call in server._broadcast.await_args_list if call.args]
+    assert any("not usable on CPU" in p.get("message", "") for p in payloads)
+
+
+# ---------------------------------------------------------------------------
+# _startup_blockers and _refresh_startup_phase
+# ---------------------------------------------------------------------------
+
+
+def test_startup_blockers_first_run(mock_config):
+    """_startup_blockers should include first-run message when setup required."""
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = True
+    server._startup_model = "pending"
+
+    blockers = server._startup_blockers()
+    assert any("Download and select" in b for b in blockers)
+
+
+def test_startup_blockers_model_loading(mock_config):
+    """_startup_blockers should include model loading message."""
+    server = BridgeServer(mock_config)
+    server._startup_model = "running"
+
+    blockers = server._startup_blockers()
+    assert any("Model is still loading" in b for b in blockers)
+
+
+def test_startup_blockers_model_error(mock_config):
+    """_startup_blockers should include model error message."""
+    server = BridgeServer(mock_config)
+    server._startup_model = "error"
+
+    blockers = server._startup_blockers()
+    assert any("Model failed to load" in b for b in blockers)
+
+
+def test_refresh_startup_phase_error(mock_config):
+    """_refresh_startup_phase should set error when model failed."""
+    server = BridgeServer(mock_config)
+    server._startup_model = "error"
+
+    server._refresh_startup_phase()
+
+    assert server._startup_phase == "error"
+
+
+def test_refresh_startup_phase_ready(mock_config):
+    """_refresh_startup_phase should set ready when all settled."""
+    server = BridgeServer(mock_config)
+    server._startup_model = "ready"
+    server._startup_runtime_probe = "ready"
+    server._startup_audio_scan = "ready"
+    server._startup_components = "ready"
+
+    server._refresh_startup_phase()
+
+    assert server._startup_phase == "ready"
+
+
+def test_refresh_startup_phase_idle_during_first_run(mock_config):
+    """_refresh_startup_phase should stay idle before onboarding starts."""
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = True
+    server._onboarding_setup_started = False
+    server._startup_model = "pending"
+
+    server._refresh_startup_phase()
+
+    assert server._startup_phase == "idle"
+
+
+def test_refresh_startup_phase_running(mock_config):
+    """_refresh_startup_phase should set running during active setup."""
+    server = BridgeServer(mock_config)
+    server._first_run_setup_required = True
+    server._onboarding_setup_started = True
+    server._startup_model = "running"
+
+    server._refresh_startup_phase()
+
+    assert server._startup_phase == "running"
+
+
+# ---------------------------------------------------------------------------
+# _startup_payload
+# ---------------------------------------------------------------------------
+
+
+def test_startup_payload_structure(mock_config):
+    """_startup_payload should return expected keys."""
+    server = BridgeServer(mock_config)
+    server._startup_model = "ready"
+    server._startup_runtime_probe = "ready"
+    server._startup_audio_scan = "ready"
+    server._startup_components = "ready"
+
+    payload = server._startup_payload()
+
+    assert "phase" in payload
+    assert "runtime_probe" in payload
+    assert "audio_scan" in payload
+    assert "components" in payload
+    assert "model" in payload
+    assert "onboarding_close_ready" in payload
+    assert "blockers" in payload
+    assert "last_error" in payload
+
+
+# ---------------------------------------------------------------------------
+# shutdown additional coverage
+# ---------------------------------------------------------------------------
+
+
+def test_shutdown_sets_shutdown_event(mock_config):
+    """shutdown should set the shutdown requested event."""
+    server = BridgeServer(mock_config)
+
+    server.shutdown()
+
+    assert server._shutdown_requested.is_set()
+
+
+def test_shutdown_handles_recorder_stop_error(mock_config):
+    """shutdown should handle recorder stop errors gracefully."""
+    server = BridgeServer(mock_config)
+    server.recorder = Mock()
+    server.recorder.stop.side_effect = RuntimeError("device error")
+    server._recording = True
+
+    server.shutdown()
+
+    assert server._recording is False
+
+
+# ---------------------------------------------------------------------------
+# _handle_refresh_audio_inputs
+# ---------------------------------------------------------------------------
+
+
+def test_handle_refresh_audio_inputs(mock_config):
+    """_handle_refresh_audio_inputs should force refresh and broadcast."""
+    server = BridgeServer(mock_config)
+    server._broadcast_config = AsyncMock()
+
+    with patch.object(server, "_refresh_audio_inputs") as mock_refresh:
+        asyncio.run(server._handle_refresh_audio_inputs())
+
+    mock_refresh.assert_called_once_with(force=True)
+    server._broadcast_config.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# _install_log_handler
+# ---------------------------------------------------------------------------
+
+
+def test_install_log_handler_configures_root_logger(mock_config):
+    """_install_log_handler should install handler and configure log levels."""
+    server = BridgeServer(mock_config)
+
+    with patch("murmur.bridge.logging.getLogger") as mock_get_logger:
+        root = Mock()
+        root.handlers = [Mock()]
+        ws_logger = Mock()
+        asyncio_logger = Mock()
+
+        def side_effect(name=None):
+            if name is None:
+                return root
+            if name == "websockets":
+                return ws_logger
+            if name == "asyncio":
+                return asyncio_logger
+            return Mock()
+
+        mock_get_logger.side_effect = side_effect
+
+        server._install_log_handler()
+
+    root.addHandler.assert_called_once()
+    root.setLevel.assert_called_once_with(logging.INFO)
+    ws_logger.setLevel.assert_called_once_with(logging.WARNING)
+    asyncio_logger.setLevel.assert_called_once_with(logging.WARNING)
