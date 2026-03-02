@@ -815,8 +815,7 @@ def _make_progress_tqdm(
             self._expected_total_bytes = _outer_expected_total_bytes
             self._is_download_bytes_bar = self._detect_download_bytes_bar(kwargs)
             self._last_percent = -1
-            if self._is_download_bytes_bar:
-                self._emit_progress_locked()
+            self._emit_if_bytes_bar()
 
         def _effective_total(self) -> float:
             if self.total > 0:
@@ -846,10 +845,9 @@ def _make_progress_tqdm(
                 self._emit_progress_locked()
 
         def __iter__(self) -> Iterator[Any]:
-            if self._iterable is not None:
-                for item in self._iterable:
-                    _ProgressTqdm._raise_if_cancelled()
-                    yield item
+            for item in self._iterable or ():
+                _ProgressTqdm._raise_if_cancelled()
+                yield item
 
         def __len__(self) -> int:
             if isinstance(self._iterable, Sized):
@@ -865,6 +863,7 @@ def _make_progress_tqdm(
                 self._emit_progress_locked()
 
         def close(self) -> None:
+            # No resources to release; required by tqdm interface contract.
             pass
 
         def __enter__(self) -> _ProgressTqdm:
@@ -892,12 +891,10 @@ def _make_progress_tqdm(
 
         def reset(self, total: float | None = None) -> None:
             _ProgressTqdm._raise_if_cancelled()
-            with _ProgressTqdm._lock:
-                self.n = 0.0
-                if total is not None:
-                    self.total = float(total)
-                if self._is_download_bytes_bar:
-                    self._emit_progress_locked()
+            self.n = 0.0
+            if total is not None:
+                self.total = float(total)
+            self._emit_if_bytes_bar()
 
         def display(self, *args: object, **kwargs: object) -> None:
             del args, kwargs

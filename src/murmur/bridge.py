@@ -1420,42 +1420,38 @@ class BridgeServer:
         elif not await self._dispatch_settings_message(msg_type, data):
             await self._dispatch_action_message(websocket, msg_type, data)
 
+    # Maps message type -> (handler method name, data key, default value).
+    _SETTINGS_DISPATCH: dict[str, tuple[str, str, Any]] = {
+        "set_hotkey_mode": ("_set_hotkey_mode", "mode", ""),
+        "set_theme": ("_set_theme", "theme", ""),
+        "set_audio_sample_rate": ("_set_audio_sample_rate", "sample_rate", None),
+        "set_audio_input_device": ("_set_audio_input_device", "device_key", None),
+        "set_vad_aggressiveness": ("_set_vad_aggressiveness", "aggressiveness", None),
+        "set_output_clipboard": ("_set_output_clipboard", "enabled", None),
+        "set_output_file_enabled": ("_set_output_file_enabled", "enabled", None),
+        "set_output_file_path": ("_set_output_file_path", "path", ""),
+        "set_model_path": ("_set_model_path", "path", None),
+        "set_model_runtime": ("_set_model_runtime", "runtime", ""),
+        "set_model_device": ("_set_model_device", "device", ""),
+        "set_model_compute_type": ("_set_model_compute_type", "compute_type", ""),
+        "set_model_language": ("_set_model_language", "language", None),
+        "set_hotkey": ("_set_hotkey", "hotkey", ""),
+    }
+
     async def _dispatch_settings_message(
         self, msg_type: str | None, data: dict[str, Any]
     ) -> bool:
         """Handle settings-related messages. Returns True if handled."""
-        if msg_type == "set_hotkey_mode":
-            await self._set_hotkey_mode(data.get("mode", ""))
-        elif msg_type == "set_theme":
-            await self._set_theme(data.get("theme", ""))
-        elif msg_type == "set_audio_sample_rate":
-            await self._set_audio_sample_rate(data.get("sample_rate"))
-        elif msg_type == "set_audio_input_device":
-            await self._set_audio_input_device(data.get("device_key"))
-        elif msg_type == "refresh_audio_inputs":
+        if msg_type == "refresh_audio_inputs":
             await self._handle_refresh_audio_inputs()
-        elif msg_type == "set_vad_aggressiveness":
-            await self._set_vad_aggressiveness(data.get("aggressiveness"))
-        elif msg_type == "set_output_clipboard":
-            await self._set_output_clipboard(data.get("enabled"))
-        elif msg_type == "set_output_file_enabled":
-            await self._set_output_file_enabled(data.get("enabled"))
-        elif msg_type == "set_output_file_path":
-            await self._set_output_file_path(data.get("path", ""))
-        elif msg_type == "set_model_path":
-            await self._set_model_path(data.get("path"))
-        elif msg_type == "set_model_runtime":
-            await self._set_model_runtime(data.get("runtime", ""))
-        elif msg_type == "set_model_device":
-            await self._set_model_device(data.get("device", ""))
-        elif msg_type == "set_model_compute_type":
-            await self._set_model_compute_type(data.get("compute_type", ""))
-        elif msg_type == "set_model_language":
-            await self._set_model_language(data.get("language"))
-        elif msg_type == "set_hotkey":
-            await self._set_hotkey(data.get("hotkey", ""))
-        else:
+            return True
+
+        entry = self._SETTINGS_DISPATCH.get(msg_type or "")
+        if entry is None:
             return False
+
+        method_name, param_key, default = entry
+        await getattr(self, method_name)(data.get(param_key, default))
         return True
 
     async def _dispatch_action_message(
@@ -2923,7 +2919,8 @@ class BridgeServer:
             self.recorder.device = resolve_audio_input_device_index(normalized, self._audio_inputs)
         persist_error = self._persist_config("audio input device")
 
-        device_label = "Input device system default" if normalized is None else f"Input device {selected.name if selected else normalized}"
+        device_name = selected.name if selected else normalized
+        device_label = "Input device system default" if normalized is None else f"Input device {device_name}"
         await self._broadcast_config()
         await self._broadcast(
             {

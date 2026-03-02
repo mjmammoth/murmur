@@ -390,7 +390,7 @@ class WindowsHotkeyProvider(HotkeyProvider):
         registered = False
         win32gui_ref: Any = None
         try:
-            win32api, win32con, win32gui_ref, modifier_mask, registered = self._register_hotkey()
+            win32api, win32con, win32gui_ref, _, registered = self._register_hotkey()
             self._message_loop(win32api, win32con, win32gui_ref)
         except Exception as exc:
             logger.error("Failed to start Windows hotkey provider: %s", exc)

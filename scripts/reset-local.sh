@@ -77,6 +77,7 @@ main() {
   remove_glob_matches "${hf_hub_dir}/.locks/models--ggerganov--whisper.cpp*"
 
   log "done. next launch should behave like a fresh install."
+  return 0
 }
 
 main "$@"

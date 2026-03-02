@@ -713,7 +713,6 @@ def _confirm_uninstall() -> bool:
 
 
 def _resolve_interactive_scope(
-    args: argparse.Namespace,
     remove_state: bool,
     remove_config: bool,
     remove_model_cache: bool,
@@ -781,7 +780,7 @@ def _uninstall(args: argparse.Namespace) -> None:
     assume_yes = bool(getattr(args, "yes", False))
 
     remove_state, remove_config, remove_model_cache = _resolve_interactive_scope(
-        args, remove_state, remove_config, remove_model_cache,
+        remove_state, remove_config, remove_model_cache,
         explicit_scope, assume_yes, tty_session,
     )
 
