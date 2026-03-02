@@ -924,7 +924,7 @@ def _resolve_download_size(
     expected = _resolve_repo_total_bytes(repo_id)
     if expected is not None:
         with _MODEL_SIZE_CACHE_LOCK:
-            _MODEL_SIZE_CACHE[_size_cache_key(model_name, "faster-whisper")] = expected
+            _MODEL_SIZE_CACHE[_size_cache_key(model_name, RUNTIME_FASTER_WHISPER)] = expected
     if expected is None:
         expected = MODEL_ESTIMATED_SIZE_BYTES.get(model_name)
     return expected

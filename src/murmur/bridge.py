@@ -677,6 +677,8 @@ class BridgeServer:
         await self._broadcast_config()
 
         if not await self._run_startup_components():
+            self._onboarding_setup_started = False
+            self._onboarding_setup_task = None
             return
         await self._run_startup_probe()
         await self._broadcast_startup_audio_notice()
@@ -2387,6 +2389,9 @@ class BridgeServer:
         except Exception as exc:
             logger.exception("Failed to apply %s", context)
             rollback_fn()
+            if self._model_loaded and self.transcriber is not None:
+                self._startup_model = "ready"
+                self._startup_last_error = None
             rollback_error = self._persist_config(f"{label} rollback")
             await self._broadcast_config()
             await self._broadcast(

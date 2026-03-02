@@ -38,7 +38,10 @@ def _clipboard_text_snapshot() -> str | None:
 def _extract_pasteboard_item_data(item: Any) -> dict[str, bytes]:
     """Extract type-to-bytes mapping from a single pasteboard item."""
     type_data: dict[str, bytes] = {}
-    item_types = item.types() or []
+    try:
+        item_types = item.types() or []
+    except Exception:
+        return {}
     for item_type in item_types:
         try:
             payload = item.dataForType_(item_type)
