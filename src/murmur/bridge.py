@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import os
@@ -80,6 +81,28 @@ StartupModelState = Literal["pending", "running", "ready", "error"]
 FIRST_RUN_SETUP_MESSAGE = "First run setup required. Download and select a model in Model Manager."
 RUNTIME_INITIALIZING_MESSAGE = "Runtime is still initializing. Please wait."
 FIRST_RUN_SETUP_FALLBACK_DELAY_SECONDS = 5.0
+
+
+@dataclasses.dataclass(frozen=True)
+class TranscriptionMetrics:
+    """Grouped parameters for transcription pipeline metrics logging."""
+
+    pipeline_started: float
+    input_samples: int
+    post_noise_samples: int
+    post_vad_samples: int
+    transcribe_ms: int
+    job_sample_rate: int
+    job_transcriber: Any
+    job_language: str | None
+    output_language: str | None
+    noise_enabled: bool
+    noise_available: bool
+    noise_applied: bool
+    noise_backend: str
+    vad_enabled: bool
+    vad_available: bool
+    vad_applied: bool
 
 
 class WebSocketLogHandler(logging.Handler):
@@ -1008,6 +1031,18 @@ class BridgeServer:
         await self._broadcast(transcript_payload)
         return stored
 
+    async def _capture_clipboard_snapshot_safe(self) -> tuple[Any, bool]:
+        """Capture clipboard snapshot, returning (snapshot, available) tuple."""
+        try:
+            snapshot = await asyncio.to_thread(capture_clipboard_snapshot)
+            return snapshot, True
+        except Exception as exc:
+            logger.warning(
+                "Failed to capture clipboard snapshot before auto-paste: %s",
+                exc,
+            )
+            return None, False
+
     async def _handle_clipboard_output(self, text: str) -> bool:
         """Copy text to clipboard and optionally auto-paste, returning whether the copy succeeded."""
         if not (self.config.output.clipboard or self._auto_copy or self._auto_paste):
@@ -1015,17 +1050,9 @@ class BridgeServer:
 
         async with self._clipboard_output_lock:
             should_revert = self._auto_paste and self._auto_revert_clipboard
-            snapshot = None
-            snapshot_available = False
-            if should_revert:
-                try:
-                    snapshot = await asyncio.to_thread(capture_clipboard_snapshot)
-                    snapshot_available = True
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to capture clipboard snapshot before auto-paste: %s",
-                        exc,
-                    )
+            snapshot, snapshot_available = (
+                await self._capture_clipboard_snapshot_safe() if should_revert else (None, False)
+            )
 
             copied = copy_to_clipboard(text)
             if self._auto_paste and copied:
@@ -1055,36 +1082,17 @@ class BridgeServer:
                 exc,
             )
 
-    def _log_transcription_metrics(
-        self,
-        *,
-        pipeline_started: float,
-        input_samples: int,
-        post_noise_samples: int,
-        post_vad_samples: int,
-        transcribe_ms: int,
-        job_sample_rate: int,
-        job_transcriber: Any,
-        job_language: str | None,
-        output_language: str | None,
-        noise_enabled: bool,
-        noise_available: bool,
-        noise_applied: bool,
-        noise_backend: str,
-        vad_enabled: bool,
-        vad_available: bool,
-        vad_applied: bool,
-    ) -> None:
+    def _log_transcription_metrics(self, metrics: TranscriptionMetrics) -> None:
         """Compute and log transcription pipeline timing metrics."""
-        total_ms = int((monotonic() - pipeline_started) * 1000)
-        input_ms = int((input_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
+        total_ms = int((monotonic() - metrics.pipeline_started) * 1000)
+        input_ms = int((metrics.input_samples / metrics.job_sample_rate) * 1000) if metrics.job_sample_rate > 0 else 0
         post_noise_ms = (
-            int((post_noise_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
+            int((metrics.post_noise_samples / metrics.job_sample_rate) * 1000) if metrics.job_sample_rate > 0 else 0
         )
-        post_vad_ms = int((post_vad_samples / job_sample_rate) * 1000) if job_sample_rate > 0 else 0
-        preprocess_ms = max(0, total_ms - transcribe_ms)
-        rtf = (transcribe_ms / input_ms) if input_ms > 0 else 0.0
-        runtime_info = job_transcriber.runtime_info()
+        post_vad_ms = int((metrics.post_vad_samples / metrics.job_sample_rate) * 1000) if metrics.job_sample_rate > 0 else 0
+        preprocess_ms = max(0, total_ms - metrics.transcribe_ms)
+        rtf = (metrics.transcribe_ms / input_ms) if input_ms > 0 else 0.0
+        runtime_info = metrics.job_transcriber.runtime_info()
 
         logger.info(
             "bench runtime=%s model_size=%s device=%s compute_type=%s input_ms=%d post_noise_ms=%d post_ms=%d "
@@ -1098,19 +1106,19 @@ class BridgeServer:
             input_ms,
             post_noise_ms,
             post_vad_ms,
-            noise_enabled,
-            noise_available,
-            noise_applied,
-            noise_backend,
-            vad_enabled,
-            vad_available,
-            vad_applied,
+            metrics.noise_enabled,
+            metrics.noise_available,
+            metrics.noise_applied,
+            metrics.noise_backend,
+            metrics.vad_enabled,
+            metrics.vad_available,
+            metrics.vad_applied,
             preprocess_ms,
-            transcribe_ms,
+            metrics.transcribe_ms,
             total_ms,
             rtf,
-            job_language if job_language else "auto",
-            output_language if output_language else "unknown",
+            metrics.job_language if metrics.job_language else "auto",
+            metrics.output_language if metrics.output_language else "unknown",
         )
 
     async def _process_audio(
@@ -1212,7 +1220,7 @@ class BridgeServer:
             final_status = "error"
             final_message = f"Transcription failed: {exc}"
         finally:
-            self._log_transcription_metrics(
+            self._log_transcription_metrics(TranscriptionMetrics(
                 pipeline_started=pipeline_started,
                 input_samples=input_samples,
                 post_noise_samples=post_noise_samples,
@@ -1229,7 +1237,7 @@ class BridgeServer:
                 vad_enabled=vad_enabled,
                 vad_available=vad_available,
                 vad_applied=vad_applied,
-            )
+            ))
             await self._finalize_transcription_job(final_status, final_message)
 
         return final_status, final_message
@@ -1409,7 +1417,14 @@ class BridgeServer:
             await self._handle_toggle_auto_revert_clipboard(data)
         elif msg_type == "set_hotkey_blocked":
             self._hotkey_blocked = bool(data.get("enabled", False))
-        elif msg_type == "set_hotkey_mode":
+        elif not await self._dispatch_settings_message(msg_type, data):
+            await self._dispatch_action_message(websocket, msg_type, data)
+
+    async def _dispatch_settings_message(
+        self, msg_type: str | None, data: dict[str, Any]
+    ) -> bool:
+        """Handle settings-related messages. Returns True if handled."""
+        if msg_type == "set_hotkey_mode":
             await self._set_hotkey_mode(data.get("mode", ""))
         elif msg_type == "set_theme":
             await self._set_theme(data.get("theme", ""))
@@ -1437,8 +1452,18 @@ class BridgeServer:
             await self._set_model_compute_type(data.get("compute_type", ""))
         elif msg_type == "set_model_language":
             await self._set_model_language(data.get("language"))
-        elif msg_type == "download_model":
-            await self._handle_download_model_message(data)
+        elif msg_type == "set_hotkey":
+            await self._set_hotkey(data.get("hotkey", ""))
+        else:
+            return False
+        return True
+
+    async def _dispatch_action_message(
+        self, websocket: WebSocketServerProtocol, msg_type: str | None, data: dict[str, Any]
+    ) -> None:
+        """Handle model management, query, and action messages."""
+        if msg_type == "download_model":
+            self._handle_download_model_message(data)
         elif msg_type == "cancel_model_download":
             await self._cancel_model_download(
                 data.get("name", ""),
@@ -1450,8 +1475,6 @@ class BridgeServer:
             self._handle_remove_model_message(data)
         elif msg_type in ("set_selected_model", "set_default_model"):
             await self._set_selected_model(data.get("name", ""))
-        elif msg_type == "set_hotkey":
-            await self._set_hotkey(data.get("hotkey", ""))
         elif msg_type == "list_models":
             await self._send_models(websocket)
         elif msg_type == "begin_onboarding_setup":
@@ -1519,14 +1542,12 @@ class BridgeServer:
             auto_copy_forced = True
             logger.info("Auto paste enabled; forcing auto copy on")
         persist_error = self._persist_config("auto paste")
+        paste_state = "on" if self._auto_paste else "off"
+        toast_message = "Auto paste on; auto copy on" if auto_copy_forced else f"Auto paste {paste_state}"
         await self._broadcast(
             {
                 "type": "toast",
-                "message": (
-                    "Auto paste on; auto copy on"
-                    if auto_copy_forced
-                    else f"Auto paste {'on' if self._auto_paste else 'off'}"
-                ),
+                "message": toast_message,
                 "level": "success",
             }
         )
@@ -1575,7 +1596,7 @@ class BridgeServer:
         self._refresh_audio_inputs(force=True)
         await self._broadcast_config()
 
-    async def _handle_download_model_message(self, data: dict[str, Any]) -> None:
+    def _handle_download_model_message(self, data: dict[str, Any]) -> None:
         """Handle the download_model message."""
         name = data.get("name", "")
         if not name:
@@ -2550,6 +2571,32 @@ class BridgeServer:
             success_message=f"Model runtime {normalized}",
         )
 
+    @staticmethod
+    def _resolve_enabled_device(
+        runtime_devices: dict[str, Any], requested: str
+    ) -> str:
+        """Return the requested device if enabled, otherwise fall back to the first available."""
+        current_state = runtime_devices.get(requested, {"enabled": False})
+        if current_state.get("enabled", False):
+            return requested
+        for candidate in ("cuda", "mps", "cpu"):
+            candidate_state = runtime_devices.get(candidate, {"enabled": False})
+            if candidate_state.get("enabled", False):
+                return candidate
+        return requested
+
+    @staticmethod
+    def _resolve_compute_type(
+        valid_compute_types: set[str], requested: str
+    ) -> str:
+        """Return the requested compute type if valid, otherwise fall back to a supported one."""
+        if not valid_compute_types or requested in valid_compute_types:
+            return requested
+        for candidate in ("int8", "default", "int8_float32", "float32", "float16", "int8_float16"):
+            if candidate in valid_compute_types:
+                return candidate
+        return sorted(valid_compute_types)[0]
+
     def _normalize_model_runtime_for_runtime(
         self,
         capabilities: dict[str, Any],
@@ -2573,33 +2620,14 @@ class BridgeServer:
         normalized_device = str(device).strip().lower() or "cpu"
         normalized_compute_type = str(compute_type).strip().lower() or "int8"
 
-        current_device_state = runtime_devices.get(normalized_device, {"enabled": False})
-        if not current_device_state.get("enabled", False):
-            for candidate in ("cuda", "mps", "cpu"):
-                candidate_state = runtime_devices.get(candidate, {"enabled": False})
-                if candidate_state.get("enabled", False):
-                    normalized_device = candidate
-                    break
+        normalized_device = self._resolve_enabled_device(runtime_devices, normalized_device)
         compute_map = runtime_model.get("compute_types_by_device", {})
         valid_compute_types = {
             str(item).strip().lower()
             for item in compute_map.get(normalized_device, [])
             if str(item).strip()
         }
-        if valid_compute_types and normalized_compute_type not in valid_compute_types:
-            for candidate in (
-                "int8",
-                "default",
-                "int8_float32",
-                "float32",
-                "float16",
-                "int8_float16",
-            ):
-                if candidate in valid_compute_types:
-                    normalized_compute_type = candidate
-                    break
-            else:
-                normalized_compute_type = sorted(valid_compute_types)[0]
+        normalized_compute_type = self._resolve_compute_type(valid_compute_types, normalized_compute_type)
 
         return normalized_device, normalized_compute_type
 
@@ -2827,6 +2855,39 @@ class BridgeServer:
                 }
             )
 
+    async def _validate_audio_input_device(
+        self, normalized: str | None
+    ) -> tuple[bool, AudioInputDeviceInfo | None]:
+        """Validate the selected audio input device, broadcasting errors on failure.
+
+        Returns (valid, selected_device) where valid is False if the caller should abort.
+        """
+        if normalized is None:
+            return True, None
+        selected = find_audio_input_device(normalized, self._audio_inputs)
+        if selected is None:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Selected input device is unavailable",
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return False, None
+        if selected.sample_rate_supported is False:
+            reason = selected.sample_rate_reason or "Selected input does not support the current sample rate"
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": reason,
+                    "level": "error",
+                }
+            )
+            await self._broadcast_config()
+            return False, None
+        return True, selected
+
     async def _set_audio_input_device(self, device_key: Any) -> None:
         normalized: str | None
         if device_key is None:
@@ -2849,32 +2910,9 @@ class BridgeServer:
         self._invalidate_audio_inputs()
         self._refresh_audio_inputs(force=True)
 
-        selected: AudioInputDeviceInfo | None = None
-        if normalized is not None:
-            selected = find_audio_input_device(normalized, self._audio_inputs)
-            if selected is None:
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": "Selected input device is unavailable",
-                        "level": "error",
-                    }
-                )
-                await self._broadcast_config()
-                return
-            if selected.sample_rate_supported is False:
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": (
-                            selected.sample_rate_reason
-                            or "Selected input does not support the current sample rate"
-                        ),
-                        "level": "error",
-                    }
-                )
-                await self._broadcast_config()
-                return
+        valid, selected = await self._validate_audio_input_device(normalized)
+        if not valid:
+            return
 
         if self.config.audio.input_device == normalized:
             return
@@ -2885,15 +2923,12 @@ class BridgeServer:
             self.recorder.device = resolve_audio_input_device_index(normalized, self._audio_inputs)
         persist_error = self._persist_config("audio input device")
 
+        device_label = "Input device system default" if normalized is None else f"Input device {selected.name if selected else normalized}"
         await self._broadcast_config()
         await self._broadcast(
             {
                 "type": "toast",
-                "message": (
-                    "Input device system default"
-                    if normalized is None
-                    else f"Input device {selected.name if selected else normalized}"
-                ),
+                "message": device_label,
                 "level": "success",
             }
         )
