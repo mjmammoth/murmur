@@ -108,7 +108,7 @@ esac
 
 case "$ARCH_RAW" in
   arm64|aarch64) ARCH="arm64" ;;
-  x86_64|amd64) ARCH="amd64" ;;
+  x86_64|amd64) ARCH="x64" ;;
   *)
     echo "Error: Unsupported architecture '$ARCH_RAW' for local TUI artifact lookup." >&2
     exit 1
