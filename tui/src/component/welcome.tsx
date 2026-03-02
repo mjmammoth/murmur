@@ -955,7 +955,9 @@ export function Welcome(): JSX.Element {
     }
     if (key.name === "down" || key.name === "j") {
       key.preventDefault();
-      setModelIndex((i) => Math.min(backend.models().length - 1, i + 1));
+      const count = backend.models().length;
+      if (count === 0) return true;
+      setModelIndex((i) => Math.max(0, Math.min(count - 1, i + 1)));
       return true;
     }
     if (key.name === "return" || key.name === "enter") {
