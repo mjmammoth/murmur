@@ -449,6 +449,34 @@ def _first_run_pending(config: dict[str, Any] | None) -> bool:
     return bool(config.get("first_run_setup_required"))
 
 
+async def _maybe_kickoff_onboarding(
+    websocket: WebSocketClientType,
+    config: dict[str, Any] | None,
+    status: str | None,
+    message: str | None,
+    timeout_seconds: float,
+    snapshot_started: float,
+) -> tuple[str | None, str | None, dict[str, Any] | None, bool]:
+    """Send onboarding kickoff if first-run is pending and phase is idle, then re-collect."""
+    if not _first_run_pending(config):
+        return status, message, config, False
+    phase = _startup_phase_from_config(config)
+    if phase not in {"", "idle"}:
+        return status, message, config, False
+
+    await websocket.send(json.dumps({"type": "begin_onboarding_setup"}))
+    remaining_timeout = max(0.0, timeout_seconds - (time.monotonic() - snapshot_started))
+    if remaining_timeout > 0:
+        status, message, config = await _collect_runtime_snapshot(
+            websocket,
+            timeout_seconds=remaining_timeout,
+            initial_status=status,
+            initial_message=message,
+            initial_config=config,
+        )
+    return status, message, config, True
+
+
 async def _runtime_status_snapshot(
     host: str,
     port: int,
@@ -467,20 +495,10 @@ async def _runtime_status_snapshot(
         )
 
         kickoff_sent = False
-        if kickoff_onboarding and _first_run_pending(config):
-            phase = _startup_phase_from_config(config)
-            if phase in {"", "idle"}:
-                await websocket.send(json.dumps({"type": "begin_onboarding_setup"}))
-                kickoff_sent = True
-                remaining_timeout = max(0.0, timeout_seconds - (time.monotonic() - snapshot_started))
-                if remaining_timeout > 0:
-                    status, message, config = await _collect_runtime_snapshot(
-                        websocket,
-                        timeout_seconds=remaining_timeout,
-                        initial_status=status,
-                        initial_message=message,
-                        initial_config=config,
-                    )
+        if kickoff_onboarding:
+            status, message, config, kickoff_sent = await _maybe_kickoff_onboarding(
+                websocket, config, status, message, timeout_seconds, snapshot_started,
+            )
 
         return {
             "status": status,
@@ -488,6 +506,41 @@ async def _runtime_status_snapshot(
             "config": config,
             "kickoff_sent": kickoff_sent,
         }
+
+
+def _parse_startup_detail(config: dict[str, Any]) -> tuple[dict[str, Any], str, list[str], bool]:
+    """Extract startup sub-fields from a config dict."""
+    startup = config.get("startup")
+    startup_dict = startup if isinstance(startup, dict) else {}
+    phase = _startup_phase_from_config(config) or "unknown"
+    blockers = startup_dict.get("blockers")
+    blocker_list = [str(item) for item in blockers] if isinstance(blockers, list) else []
+    close_ready = bool(startup_dict.get("onboarding_close_ready"))
+    return startup_dict, phase, blocker_list, close_ready
+
+
+def _print_startup_summary(startup_dict: dict[str, Any], phase: str) -> None:
+    """Print the startup component summary line."""
+    runtime_probe = str(startup_dict.get("runtime_probe", "unknown"))
+    audio_scan = str(startup_dict.get("audio_scan", "unknown"))
+    components = str(startup_dict.get("components", "unknown"))
+    model_state = str(startup_dict.get("model", "unknown"))
+    print(
+        "startup "
+        f"phase={phase} runtime_probe={runtime_probe} "
+        f"audio_scan={audio_scan} components={components} model={model_state}"
+    )
+
+
+def _print_first_run_guidance(kickoff_sent: bool) -> None:
+    """Print first-run setup guidance to stdout."""
+    if kickoff_sent:
+        print("setup_init=started_via_status")
+    print(f"setup_required=true message={json.dumps(FIRST_RUN_SETUP_MESSAGE, ensure_ascii=True)}")
+    print("next_steps:")
+    print(f"  murmur models pull {SETUP_GUIDANCE_MODEL}")
+    print(f"  murmur models select {SETUP_GUIDANCE_MODEL}")
+    print("  murmur status")
 
 
 def _print_runtime_status_snapshot(snapshot: dict[str, Any]) -> None:
@@ -505,26 +558,13 @@ def _print_runtime_status_snapshot(snapshot: dict[str, Any]) -> None:
         return
 
     first_run = _first_run_pending(config)
-    startup = config.get("startup")
-    startup_dict = startup if isinstance(startup, dict) else {}
-    phase = _startup_phase_from_config(config) or "unknown"
-    blockers = startup_dict.get("blockers")
-    blocker_list = [str(item) for item in blockers] if isinstance(blockers, list) else []
-    close_ready = bool(startup_dict.get("onboarding_close_ready"))
+    startup_dict, phase, blocker_list, close_ready = _parse_startup_detail(config)
 
     if not first_run and status_text == "ready" and close_ready and not blocker_list:
         print("app_ready=true")
         return
 
-    runtime_probe = str(startup_dict.get("runtime_probe", "unknown"))
-    audio_scan = str(startup_dict.get("audio_scan", "unknown"))
-    components = str(startup_dict.get("components", "unknown"))
-    model_state = str(startup_dict.get("model", "unknown"))
-    print(
-        "startup "
-        f"phase={phase} runtime_probe={runtime_probe} "
-        f"audio_scan={audio_scan} components={components} model={model_state}"
-    )
+    _print_startup_summary(startup_dict, phase)
 
     if blocker_list:
         print("startup_blockers:")
@@ -532,13 +572,7 @@ def _print_runtime_status_snapshot(snapshot: dict[str, Any]) -> None:
             print(f"  - {blocker}")
 
     if first_run:
-        if kickoff_sent:
-            print("setup_init=started_via_status")
-        print(f"setup_required=true message={json.dumps(FIRST_RUN_SETUP_MESSAGE, ensure_ascii=True)}")
-        print("next_steps:")
-        print(f"  murmur models pull {SETUP_GUIDANCE_MODEL}")
-        print(f"  murmur models select {SETUP_GUIDANCE_MODEL}")
-        print("  murmur status")
+        _print_first_run_guidance(kickoff_sent)
 
 
 async def _trigger_async(host: str, port: int, action: str, timeout_seconds: float) -> str:

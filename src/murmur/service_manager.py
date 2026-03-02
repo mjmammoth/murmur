@@ -29,7 +29,8 @@ SERVICE_READY_POLL_SECONDS = 0.1
 logger = logging.getLogger(__name__)
 
 
-def _process_argv(pid: int) -> tuple[str, ...] | None:
+def _process_argv_from_proc(pid: int) -> tuple[str, ...] | None:
+    """Read process argv from /proc filesystem."""
     proc_path = Path(f"/proc/{pid}/cmdline")
     try:
         raw = proc_path.read_bytes()
@@ -37,29 +38,35 @@ def _process_argv(pid: int) -> tuple[str, ...] | None:
         raw = b""
     if raw:
         return tuple(part.decode(errors="replace") for part in raw.split(b"\x00") if part)
+    return None
 
-    if sys.platform.startswith("win"):
-        try:
-            import psutil
-        except Exception as exc:
-            logger.warning("Failed to import psutil for pid cmdline lookup (pid=%s): %s", pid, exc)
-            return None
 
-        try:
-            cmdline = psutil.Process(pid).cmdline()
-        except (psutil.AccessDenied, psutil.NoSuchProcess) as exc:
-            logger.warning("Failed to read process argv via psutil (pid=%s): %s", pid, exc)
-            return None
-        except Exception as exc:
-            logger.warning("Unexpected error reading process argv via psutil (pid=%s): %s", pid, exc)
-            return None
+def _process_argv_from_psutil(pid: int) -> tuple[str, ...] | None:
+    """Read process argv via psutil on Windows."""
+    try:
+        import psutil
+    except Exception as exc:
+        logger.warning("Failed to import psutil for pid cmdline lookup (pid=%s): %s", pid, exc)
+        return None
 
-        argv = tuple(str(part) for part in cmdline if part)
-        if not argv:
-            logger.warning("Process argv lookup returned empty command line (pid=%s)", pid)
-            return None
-        return argv
+    try:
+        cmdline = psutil.Process(pid).cmdline()
+    except (psutil.AccessDenied, psutil.NoSuchProcess) as exc:
+        logger.warning("Failed to read process argv via psutil (pid=%s): %s", pid, exc)
+        return None
+    except Exception as exc:
+        logger.warning("Unexpected error reading process argv via psutil (pid=%s): %s", pid, exc)
+        return None
 
+    argv = tuple(str(part) for part in cmdline if part)
+    if not argv:
+        logger.warning("Process argv lookup returned empty command line (pid=%s)", pid)
+        return None
+    return argv
+
+
+def _process_argv_from_ps(pid: int) -> tuple[str, ...] | None:
+    """Read process argv via the ps command on Unix."""
     if sys.platform == "darwin":
         command = ["/bin/ps", "-o", "args=", "-p", str(pid)]
     else:
@@ -84,6 +91,15 @@ def _process_argv(pid: int) -> tuple[str, ...] | None:
         return tuple(shlex.split(raw_command))
     except ValueError:
         return tuple(raw_command.split())
+
+
+def _process_argv(pid: int) -> tuple[str, ...] | None:
+    result = _process_argv_from_proc(pid)
+    if result is not None:
+        return result
+    if sys.platform.startswith("win"):
+        return _process_argv_from_psutil(pid)
+    return _process_argv_from_ps(pid)
 
 
 def _argv_contains_sequence(argv: tuple[str, ...], sequence: tuple[str, ...]) -> bool:
@@ -252,6 +268,48 @@ class ServiceManager:
         if self.state_path.exists():
             self.state_path.unlink()
 
+    def _cleanup_stale_state(self, state: ServiceState) -> None:
+        """Terminate stale bridge and indicator processes, then clear persisted state."""
+        if _is_pid_alive(state.pid):
+            _terminate_pid(
+                state.pid,
+                is_expected_pid=functools.partial(
+                    _pid_matches_bridge_process,
+                    host=state.host,
+                    port=state.port,
+                ),
+            )
+            _terminate_pid(
+                state.status_indicator_pid,
+                timeout=1.5,
+                is_expected_pid=functools.partial(
+                    _pid_matches_status_indicator_process,
+                    host=state.host,
+                    port=state.port,
+                ),
+            )
+        self.clear_state()
+
+    def _service_status_from_state(
+        self,
+        state: ServiceState,
+        *,
+        running: bool,
+        stale: bool,
+        reachable: bool,
+    ) -> ServiceStatus:
+        return ServiceStatus(
+            running=running,
+            pid=state.pid,
+            host=state.host,
+            port=state.port,
+            started_at=state.started_at,
+            status_indicator_pid=state.status_indicator_pid,
+            stale=stale,
+            reachable=reachable,
+            state_path=self.state_path,
+        )
+
     def status(self) -> ServiceStatus:
         state = self.load_state()
         if state is None:
@@ -269,50 +327,15 @@ class ServiceManager:
 
         pid_alive = _is_pid_alive(state.pid)
         reachable = pid_alive and _is_port_reachable(state.host, state.port)
-        stale = not reachable
-        running = pid_alive and reachable
-        if stale:
-            if pid_alive and not reachable:
-                _terminate_pid(
-                    state.pid,
-                    is_expected_pid=functools.partial(
-                        _pid_matches_bridge_process,
-                        host=state.host,
-                        port=state.port,
-                    ),
-                )
-                _terminate_pid(
-                    state.status_indicator_pid,
-                    timeout=1.5,
-                    is_expected_pid=functools.partial(
-                        _pid_matches_status_indicator_process,
-                        host=state.host,
-                        port=state.port,
-                    ),
-                )
-            self.clear_state()
-            return ServiceStatus(
-                running=False,
-                pid=state.pid,
-                host=state.host,
-                port=state.port,
-                started_at=state.started_at,
-                status_indicator_pid=state.status_indicator_pid,
-                stale=True,
-                reachable=False,
-                state_path=self.state_path,
+
+        if not reachable:
+            self._cleanup_stale_state(state)
+            return self._service_status_from_state(
+                state, running=False, stale=True, reachable=False,
             )
 
-        return ServiceStatus(
-            running=running,
-            pid=state.pid,
-            host=state.host,
-            port=state.port,
-            started_at=state.started_at,
-            status_indicator_pid=state.status_indicator_pid,
-            stale=False,
-            reachable=reachable,
-            state_path=self.state_path,
+        return self._service_status_from_state(
+            state, running=True, stale=False, reachable=True,
         )
 
     def ensure_running(
@@ -327,6 +350,54 @@ class ServiceManager:
             return current
         return self.start_background(host=host, port=port, status_indicator=status_indicator)
 
+    def _stop_existing_if_needed(
+        self,
+        host: str,
+        port: int,
+        status_indicator: bool,
+    ) -> ServiceStatus | None:
+        """Stop existing service if needed, or return current status if reuse is possible."""
+        current_state = self.load_state()
+        if not current_state or not _is_pid_alive(current_state.pid):
+            return None
+
+        requested_target_matches = current_state.host == host and current_state.port == port
+        if requested_target_matches and _is_port_reachable(current_state.host, current_state.port):
+            indicator_degraded = (
+                status_indicator
+                and sys.platform == "darwin"
+                and not _is_pid_alive(current_state.status_indicator_pid)
+            )
+            if not indicator_degraded:
+                return self.status()
+            logger.info(
+                "Restarting service to recover missing/dead status indicator "
+                "(bridge_pid=%s indicator_pid=%s host=%s port=%s)",
+                current_state.pid,
+                current_state.status_indicator_pid,
+                current_state.host,
+                current_state.port,
+            )
+
+        _terminate_pid(
+            current_state.pid,
+            is_expected_pid=functools.partial(
+                _pid_matches_bridge_process,
+                host=current_state.host,
+                port=current_state.port,
+            ),
+        )
+        _terminate_pid(
+            current_state.status_indicator_pid,
+            is_expected_pid=functools.partial(
+                _pid_matches_status_indicator_process,
+                host=current_state.host,
+                port=current_state.port,
+            ),
+        )
+        self.clear_state()
+        return None
+
     def start_background(
         self,
         *,
@@ -334,42 +405,9 @@ class ServiceManager:
         port: int = 7878,
         status_indicator: bool = True,
     ) -> ServiceStatus:
-        current_state = self.load_state()
-        if current_state and _is_pid_alive(current_state.pid):
-            requested_target_matches = current_state.host == host and current_state.port == port
-            if requested_target_matches and _is_port_reachable(current_state.host, current_state.port):
-                indicator_degraded = (
-                    status_indicator
-                    and sys.platform == "darwin"
-                    and not _is_pid_alive(current_state.status_indicator_pid)
-                )
-                if not indicator_degraded:
-                    return self.status()
-                logger.info(
-                    "Restarting service to recover missing/dead status indicator "
-                    "(bridge_pid=%s indicator_pid=%s host=%s port=%s)",
-                    current_state.pid,
-                    current_state.status_indicator_pid,
-                    current_state.host,
-                    current_state.port,
-                )
-            _terminate_pid(
-                current_state.pid,
-                is_expected_pid=functools.partial(
-                    _pid_matches_bridge_process,
-                    host=current_state.host,
-                    port=current_state.port,
-                ),
-            )
-            _terminate_pid(
-                current_state.status_indicator_pid,
-                is_expected_pid=functools.partial(
-                    _pid_matches_status_indicator_process,
-                    host=current_state.host,
-                    port=current_state.port,
-                ),
-            )
-            self.clear_state()
+        reuse_status = self._stop_existing_if_needed(host, port, status_indicator)
+        if reuse_status is not None:
+            return reuse_status
 
         ensure_state_directory()
         command = [

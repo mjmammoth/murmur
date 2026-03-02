@@ -11,7 +11,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import NoReturn, cast
 
 from murmur import __version__
 from murmur.archive_extract import ArchiveExtractionError, install_tui_binary_from_archive
@@ -629,6 +629,91 @@ def _guidance_command_for_channel(channel: str) -> str:
     return "python -m pip install -U murmur"
 
 
+def _download_release_to_temp(
+    assets: ReleaseAssetBundle,
+    tmp_root: Path,
+    installer_home: Path,
+) -> None:
+    """Download and verify all release assets into a temporary directory."""
+    wheel_path = tmp_root / assets.wheel_name
+    tui_path = tmp_root / assets.tui_name
+    checksums_path = tmp_root / assets.checksums_name
+    signature_path = tmp_root / assets.signature_name
+
+    _download_to_file(assets.wheel_url, wheel_path)
+    _download_to_file(assets.tui_url, tui_path)
+    _download_to_file(assets.checksums_url, checksums_path)
+    _download_to_file(assets.signature_url, signature_path)
+
+    _verify_downloaded_release_assets(
+        bundle=assets,
+        checksums_path=checksums_path,
+        signature_path=signature_path,
+        wheel_path=wheel_path,
+        tui_path=tui_path,
+        temp_dir_base=installer_home,
+    )
+
+
+def _install_release_from_temp(
+    assets: ReleaseAssetBundle,
+    tmp_root: Path,
+    installer_home: Path,
+) -> None:
+    """Install wheel and TUI binary from a verified temp directory."""
+    wheel_path = tmp_root / assets.wheel_name
+    tui_path = tmp_root / assets.tui_name
+
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir", str(wheel_path)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        details = (exc.stdout or "") + (exc.stderr or "")
+        raise UpgradeError(f"pip install failed: {details.strip()}") from exc
+
+    target_dir = installer_home / "tui" / assets.target
+    expected_binary_name = _expected_tui_binary_name(assets.target)
+    try:
+        install_tui_binary_from_archive(
+            archive_path=tui_path,
+            target_dir=target_dir,
+            expected_binary_name=expected_binary_name,
+        )
+    except ArchiveExtractionError as exc:
+        raise UpgradeError(str(exc)) from exc
+
+
+def _handle_upgrade_failure(
+    exc: Exception,
+    was_running: bool,
+    manager: ServiceManager,
+    host: str,
+    port: int,
+    status_indicator: bool,
+) -> NoReturn:
+    """Attempt to restart service after a failed upgrade and raise an appropriate error."""
+    restart_exc: Exception | None = None
+    if was_running:
+        try:
+            manager.start_background(host=host, port=port, status_indicator=status_indicator)
+        except Exception as restart_error:
+            restart_exc = restart_error
+
+    if restart_exc is not None:
+        base_msg = str(exc) if isinstance(exc, UpgradeError) else f"Upgrade failed: {exc}"
+        raise UpgradeError(
+            f"{base_msg}; additionally failed to restart service: {restart_exc}"
+        ) from exc
+    if isinstance(exc, UpgradeError):
+        raise
+    raise UpgradeError(f"Upgrade failed: {exc}") from exc
+
+
 def run_upgrade(
     *,
     requested_version: str | None = None,
@@ -662,46 +747,8 @@ def run_upgrade(
             base_dir=installer_home,
         ) as tmp_dir:
             tmp_root = Path(tmp_dir)
-            wheel_path = tmp_root / assets.wheel_name
-            tui_path = tmp_root / assets.tui_name
-            checksums_path = tmp_root / assets.checksums_name
-            signature_path = tmp_root / assets.signature_name
-
-            _download_to_file(assets.wheel_url, wheel_path)
-            _download_to_file(assets.tui_url, tui_path)
-            _download_to_file(assets.checksums_url, checksums_path)
-            _download_to_file(assets.signature_url, signature_path)
-
-            _verify_downloaded_release_assets(
-                bundle=assets,
-                checksums_path=checksums_path,
-                signature_path=signature_path,
-                wheel_path=wheel_path,
-                tui_path=tui_path,
-                temp_dir_base=installer_home,
-            )
-
-            try:
-                subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir", str(wheel_path)],
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
-            except subprocess.CalledProcessError as exc:
-                details = (exc.stdout or "") + (exc.stderr or "")
-                raise UpgradeError(f"pip install failed: {details.strip()}") from exc
-            target_dir = installer_home / "tui" / assets.target
-            expected_binary_name = _expected_tui_binary_name(assets.target)
-            try:
-                install_tui_binary_from_archive(
-                    archive_path=tui_path,
-                    target_dir=target_dir,
-                    expected_binary_name=expected_binary_name,
-                )
-            except ArchiveExtractionError as exc:
-                raise UpgradeError(str(exc)) from exc
+            _download_release_to_temp(assets, tmp_root, installer_home)
+            _install_release_from_temp(assets, tmp_root, installer_home)
 
         restarted_service = False
         if was_running:
@@ -717,20 +764,4 @@ def run_upgrade(
             restarted_service=restarted_service,
         )
     except Exception as exc:
-        restart_exc: Exception | None = None
-        if was_running:
-            try:
-                manager.start_background(host=host, port=port, status_indicator=status_indicator)
-            except Exception as restart_error:
-                restart_exc = restart_error
-        if restart_exc is not None:
-            if isinstance(exc, UpgradeError):
-                raise UpgradeError(
-                    f"{exc}; additionally failed to restart service: {restart_exc}"
-                ) from exc
-            raise UpgradeError(
-                f"Upgrade failed: {exc}; additionally failed to restart service: {restart_exc}"
-            ) from exc
-        if isinstance(exc, UpgradeError):
-            raise
-        raise UpgradeError(f"Upgrade failed: {exc}") from exc
+        _handle_upgrade_failure(exc, was_running, manager, host, port, status_indicator)

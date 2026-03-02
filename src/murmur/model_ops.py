@@ -234,6 +234,42 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
             progress_callback(100)
         return downloaded
 
+    @staticmethod
+    def _make_baseline_progress_emitter(
+        cache_path: Path,
+        baseline_size: int,
+        progress_callback: Callable[[int], None] | None,
+        expected_total_bytes: int | None,
+        scan_interval: float = 3.0,
+    ) -> Callable[[], int]:
+        """Create a closure that computes cache-size-based progress relative to a baseline. Returns last_percent."""
+        from murmur import model_manager as mm
+
+        last_percent = -1
+        last_size = 0
+        last_scan_time = 0.0
+
+        def emit_progress() -> int:
+            nonlocal last_percent, last_size, last_scan_time
+            if progress_callback is None:
+                return last_percent
+            current_time = time.monotonic()
+            total = int(expected_total_bytes or 0)
+            if total <= 0:
+                percent = 0
+            else:
+                if current_time - last_scan_time >= scan_interval:
+                    last_size = mm._cache_path_size_bytes(cache_path)
+                    last_scan_time = current_time
+                downloaded_bytes = max(last_size - baseline_size, 0)
+                percent = int(max(0.0, min((downloaded_bytes / float(total)) * 100.0, 99.0)))
+            if percent != last_percent:
+                last_percent = percent
+                progress_callback(percent)
+            return last_percent
+
+        return emit_progress
+
     def _download_file_in_subprocess(
         self,
         repo_id: str,
@@ -279,36 +315,9 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
 
         cache_path = mm._cache_path_for_repo_id(repo_id)
         baseline_size = mm._cache_path_size_bytes(cache_path)
-        last_percent = -1
-        last_size = 0
-        last_scan_time = 0.0
-        size_scan_interval = 3.0
-
-        def emit_progress() -> None:
-            """
-            Compute current download progress from the local cache size and invoke the provided progress callback.
-
-            If no progress callback is set, this function does nothing. It samples the cache directory size at most once per size_scan_interval, computes downloaded bytes as max(last_size - baseline_size, 0), and maps that to a percentage of expected_total_bytes. When expected_total_bytes is unknown or zero the percentage is treated as 0. The reported percentage is clamped between 0 and 99 and is only sent to progress_callback when it differs from the last reported value; last_percent is updated accordingly.
-            """
-            nonlocal last_percent, last_size, last_scan_time
-            if progress_callback is None:
-                return
-
-            current_time = time.monotonic()
-            total = int(expected_total_bytes or 0)
-            if total <= 0:
-                percent = 0
-            else:
-                if current_time - last_scan_time >= size_scan_interval:
-                    last_size = mm._cache_path_size_bytes(cache_path)
-                    last_scan_time = current_time
-                downloaded_bytes = max(last_size - baseline_size, 0)
-                percent = int(max(0.0, min((downloaded_bytes / float(total)) * 100.0, 99.0)))
-
-            if percent == last_percent:
-                return
-            last_percent = percent
-            progress_callback(percent)
+        emit_progress = self._make_baseline_progress_emitter(
+            cache_path, baseline_size, progress_callback, expected_total_bytes,
+        )
 
         while process.poll() is None:
             if cancel_check is not None and cancel_check():
@@ -327,7 +336,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
                 + (f": {details}" if details else "")
             )
 
-        emit_progress()
+        last_percent = emit_progress()
         output = stdout.strip().splitlines()
         if not output:
             mm._prune_whisper_cpp_cache()

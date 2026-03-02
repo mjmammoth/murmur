@@ -646,7 +646,6 @@ class BridgeServer:
 
         Initializes lazily-created components, prunes invalid model caches, detects and caches runtime capabilities, and broadcasts current configuration to clients. If no installed models are found this marks first-run setup as required and updates status; if the configured model is unavailable it selects a suitable installed fallback, persists that change, notifies clients, and then starts asynchronous model loading.
         """
-        loop = asyncio.get_event_loop()
         self._onboarding_setup_started = True
         self._startup_components = "running"
         self._startup_audio_scan = "running"
@@ -654,6 +653,22 @@ class BridgeServer:
         self._startup_last_error = None
         await self._broadcast_config()
 
+        if not await self._run_startup_components():
+            return
+        await self._run_startup_probe()
+        await self._broadcast_startup_audio_notice()
+
+        if self._first_run_setup_required:
+            self._startup_model = "pending"
+            await self._set_status("connecting", FIRST_RUN_SETUP_MESSAGE)
+            return
+
+        await self._ensure_selected_model_available()
+        await self._load_model_async()
+
+    async def _run_startup_components(self) -> bool:
+        """Initialize bridge components and prune caches. Returns False on fatal error."""
+        loop = asyncio.get_event_loop()
         try:
             await loop.run_in_executor(None, self._init_components)
             self._startup_components = "ready"
@@ -666,7 +681,7 @@ class BridgeServer:
             self._startup_last_error = str(exc)
             await self._broadcast_config()
             await self._set_status("error", f"Startup failed: {exc}")
-            return
+            return False
 
         try:
             await loop.run_in_executor(None, prune_invalid_model_caches)
@@ -674,7 +689,11 @@ class BridgeServer:
             logger.warning("Failed to prune invalid model cache entries", exc_info=True)
 
         self._first_run_setup_required = not self._has_installed_models()
+        return True
 
+    async def _run_startup_probe(self) -> None:
+        """Detect and cache runtime capabilities during startup."""
+        loop = asyncio.get_event_loop()
         try:
             runtime_capabilities = await loop.run_in_executor(
                 None,
@@ -686,8 +705,10 @@ class BridgeServer:
         except Exception:
             logger.warning("Failed to detect runtime capabilities", exc_info=True)
             self._startup_runtime_probe = "degraded"
-
         await self._broadcast_config()
+
+    async def _broadcast_startup_audio_notice(self) -> None:
+        """Broadcast any pending startup audio notice and clear it."""
         if self._startup_audio_notice:
             await self._broadcast(
                 {
@@ -698,52 +719,44 @@ class BridgeServer:
             )
             self._startup_audio_notice = None
 
-        if self._first_run_setup_required:
-            self._startup_model = "pending"
-            await self._set_status(
-                "connecting",
-                FIRST_RUN_SETUP_MESSAGE,
-            )
-            return
-
+    async def _ensure_selected_model_available(self) -> None:
+        """If the configured model is not installed, fall back to the first available one."""
         selected_installed = get_installed_model_path(
             self.config.model.name, runtime=self.config.model.runtime
         )
-        if selected_installed is None:
-            installed_names = self._installed_model_names(runtime=self.config.model.runtime)
-            if not installed_names:
-                self._first_run_setup_required = True
-                self._startup_model = "pending"
-                await self._set_status(
-                    "connecting",
-                    FIRST_RUN_SETUP_MESSAGE,
-                )
-                await self._broadcast_config()
-                return
-            self.config.model.name = installed_names[0]
-            self.config.model.path = None
-            persist_error = self._persist_config("fallback selected model")
+        if selected_installed is not None:
+            return
+
+        installed_names = self._installed_model_names(runtime=self.config.model.runtime)
+        if not installed_names:
+            self._first_run_setup_required = True
+            self._startup_model = "pending"
+            await self._set_status("connecting", FIRST_RUN_SETUP_MESSAGE)
+            await self._broadcast_config()
+            return
+
+        self.config.model.name = installed_names[0]
+        self.config.model.path = None
+        persist_error = self._persist_config("fallback selected model")
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": (
+                    f"Selected model unavailable for runtime {self.config.model.runtime}. "
+                    f"Using {self.config.model.name}."
+                ),
+                "level": "info",
+            }
+        )
+        if persist_error:
             await self._broadcast(
                 {
                     "type": "toast",
-                    "message": (
-                        f"Selected model unavailable for runtime {self.config.model.runtime}. "
-                        f"Using {self.config.model.name}."
-                    ),
-                    "level": "info",
+                    "message": f"Failed to persist fallback model: {persist_error}",
+                    "level": "error",
                 }
             )
-            if persist_error:
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": f"Failed to persist fallback model: {persist_error}",
-                        "level": "error",
-                    }
-                )
-            await self._broadcast_config()
-
-        await self._load_model_async()
+        await self._broadcast_config()
 
     async def _begin_onboarding_setup(self) -> None:
         if self._onboarding_setup_started:
@@ -1370,237 +1383,252 @@ class BridgeServer:
                 message = message.decode("utf-8", errors="replace")
             data = json.loads(message)
             msg_type = data.get("type")
-
-            if msg_type == "start_recording":
-                await self._start_recording()
-            elif msg_type == "stop_recording":
-                await self._stop_recording()
-            elif msg_type == "toggle_noise":
-                await self._toggle_noise(data.get("enabled", True))
-            elif msg_type == "toggle_vad":
-                await self._toggle_vad(data.get("enabled", True))
-            elif msg_type == "toggle_auto_copy":
-                requested_auto_copy = bool(data.get("enabled", not self._auto_copy))
-                if not requested_auto_copy and self._auto_paste:
-                    logger.info(
-                        "Rejected auto copy disable request because auto paste is enabled"
-                    )
-                    await self._broadcast(
-                        {
-                            "type": "toast",
-                            "message": "Auto copy remains on while auto paste is enabled",
-                            "level": "info",
-                        }
-                    )
-                    await self._broadcast_config()
-                    return
-
-                self._auto_copy = requested_auto_copy
-                self.config.auto_copy = self._auto_copy
-                persist_error: str | None = None
-                try:
-                    save_config(self.config)
-                except Exception as exc:
-                    logger.exception("Failed to persist auto copy config")
-                    persist_error = str(exc)
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": f"Auto copy {'on' if self._auto_copy else 'off'}",
-                        "level": "success",
-                    }
-                )
-                if persist_error:
-                    await self._broadcast(
-                        {
-                            "type": "toast",
-                            "message": f"Auto copy updated for this session, but failed to save: {persist_error}",
-                            "level": "error",
-                        }
-                    )
-                await self._broadcast_config()
-            elif msg_type == "toggle_auto_paste":
-                self._auto_paste = bool(data.get("enabled", not self._auto_paste))
-                self.config.auto_paste = self._auto_paste
-                auto_copy_forced = False
-                if self._auto_paste and not self._auto_copy:
-                    self._auto_copy = True
-                    self.config.auto_copy = True
-                    auto_copy_forced = True
-                    logger.info("Auto paste enabled; forcing auto copy on")
-                persist_error = None
-                try:
-                    save_config(self.config)
-                except Exception as exc:
-                    logger.exception("Failed to persist auto paste config")
-                    persist_error = str(exc)
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": (
-                            "Auto paste on; auto copy on"
-                            if auto_copy_forced
-                            else f"Auto paste {'on' if self._auto_paste else 'off'}"
-                        ),
-                        "level": "success",
-                    }
-                )
-                if persist_error:
-                    await self._broadcast(
-                        {
-                            "type": "toast",
-                            "message": f"Auto paste updated for this session, but failed to save: {persist_error}",
-                            "level": "error",
-                        }
-                    )
-                await self._broadcast_config()
-            elif msg_type == "toggle_auto_revert_clipboard":
-                self._auto_revert_clipboard = bool(
-                    data.get("enabled", not self._auto_revert_clipboard)
-                )
-                self.config.auto_revert_clipboard = self._auto_revert_clipboard
-                persist_error = None
-                try:
-                    save_config(self.config)
-                except Exception as exc:
-                    logger.exception("Failed to persist auto revert clipboard config")
-                    persist_error = str(exc)
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": (
-                            f"Auto revert clipboard {'on' if self._auto_revert_clipboard else 'off'}"
-                        ),
-                        "level": "success",
-                    }
-                )
-                if persist_error:
-                    await self._broadcast(
-                        {
-                            "type": "toast",
-                            "message": (
-                                "Auto revert clipboard updated for this session, but failed to save: "
-                                f"{persist_error}"
-                            ),
-                            "level": "error",
-                        }
-                    )
-                await self._broadcast_config()
-            elif msg_type == "set_hotkey_blocked":
-                self._hotkey_blocked = bool(data.get("enabled", False))
-            elif msg_type == "set_hotkey_mode":
-                await self._set_hotkey_mode(data.get("mode", ""))
-            elif msg_type == "set_theme":
-                await self._set_theme(data.get("theme", ""))
-            elif msg_type == "set_audio_sample_rate":
-                await self._set_audio_sample_rate(data.get("sample_rate"))
-            elif msg_type == "set_audio_input_device":
-                await self._set_audio_input_device(data.get("device_key"))
-            elif msg_type == "refresh_audio_inputs":
-                self._invalidate_audio_inputs()
-                self._refresh_audio_inputs(force=True)
-                await self._broadcast_config()
-            elif msg_type == "set_vad_aggressiveness":
-                await self._set_vad_aggressiveness(data.get("aggressiveness"))
-            elif msg_type == "set_output_clipboard":
-                await self._set_output_clipboard(data.get("enabled"))
-            elif msg_type == "set_output_file_enabled":
-                await self._set_output_file_enabled(data.get("enabled"))
-            elif msg_type == "set_output_file_path":
-                await self._set_output_file_path(data.get("path", ""))
-            elif msg_type == "set_model_path":
-                await self._set_model_path(data.get("path"))
-            elif msg_type == "set_model_runtime":
-                await self._set_model_runtime(data.get("runtime", ""))
-            elif msg_type == "set_model_device":
-                await self._set_model_device(data.get("device", ""))
-            elif msg_type == "set_model_compute_type":
-                await self._set_model_compute_type(data.get("compute_type", ""))
-            elif msg_type == "set_model_language":
-                await self._set_model_language(data.get("language"))
-            elif msg_type == "download_model":
-                name = data.get("name", "")
-                if not name:
-                    return
-                runtime = normalize_runtime_name(data.get("runtime", self.config.model.runtime))
-                activate_runtime = data.get("activate_runtime")
-                activate_target = (
-                    normalize_runtime_name(activate_runtime)
-                    if isinstance(activate_runtime, str) and activate_runtime.strip()
-                    else None
-                )
-                download_key = self._download_task_key(name, runtime)
-                task = self._spawn_model_task(
-                    download_key,
-                    self._download_model(name, runtime=runtime, activate_runtime=activate_target),
-                )
-                self._download_queue.enqueue_download(
-                    download_key,
-                    model=name,
-                    runtime=runtime,
-                    task=task,
-                )
-            elif msg_type == "cancel_model_download":
-                await self._cancel_model_download(
-                    data.get("name", ""),
-                    runtime=data.get("runtime"),
-                )
-            elif msg_type == "cancel_all_model_downloads":
-                await self._cancel_all_model_downloads()
-            elif msg_type == "remove_model":
-                name = data.get("name", "")
-                runtime = normalize_runtime_name(data.get("runtime", self.config.model.runtime))
-                self._spawn_model_task(
-                    f"remove:{runtime}:{name}",
-                    self._remove_model(name, runtime=runtime),
-                )
-            elif msg_type == "set_selected_model":
-                await self._set_selected_model(data.get("name", ""))
-            elif msg_type == "set_default_model":
-                # Backward compatibility with older clients.
-                await self._set_selected_model(data.get("name", ""))
-            elif msg_type == "set_hotkey":
-                await self._set_hotkey(data.get("hotkey", ""))
-            elif msg_type == "list_models":
-                await self._send_models(websocket)
-            elif msg_type == "begin_onboarding_setup":
-                await self._begin_onboarding_setup()
-            elif msg_type == "get_config":
-                await self._send_config(websocket)
-            elif msg_type == "copy_text":
-                text = data.get("text", "")
-                if text:
-                    if copy_to_clipboard(text):
-                        await self._broadcast(
-                            {
-                                "type": "toast",
-                                "message": "Copied to clipboard",
-                                "level": "success",
-                            }
-                        )
-                    else:
-                        await self._broadcast(
-                            {
-                                "type": "toast",
-                                "message": "Clipboard copy failed",
-                                "level": "error",
-                            }
-                        )
-            elif msg_type == "get_config_file":
-                await self._send_config_file(websocket)
-            elif msg_type == "set_welcome_shown":
-                await self._set_welcome_shown()
-            elif msg_type == "get_capabilities":
-                await self._send_capabilities(websocket)
-            elif msg_type == "transcribe_paste":
-                self._spawn_task(self._handle_transcribe_paste(data.get("text", "")))
-            else:
-                logger.warning(f"Unknown message type: {msg_type}")
-
+            await self._dispatch_message(websocket, msg_type, data)
         except json.JSONDecodeError:
             logger.warning("Invalid JSON message received")
         except Exception:
             logger.exception("Error handling message")
+
+    async def _dispatch_message(
+        self, websocket: WebSocketServerProtocol, msg_type: str | None, data: dict[str, Any]
+    ) -> None:
+        """Route a parsed message to the appropriate handler by type."""
+        if msg_type == "start_recording":
+            await self._start_recording()
+        elif msg_type == "stop_recording":
+            await self._stop_recording()
+        elif msg_type == "toggle_noise":
+            await self._toggle_noise(data.get("enabled", True))
+        elif msg_type == "toggle_vad":
+            await self._toggle_vad(data.get("enabled", True))
+        elif msg_type == "toggle_auto_copy":
+            await self._handle_toggle_auto_copy(data)
+        elif msg_type == "toggle_auto_paste":
+            await self._handle_toggle_auto_paste(data)
+        elif msg_type == "toggle_auto_revert_clipboard":
+            await self._handle_toggle_auto_revert_clipboard(data)
+        elif msg_type == "set_hotkey_blocked":
+            self._hotkey_blocked = bool(data.get("enabled", False))
+        elif msg_type == "set_hotkey_mode":
+            await self._set_hotkey_mode(data.get("mode", ""))
+        elif msg_type == "set_theme":
+            await self._set_theme(data.get("theme", ""))
+        elif msg_type == "set_audio_sample_rate":
+            await self._set_audio_sample_rate(data.get("sample_rate"))
+        elif msg_type == "set_audio_input_device":
+            await self._set_audio_input_device(data.get("device_key"))
+        elif msg_type == "refresh_audio_inputs":
+            await self._handle_refresh_audio_inputs()
+        elif msg_type == "set_vad_aggressiveness":
+            await self._set_vad_aggressiveness(data.get("aggressiveness"))
+        elif msg_type == "set_output_clipboard":
+            await self._set_output_clipboard(data.get("enabled"))
+        elif msg_type == "set_output_file_enabled":
+            await self._set_output_file_enabled(data.get("enabled"))
+        elif msg_type == "set_output_file_path":
+            await self._set_output_file_path(data.get("path", ""))
+        elif msg_type == "set_model_path":
+            await self._set_model_path(data.get("path"))
+        elif msg_type == "set_model_runtime":
+            await self._set_model_runtime(data.get("runtime", ""))
+        elif msg_type == "set_model_device":
+            await self._set_model_device(data.get("device", ""))
+        elif msg_type == "set_model_compute_type":
+            await self._set_model_compute_type(data.get("compute_type", ""))
+        elif msg_type == "set_model_language":
+            await self._set_model_language(data.get("language"))
+        elif msg_type == "download_model":
+            await self._handle_download_model_message(data)
+        elif msg_type == "cancel_model_download":
+            await self._cancel_model_download(
+                data.get("name", ""),
+                runtime=data.get("runtime"),
+            )
+        elif msg_type == "cancel_all_model_downloads":
+            await self._cancel_all_model_downloads()
+        elif msg_type == "remove_model":
+            self._handle_remove_model_message(data)
+        elif msg_type in ("set_selected_model", "set_default_model"):
+            await self._set_selected_model(data.get("name", ""))
+        elif msg_type == "set_hotkey":
+            await self._set_hotkey(data.get("hotkey", ""))
+        elif msg_type == "list_models":
+            await self._send_models(websocket)
+        elif msg_type == "begin_onboarding_setup":
+            await self._begin_onboarding_setup()
+        elif msg_type == "get_config":
+            await self._send_config(websocket)
+        elif msg_type == "copy_text":
+            await self._handle_copy_text(data)
+        elif msg_type == "get_config_file":
+            await self._send_config_file(websocket)
+        elif msg_type == "set_welcome_shown":
+            await self._set_welcome_shown()
+        elif msg_type == "get_capabilities":
+            await self._send_capabilities(websocket)
+        elif msg_type == "transcribe_paste":
+            self._spawn_task(self._handle_transcribe_paste(data.get("text", "")))
+        else:
+            logger.warning(f"Unknown message type: {msg_type}")
+
+    async def _handle_toggle_auto_copy(self, data: dict[str, Any]) -> None:
+        """Handle the toggle_auto_copy message."""
+        requested_auto_copy = bool(data.get("enabled", not self._auto_copy))
+        if not requested_auto_copy and self._auto_paste:
+            logger.info(
+                "Rejected auto copy disable request because auto paste is enabled"
+            )
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Auto copy remains on while auto paste is enabled",
+                    "level": "info",
+                }
+            )
+            await self._broadcast_config()
+            return
+
+        self._auto_copy = requested_auto_copy
+        self.config.auto_copy = self._auto_copy
+        persist_error = self._persist_config("auto copy")
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Auto copy {'on' if self._auto_copy else 'off'}",
+                "level": "success",
+            }
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Auto copy updated for this session, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+        await self._broadcast_config()
+
+    async def _handle_toggle_auto_paste(self, data: dict[str, Any]) -> None:
+        """Handle the toggle_auto_paste message."""
+        self._auto_paste = bool(data.get("enabled", not self._auto_paste))
+        self.config.auto_paste = self._auto_paste
+        auto_copy_forced = False
+        if self._auto_paste and not self._auto_copy:
+            self._auto_copy = True
+            self.config.auto_copy = True
+            auto_copy_forced = True
+            logger.info("Auto paste enabled; forcing auto copy on")
+        persist_error = self._persist_config("auto paste")
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": (
+                    "Auto paste on; auto copy on"
+                    if auto_copy_forced
+                    else f"Auto paste {'on' if self._auto_paste else 'off'}"
+                ),
+                "level": "success",
+            }
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Auto paste updated for this session, but failed to save: {persist_error}",
+                    "level": "error",
+                }
+            )
+        await self._broadcast_config()
+
+    async def _handle_toggle_auto_revert_clipboard(self, data: dict[str, Any]) -> None:
+        """Handle the toggle_auto_revert_clipboard message."""
+        self._auto_revert_clipboard = bool(
+            data.get("enabled", not self._auto_revert_clipboard)
+        )
+        self.config.auto_revert_clipboard = self._auto_revert_clipboard
+        persist_error = self._persist_config("auto revert clipboard")
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": (
+                    f"Auto revert clipboard {'on' if self._auto_revert_clipboard else 'off'}"
+                ),
+                "level": "success",
+            }
+        )
+        if persist_error:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": (
+                        "Auto revert clipboard updated for this session, but failed to save: "
+                        f"{persist_error}"
+                    ),
+                    "level": "error",
+                }
+            )
+        await self._broadcast_config()
+
+    async def _handle_refresh_audio_inputs(self) -> None:
+        """Handle the refresh_audio_inputs message."""
+        self._invalidate_audio_inputs()
+        self._refresh_audio_inputs(force=True)
+        await self._broadcast_config()
+
+    async def _handle_download_model_message(self, data: dict[str, Any]) -> None:
+        """Handle the download_model message."""
+        name = data.get("name", "")
+        if not name:
+            return
+        runtime = normalize_runtime_name(data.get("runtime", self.config.model.runtime))
+        activate_runtime = data.get("activate_runtime")
+        activate_target = (
+            normalize_runtime_name(activate_runtime)
+            if isinstance(activate_runtime, str) and activate_runtime.strip()
+            else None
+        )
+        download_key = self._download_task_key(name, runtime)
+        task = self._spawn_model_task(
+            download_key,
+            self._download_model(name, runtime=runtime, activate_runtime=activate_target),
+        )
+        self._download_queue.enqueue_download(
+            download_key,
+            model=name,
+            runtime=runtime,
+            task=task,
+        )
+
+    def _handle_remove_model_message(self, data: dict[str, Any]) -> None:
+        """Handle the remove_model message."""
+        name = data.get("name", "")
+        runtime = normalize_runtime_name(data.get("runtime", self.config.model.runtime))
+        self._spawn_model_task(
+            f"remove:{runtime}:{name}",
+            self._remove_model(name, runtime=runtime),
+        )
+
+    async def _handle_copy_text(self, data: dict[str, Any]) -> None:
+        """Handle the copy_text message."""
+        text = data.get("text", "")
+        if not text:
+            return
+        if copy_to_clipboard(text):
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Copied to clipboard",
+                    "level": "success",
+                }
+            )
+        else:
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": "Clipboard copy failed",
+                    "level": "error",
+                }
+            )
 
     async def _handle_transcribe_paste(self, raw_text: Any) -> None:
         text = str(raw_text or "").strip()
@@ -1625,7 +1653,19 @@ class BridgeServer:
             )
             return
 
-        valid_paths: list[Path] = []
+        valid_paths = await self._validate_paste_paths(parsed_paths)
+        if not valid_paths:
+            return
+
+        valid_paths = await self._clamp_and_announce_paste_files(valid_paths)
+
+        async with self._file_transcription_lock:
+            for path in valid_paths:
+                await self._transcribe_audio_file(path)
+
+    async def _validate_paste_paths(self, parsed_paths: list[Path]) -> list[Path]:
+        """Validate and deduplicate parsed paths, broadcasting errors for invalid ones."""
+        valid: list[Path] = []
         seen: set[str] = set()
         for path in parsed_paths:
             normalized = str(path)
@@ -1633,39 +1673,27 @@ class BridgeServer:
                 continue
             seen.add(normalized)
 
-            if not await asyncio.to_thread(path.exists):
+            error = await self._check_paste_path_access(path)
+            if error:
                 await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": f"File not found: {path}",
-                        "level": "error",
-                    }
+                    {"type": "toast", "message": error, "level": "error"}
                 )
                 continue
-            if not await asyncio.to_thread(path.is_file):
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": f"Not a file: {path}",
-                        "level": "error",
-                    }
-                )
-                continue
-            if not await asyncio.to_thread(os.access, path, os.R_OK):
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": f"Cannot read file: {path}",
-                        "level": "error",
-                    }
-                )
-                continue
+            valid.append(path)
+        return valid
 
-            valid_paths.append(path)
+    async def _check_paste_path_access(self, path: Path) -> str | None:
+        """Return an error message if the path is not a readable file, or None if valid."""
+        if not await asyncio.to_thread(path.exists):
+            return f"File not found: {path}"
+        if not await asyncio.to_thread(path.is_file):
+            return f"Not a file: {path}"
+        if not await asyncio.to_thread(os.access, path, os.R_OK):
+            return f"Cannot read file: {path}"
+        return None
 
-        if not valid_paths:
-            return
-
+    async def _clamp_and_announce_paste_files(self, valid_paths: list[Path]) -> list[Path]:
+        """Clamp file count to MAX_DROP_FILES and broadcast a queued-files toast."""
         if len(valid_paths) > MAX_DROP_FILES:
             await self._broadcast(
                 {
@@ -1679,25 +1707,13 @@ class BridgeServer:
             valid_paths = valid_paths[:MAX_DROP_FILES]
 
         if len(valid_paths) == 1:
-            await self._broadcast(
-                {
-                    "type": "toast",
-                    "message": f"Queued file transcription: {valid_paths[0].name}",
-                    "level": "success",
-                }
-            )
+            message = f"Queued file transcription: {valid_paths[0].name}"
         else:
-            await self._broadcast(
-                {
-                    "type": "toast",
-                    "message": f"Queued {len(valid_paths)} files for transcription",
-                    "level": "success",
-                }
-            )
-
-        async with self._file_transcription_lock:
-            for path in valid_paths:
-                await self._transcribe_audio_file(path)
+            message = f"Queued {len(valid_paths)} files for transcription"
+        await self._broadcast(
+            {"type": "toast", "message": message, "level": "success"}
+        )
+        return valid_paths
 
     def _extract_paths_from_paste(self, text: str) -> list[Path]:
         tokens: list[str] = []
@@ -1985,61 +2001,10 @@ class BridgeServer:
                     ),
                 )
                 self._download_queue.mark_completed(download_key, task=queue_task)
-                # Send 100% to ensure TUI sees completion
-                await self._broadcast(
-                    {
-                        "type": "download_progress",
-                        "model": name,
-                        "runtime": normalized_runtime,
-                        "percent": 100,
-                    }
-                )
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": f"Downloaded {name} ({normalized_runtime})",
-                        "model": name,
-                        "runtime": normalized_runtime,
-                        "action": "download_complete",
-                        "level": "success",
-                    }
-                )
-                if activate_runtime_name:
-                    self.config.model.name = name
-                    self.config.model.path = None
-                    persist_error = self._persist_config("model selection for runtime activation")
-                    if persist_error:
-                        await self._broadcast(
-                            {
-                                "type": "toast",
-                                "message": (
-                                    "Downloaded model, but failed to persist selection: "
-                                    f"{persist_error}"
-                                ),
-                                "level": "error",
-                            }
-                        )
-                    await self._set_model_runtime(
-                        activate_runtime_name, allow_missing_variant_prompt=False
-                    )
-                elif normalized_runtime == self.config.model.runtime:
-                    # After a successful pull for the active runtime, make it active.
-                    await self._set_selected_model(name)
-                await self._broadcast_models()
+                await self._on_download_success(name, normalized_runtime, activate_runtime_name)
             except DownloadCancelledError:
                 self._download_queue.mark_cancelled(download_key, task=queue_task)
-                if not self._shutdown_requested.is_set():
-                    await self._broadcast(
-                        {
-                            "type": "toast",
-                            "message": f"Download cancelled: {name} ({normalized_runtime})",
-                            "model": name,
-                            "runtime": normalized_runtime,
-                            "action": "download_cancelled",
-                            "level": "info",
-                        }
-                    )
-                    await self._broadcast_models()
+                await self._on_download_cancelled(name, normalized_runtime)
             except asyncio.CancelledError:
                 cancel_event.set()
                 self._download_queue.mark_cancelled(download_key, task=queue_task)
@@ -2049,18 +2014,81 @@ class BridgeServer:
                     self._download_queue.mark_cancelled(download_key, task=queue_task)
                 else:
                     self._download_queue.mark_failed(download_key, task=queue_task)
-                if not self._shutdown_requested.is_set():
-                    await self._broadcast(
-                        {
-                            "type": "toast",
-                            "message": f"Download failed: {exc}",
-                            "model": name,
-                            "runtime": normalized_runtime,
-                            "level": "error",
-                            "action": "download_failed",
-                        }
-                    )
-                    await self._broadcast_models()
+                await self._on_download_error(name, normalized_runtime, exc)
+
+    async def _on_download_success(
+        self, name: str, runtime: str, activate_runtime_name: str | None
+    ) -> None:
+        """Handle post-download success: broadcast completion, activate or select the model."""
+        await self._broadcast(
+            {
+                "type": "download_progress",
+                "model": name,
+                "runtime": runtime,
+                "percent": 100,
+            }
+        )
+        await self._broadcast(
+            {
+                "type": "toast",
+                "message": f"Downloaded {name} ({runtime})",
+                "model": name,
+                "runtime": runtime,
+                "action": "download_complete",
+                "level": "success",
+            }
+        )
+        if activate_runtime_name:
+            self.config.model.name = name
+            self.config.model.path = None
+            persist_error = self._persist_config("model selection for runtime activation")
+            if persist_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": (
+                            "Downloaded model, but failed to persist selection: "
+                            f"{persist_error}"
+                        ),
+                        "level": "error",
+                    }
+                )
+            await self._set_model_runtime(
+                activate_runtime_name, allow_missing_variant_prompt=False
+            )
+        elif runtime == self.config.model.runtime:
+            await self._set_selected_model(name)
+        await self._broadcast_models()
+
+    async def _on_download_cancelled(self, name: str, runtime: str) -> None:
+        """Broadcast a cancellation toast if the server is not shutting down."""
+        if not self._shutdown_requested.is_set():
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Download cancelled: {name} ({runtime})",
+                    "model": name,
+                    "runtime": runtime,
+                    "action": "download_cancelled",
+                    "level": "info",
+                }
+            )
+            await self._broadcast_models()
+
+    async def _on_download_error(self, name: str, runtime: str, exc: Exception) -> None:
+        """Broadcast a download failure toast if the server is not shutting down."""
+        if not self._shutdown_requested.is_set():
+            await self._broadcast(
+                {
+                    "type": "toast",
+                    "message": f"Download failed: {exc}",
+                    "model": name,
+                    "runtime": runtime,
+                    "level": "error",
+                    "action": "download_failed",
+                }
+            )
+            await self._broadcast_models()
 
     async def _cancel_model_download(self, name: str, runtime: Any = None) -> None:
         """
@@ -2277,23 +2305,77 @@ class BridgeServer:
         previous_name = self.config.model.name
         previous_path = self.config.model.path
 
-        self.config.model.name = name
-        self.config.model.path = None
+        def _apply() -> None:
+            self.config.model.name = name
+            self.config.model.path = None
 
-        persist_error = self._persist_config("selected model")
+        def _rollback() -> None:
+            self.config.model.name = previous_name
+            self.config.model.path = previous_path
+
+        await self._apply_config_with_reload(
+            apply_fn=_apply,
+            rollback_fn=_rollback,
+            context="selected model",
+            success_message=f"Selected model set to {name}",
+        )
+
+    def _persist_config(self, context: str) -> str | None:
+        try:
+            save_config(self.config)
+        except Exception as exc:
+            logger.exception("Failed to persist %s config", context)
+            return str(exc)
+        return None
+
+    async def _apply_config_with_reload(
+        self,
+        *,
+        apply_fn: Any,
+        rollback_fn: Any,
+        context: str,
+        success_message: str,
+        persist_context: str | None = None,
+    ) -> None:
+        """Apply a config change, persist, reload transcriber, and roll back on failure.
+
+        Parameters:
+            apply_fn: Callable that mutates self.config with the new values.
+            rollback_fn: Callable that restores self.config to previous values.
+            context: Human-readable name for log/toast messages (e.g. "selected model").
+            success_message: Toast message on success.
+            persist_context: Config context label for _persist_config; defaults to context.
+        """
+        label = persist_context or context
+        apply_fn()
+        persist_error = self._persist_config(label)
+
+        if self._first_run_setup_required:
+            await self._broadcast_config()
+            await self._broadcast(
+                {"type": "toast", "message": success_message, "level": "success"}
+            )
+            if persist_error:
+                await self._broadcast(
+                    {
+                        "type": "toast",
+                        "message": f"{success_message.rstrip('.')}, but failed to save: {persist_error}",
+                        "level": "error",
+                    }
+                )
+            return
 
         try:
             await self._reload_transcriber()
         except Exception as exc:
-            logger.exception("Failed to apply selected model")
-            self.config.model.name = previous_name
-            self.config.model.path = previous_path
-            rollback_error = self._persist_config("selected model rollback")
+            logger.exception("Failed to apply %s", context)
+            rollback_fn()
+            rollback_error = self._persist_config(f"{label} rollback")
             await self._broadcast_config()
             await self._broadcast(
                 {
                     "type": "toast",
-                    "message": f"Failed to apply selected model: {exc}",
+                    "message": f"Failed to apply {context}: {exc}",
                     "level": "error",
                 }
             )
@@ -2309,28 +2391,16 @@ class BridgeServer:
 
         await self._broadcast_config()
         await self._broadcast(
-            {
-                "type": "toast",
-                "message": f"Selected model set to {name}",
-                "level": "success",
-            }
+            {"type": "toast", "message": success_message, "level": "success"}
         )
         if persist_error:
             await self._broadcast(
                 {
                     "type": "toast",
-                    "message": f"Selected model applied, but failed to save: {persist_error}",
+                    "message": f"{success_message.rstrip('.')} applied, but failed to save: {persist_error}",
                     "level": "error",
                 }
             )
-
-    def _persist_config(self, context: str) -> str | None:
-        try:
-            save_config(self.config)
-        except Exception as exc:
-            logger.exception("Failed to persist %s config", context)
-            return str(exc)
-        return None
 
     async def _reload_transcriber(self) -> None:
         """
@@ -2454,83 +2524,31 @@ class BridgeServer:
         previous_runtime = self.config.model.runtime
         previous_device = self.config.model.device
         previous_compute_type = self.config.model.compute_type
-        self.config.model.runtime = normalized
-        self._set_runtime_capabilities(capabilities)
 
         normalized_device, normalized_compute_type = self._normalize_model_runtime_for_runtime(
             capabilities,
             device=self.config.model.device,
             compute_type=self.config.model.compute_type,
         )
-        self.config.model.device = normalized_device
-        self.config.model.compute_type = normalized_compute_type
 
-        persist_error = self._persist_config("model runtime")
+        def apply_runtime() -> None:
+            self.config.model.runtime = normalized
+            self.config.model.device = normalized_device
+            self.config.model.compute_type = normalized_compute_type
+            self._set_runtime_capabilities(capabilities)
 
-        if self._first_run_setup_required:
-            await self._broadcast_config()
-            await self._broadcast(
-                {
-                    "type": "toast",
-                    "message": f"Model runtime {normalized}",
-                    "level": "success",
-                }
-            )
-            if persist_error:
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": (
-                            f"Model runtime applied, but failed to save: {persist_error}"
-                        ),
-                        "level": "error",
-                    }
-                )
-            return
-
-        try:
-            await self._reload_transcriber()
-        except Exception as exc:
-            logger.exception("Failed to apply model runtime")
+        def rollback_runtime() -> None:
             self.config.model.runtime = previous_runtime
             self.config.model.device = previous_device
             self.config.model.compute_type = previous_compute_type
             self._set_runtime_capabilities(self._detect_runtime_capabilities(previous_runtime))
-            rollback_error = self._persist_config("model runtime rollback")
-            await self._broadcast_config()
-            await self._broadcast(
-                {
-                    "type": "toast",
-                    "message": f"Failed to apply model runtime: {exc}",
-                    "level": "error",
-                }
-            )
-            if rollback_error:
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": f"Rollback config save failed: {rollback_error}",
-                        "level": "error",
-                    }
-                )
-            return
 
-        await self._broadcast_config()
-        await self._broadcast(
-            {
-                "type": "toast",
-                "message": f"Model runtime {normalized}",
-                "level": "success",
-            }
+        await self._apply_config_with_reload(
+            apply_fn=apply_runtime,
+            rollback_fn=rollback_runtime,
+            context="model runtime",
+            success_message=f"Model runtime {normalized}",
         )
-        if persist_error:
-            await self._broadcast(
-                {
-                    "type": "toast",
-                    "message": f"Model runtime applied, but failed to save: {persist_error}",
-                    "level": "error",
-                }
-            )
 
     def _normalize_model_runtime_for_runtime(
         self,
@@ -2623,70 +2641,13 @@ class BridgeServer:
             return
 
         previous_device = self.config.model.device
-        self.config.model.device = normalized
-        persist_error = self._persist_config("model device")
 
-        if self._first_run_setup_required:
-            await self._broadcast_config()
-            await self._broadcast(
-                {
-                    "type": "toast",
-                    "message": f"Model device {normalized}",
-                    "level": "success",
-                }
-            )
-            if persist_error:
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": (
-                            f"Model device applied, but failed to save: {persist_error}"
-                        ),
-                        "level": "error",
-                    }
-                )
-            return
-
-        try:
-            await self._reload_transcriber()
-        except Exception as exc:
-            logger.exception("Failed to apply model device")
-            self.config.model.device = previous_device
-            rollback_error = self._persist_config("model device rollback")
-            await self._broadcast_config()
-            await self._broadcast(
-                {
-                    "type": "toast",
-                    "message": f"Failed to apply model device: {exc}",
-                    "level": "error",
-                }
-            )
-            if rollback_error:
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": f"Rollback config save failed: {rollback_error}",
-                        "level": "error",
-                    }
-                )
-            return
-
-        await self._broadcast_config()
-        await self._broadcast(
-            {
-                "type": "toast",
-                "message": f"Model device {normalized}",
-                "level": "success",
-            }
+        await self._apply_config_with_reload(
+            apply_fn=lambda: setattr(self.config.model, "device", normalized),
+            rollback_fn=lambda: setattr(self.config.model, "device", previous_device),
+            context="model device",
+            success_message=f"Model device {normalized}",
         )
-        if persist_error:
-            await self._broadcast(
-                {
-                    "type": "toast",
-                    "message": f"Model device applied, but failed to save: {persist_error}",
-                    "level": "error",
-                }
-            )
 
     async def _set_model_compute_type(self, compute_type: str) -> None:
         self._refresh_runtime_capabilities(force=True)
@@ -2737,49 +2698,14 @@ class BridgeServer:
             return
 
         previous_compute_type = self.config.model.compute_type
-        self.config.model.compute_type = normalized
-        persist_error = self._persist_config("model compute type")
 
-        try:
-            await self._reload_transcriber()
-        except Exception as exc:
-            logger.exception("Failed to apply model compute type")
-            self.config.model.compute_type = previous_compute_type
-            rollback_error = self._persist_config("model compute type rollback")
-            await self._broadcast_config()
-            await self._broadcast(
-                {
-                    "type": "toast",
-                    "message": f"Failed to apply compute type: {exc}",
-                    "level": "error",
-                }
-            )
-            if rollback_error:
-                await self._broadcast(
-                    {
-                        "type": "toast",
-                        "message": f"Rollback config save failed: {rollback_error}",
-                        "level": "error",
-                    }
-                )
-            return
-
-        await self._broadcast_config()
-        await self._broadcast(
-            {
-                "type": "toast",
-                "message": f"Compute type {normalized}",
-                "level": "success",
-            }
+        await self._apply_config_with_reload(
+            apply_fn=lambda: setattr(self.config.model, "compute_type", normalized),
+            rollback_fn=lambda: setattr(self.config.model, "compute_type", previous_compute_type),
+            context="compute type",
+            success_message=f"Compute type {normalized}",
+            persist_context="model compute type",
         )
-        if persist_error:
-            await self._broadcast(
-                {
-                    "type": "toast",
-                    "message": f"Compute type applied, but failed to save: {persist_error}",
-                    "level": "error",
-                }
-            )
 
     async def _set_model_language(self, language: Any) -> None:
         raw = "" if language is None else str(language)

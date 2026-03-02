@@ -96,24 +96,32 @@ class StatusListenerThread(threading.Thread):
     def run(self) -> None:
         asyncio.run(self._run())
 
+    def _dispatch_status_message(self, raw: str | bytes) -> None:
+        """Parse a raw WebSocket message and dispatch status updates to the callback."""
+        try:
+            message = json.loads(raw)
+        except json.JSONDecodeError:
+            return
+        if message.get("type") != "status":
+            return
+        status = str(message.get("status", "ready"))
+        detail = str(message.get("message", "Ready"))
+        AppHelper.callAfter(self.on_status, status, detail)
+
+    async def _listen_on_socket(self, socket: Any) -> None:
+        """Read status messages from a connected WebSocket until stopped."""
+        AppHelper.callAfter(self.on_status, "ready", "Connected")
+        async for raw in socket:
+            if self._stop_event.is_set():
+                return
+            self._dispatch_status_message(raw)
+
     async def _run(self) -> None:
         url = f"ws://{self.host}:{self.port}?client=status-indicator"
         while not self._stop_event.is_set():
             try:
                 async with websockets.connect(url, ping_interval=20, ping_timeout=20) as socket:
-                    AppHelper.callAfter(self.on_status, "ready", "Connected")
-                    async for raw in socket:
-                        if self._stop_event.is_set():
-                            return
-                        try:
-                            message = json.loads(raw)
-                        except json.JSONDecodeError:
-                            continue
-                        if message.get("type") != "status":
-                            continue
-                        status = str(message.get("status", "ready"))
-                        detail = str(message.get("message", "Ready"))
-                        AppHelper.callAfter(self.on_status, status, detail)
+                    await self._listen_on_socket(socket)
             except Exception:
                 if self._stop_event.is_set():
                     return
