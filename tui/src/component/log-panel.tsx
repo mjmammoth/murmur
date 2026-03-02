@@ -51,7 +51,7 @@ function normalizeLogLines(message: string): string[] {
   const withoutControls = normalizedNewlines.replaceAll(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
   const lines = withoutControls
     .split("\n")
-    .map((line) => line.replaceAll(/\t/g, "  ").trimEnd());
+    .map((line) => line.replaceAll("\t", "  ").trimEnd());
 
   if (lines.length === 0) return [""];
   if (lines.every((line) => line.length === 0)) return [""];

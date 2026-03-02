@@ -3,6 +3,7 @@ set -euo pipefail
 
 log() {
   printf "%s\n" "$*"
+  return 0
 }
 
 remove_path() {
@@ -13,6 +14,7 @@ remove_path() {
     return
   fi
   log "missing: $path"
+  return 0
 }
 
 remove_glob_matches() {
@@ -26,6 +28,7 @@ remove_glob_matches() {
   if [[ $found -eq 0 ]]; then
     log "missing (pattern): $pattern"
   fi
+  return 0
 }
 
 stop_running_processes() {
@@ -39,6 +42,7 @@ stop_running_processes() {
   pkill -f "murmur\\.cli bridge" >/dev/null 2>&1 || true
   pkill -f "/murmur bridge" >/dev/null 2>&1 || true
   pkill -f "murmur-tui" >/dev/null 2>&1 || true
+  return 0
 }
 
 main() {

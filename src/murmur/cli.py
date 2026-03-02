@@ -29,6 +29,8 @@ else:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+_BRIDGE_HOST_HELP = "Bridge host"
+_BRIDGE_PORT_HELP = "Bridge port"
 NO_STATUS_INDICATOR_AUTOSTART_HELP = (
     "Disable macOS menu bar status indicator while auto-starting service"
 )
@@ -51,8 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Deprecated alias: preserve for compatibility, but behavior now matches `tui`.
     run_parser = subparsers.add_parser("run", help="[Deprecated] Attach TUI to service")
-    run_parser.add_argument("--host", default="localhost", help="Bridge host")
-    run_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    run_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
+    run_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     run_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
@@ -60,16 +62,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     bridge_parser = subparsers.add_parser("bridge", help="Start only the WebSocket bridge server")
-    bridge_parser.add_argument("--host", default="localhost", help="Bridge host")
-    bridge_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    bridge_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
+    bridge_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     bridge_parser.add_argument("--capture-logs", action="store_true", help=argparse.SUPPRESS)
 
     tui_parser = subparsers.add_parser(
         "tui",
         help="Attach the TypeScript TUI to the service (auto-starts service if needed)",
     )
-    tui_parser.add_argument("--host", default="localhost", help="Bridge host")
-    tui_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    tui_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
+    tui_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     tui_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
@@ -77,8 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     start_parser = subparsers.add_parser("start", help="Start service")
-    start_parser.add_argument("--host", default="localhost", help="Bridge host")
-    start_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    start_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
+    start_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     start_parser.add_argument(
         "--foreground",
         action="store_true",
@@ -98,8 +100,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Control recording without opening TUI",
     )
     trigger_parser.add_argument("action", choices=("start", "stop", "toggle"))
-    trigger_parser.add_argument("--host", default="localhost", help="Bridge host")
-    trigger_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    trigger_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
+    trigger_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     trigger_parser.add_argument(
         "--timeout-seconds",
         type=float,
@@ -428,7 +430,6 @@ async def _collect_runtime_snapshot(
         config_update = _extract_config_update(raw)
         if config_update is not None:
             config = config_update
-            continue
 
 
 def _startup_phase_from_config(config: dict[str, Any] | None) -> str:
