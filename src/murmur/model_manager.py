@@ -1132,11 +1132,17 @@ def ensure_model_available(
 
 def _terminate_subprocess(process: subprocess.Popen[str]) -> None:
     """Terminate a subprocess, escalating to kill if it does not exit promptly."""
-    process.terminate()
+    try:
+        process.terminate()
+    except OSError:
+        return
     try:
         process.wait(timeout=2.0)
     except subprocess.TimeoutExpired:
-        process.kill()
+        try:
+            process.kill()
+        except OSError:
+            return
         try:
             process.wait(timeout=2.0)
         except subprocess.TimeoutExpired:
