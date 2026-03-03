@@ -1135,14 +1135,14 @@ def _terminate_subprocess(process: subprocess.Popen[str]) -> None:
     try:
         process.terminate()
     except OSError:
-        return
+        pass
     try:
         process.wait(timeout=2.0)
     except subprocess.TimeoutExpired:
         try:
             process.kill()
         except OSError:
-            return
+            pass
         try:
             process.wait(timeout=2.0)
         except subprocess.TimeoutExpired:
@@ -1159,9 +1159,10 @@ def _make_subprocess_progress_emitter(
     last_percent = -1
     last_size = 0
     last_scan_time = 0.0
+    baseline_size: int | None = None
 
     def emit_progress() -> int:
-        nonlocal last_percent, last_size, last_scan_time
+        nonlocal last_percent, last_size, last_scan_time, baseline_size
         if progress_callback is None:
             return last_percent
 
@@ -1171,7 +1172,10 @@ def _make_subprocess_progress_emitter(
             percent = 0
         else:
             if current_time - last_scan_time >= scan_interval:
-                last_size = _cache_path_size_bytes(cache_path)
+                current_size = _cache_path_size_bytes(cache_path)
+                if baseline_size is None:
+                    baseline_size = current_size
+                last_size = max(0, current_size - baseline_size)
                 last_scan_time = current_time
             percent = int(max(0.0, min((last_size / float(total)) * 100.0, 99.0)))
 
