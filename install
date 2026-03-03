@@ -270,10 +270,15 @@ verify_release = str(sys.argv[3]).strip().lower() == "true"
 with open(release_path, "r", encoding="utf-8") as handle:
     data = json.load(handle)
 
+tag_name = str(data.get("tag_name", ""))
+version = tag_name[1:] if tag_name.startswith("v") else tag_name
 assets = data.get("assets", [])
 wheel_assets = [asset for asset in assets if str(asset.get("name", "")).endswith(".whl")]
-archive_name = f"murmur-tui-{target}.tar.gz"
-tui = next((asset for asset in assets if asset.get("name") == archive_name), None)
+versioned_name = f"murmur-tui-{version}-{target}.tar.gz"
+legacy_name = f"murmur-tui-{target}.tar.gz"
+tui = next((asset for asset in assets if asset.get("name") == versioned_name), None)
+if tui is None:
+    tui = next((asset for asset in assets if asset.get("name") == legacy_name), None)
 
 wheel = None
 if wheel_assets:

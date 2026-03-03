@@ -95,6 +95,18 @@ fi
 # 2. Locate artifacts and compute checksums
 # ---------------------------------------------------------------------------
 WHEEL_PATH="$(find "$REPO_ROOT/dist" -maxdepth 1 -type f -name '*.whl' -print -quit 2>/dev/null)"
+VERSION="$("$PYTHON" -c "
+import pathlib
+try:
+    import tomllib
+except ModuleNotFoundError:
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError as exc:
+        raise SystemExit('Error: Python 3.11+ or the tomli package is required to parse pyproject.toml') from exc
+data = tomllib.loads(pathlib.Path('$REPO_ROOT/pyproject.toml').read_text())
+print(data['project']['version'])
+")"
 OS_RAW="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH_RAW="$(uname -m)"
 
@@ -115,24 +127,24 @@ case "$ARCH_RAW" in
     ;;
 esac
 
-TUI_PATH="$REPO_ROOT/dist/tui/murmur-tui-$OS-$ARCH.tar.gz"
+TUI_VERSIONED_NAME="murmur-tui-${VERSION}-${OS}-${ARCH}.tar.gz"
+TUI_LEGACY_NAME="murmur-tui-${OS}-${ARCH}.tar.gz"
+TUI_PATH="$(find "$REPO_ROOT/dist/tui" -maxdepth 1 -type f -name "$TUI_VERSIONED_NAME" -print -quit 2>/dev/null)"
+if [[ -z "$TUI_PATH" ]]; then
+  TUI_PATH="$(find "$REPO_ROOT/dist/tui" -maxdepth 1 -type f -name "$TUI_LEGACY_NAME" -print -quit 2>/dev/null)"
+fi
 
 if [[ -z "$WHEEL_PATH" ]] || [[ ! -f "$WHEEL_PATH" ]]; then
   echo "Error: No wheel found in dist/. Run without --skip-build." >&2
   exit 1
 fi
-if [[ ! -f "$TUI_PATH" ]]; then
-  echo "Error: TUI tarball not found at $TUI_PATH. Run without --skip-build." >&2
+if [[ -z "$TUI_PATH" ]] || [[ ! -f "$TUI_PATH" ]]; then
+  echo "Error: TUI tarball not found for $OS-$ARCH in dist/tui/. Run without --skip-build." >&2
   exit 1
 fi
 
 WHEEL_SHA="$(shasum -a 256 "$WHEEL_PATH" | awk '{print $1}')"
 TUI_SHA="$(shasum -a 256 "$TUI_PATH" | awk '{print $1}')"
-VERSION="$("$PYTHON" -c "
-import tomllib, pathlib
-data = tomllib.loads(pathlib.Path('$REPO_ROOT/pyproject.toml').read_text())
-print(data['project']['version'])
-")"
 
 echo "  Wheel:   $WHEEL_PATH (sha256: $WHEEL_SHA)"
 echo "  TUI:     $TUI_PATH (sha256: $TUI_SHA)"

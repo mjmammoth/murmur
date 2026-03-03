@@ -58,7 +58,7 @@ curl -fsSL https://raw.githubusercontent.com/mjmammoth/murmur/main/install | bas
 <details>
   <summary>Windows</summary>
 
-  Download the latest `murmur-tui-windows-x64.tar.gz` from [Releases](https://github.com/mjmammoth/murmur/releases/latest), extract, and run.
+  Download the latest `murmur-tui-{version}-windows-x64.tar.gz` from [Releases](https://github.com/mjmammoth/murmur/releases/latest), extract, and run.
 </details>
 
 ### Quick Start
