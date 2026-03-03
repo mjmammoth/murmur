@@ -134,13 +134,13 @@ const models = [
         runtime: "faster-whisper",
         format: "ct2",
         installed: true,
-        path: "~/.cache/whisper-local/small",
+        path: "~/.cache/murmur/small",
       },
       "whisper.cpp": {
         runtime: "whisper.cpp",
         format: "ggml",
         installed: true,
-        path: "~/.cache/whisper-local/ggml-small.bin",
+        path: "~/.cache/murmur/ggml-small.bin",
       },
     },
   },
@@ -151,7 +151,7 @@ const models = [
         runtime: "faster-whisper",
         format: "ct2",
         installed: true,
-        path: "~/.cache/whisper-local/large-v3-turbo",
+        path: "~/.cache/murmur/large-v3-turbo",
       },
       "whisper.cpp": {
         runtime: "whisper.cpp",
@@ -180,7 +180,7 @@ const server = Bun.serve({
     if (serverRef.upgrade(request)) {
       return undefined;
     }
-    return new Response("whisper.local demo backend", { status: 200 });
+    return new Response("murmur demo backend", { status: 200 });
   },
   websocket: {
     open(ws) {

@@ -11,8 +11,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TAP_NAME="local/whisper-local-dev"
-FORMULA_NAME="whisper-local"
+TAP_NAME="local/murmur-dev"
+FORMULA_NAME="murmur"
 
 # Prefer python3 (pyenv may not expose bare "python").
 PYTHON="${PYTHON:-python3}"
@@ -47,7 +47,7 @@ done
 TAP_DIR=""
 
 cleanup() {
-  if [ "$NO_CLEANUP" = true ]; then
+  if [[ "$NO_CLEANUP" = true ]]; then
     echo "Skipping cleanup (--no-cleanup). Tap dir: ${TAP_DIR:-<none>}"
     return
   fi
@@ -61,14 +61,14 @@ for f in data.get('formulae', []):
     tap = f.get('tap', '')
     if tap: print(tap)
 " 2>/dev/null || true)"
-    if [ "$INSTALLED_TAP" = "$TAP_NAME" ]; then
+    if [[ "$INSTALLED_TAP" = "$TAP_NAME" ]]; then
       brew uninstall "$FORMULA_NAME" 2>/dev/null || true
     else
       echo "  Skipping uninstall — $FORMULA_NAME is from tap '$INSTALLED_TAP', not '$TAP_NAME'"
     fi
   fi
   brew untap "$TAP_NAME" 2>/dev/null || true
-  if [ -n "$TAP_DIR" ] && [ -d "$TAP_DIR" ]; then
+  if [[ -n "$TAP_DIR" ]] && [[ -d "$TAP_DIR" ]]; then
     rm -rf "$TAP_DIR"
   fi
 }
@@ -77,7 +77,7 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 # 1. Build artifacts
 # ---------------------------------------------------------------------------
-if [ "$SKIP_BUILD" = false ]; then
+if [[ "$SKIP_BUILD" = false ]]; then
   echo "==> Building Python wheel..."
   BUILD_VENV="$REPO_ROOT/.brew-test-venv"
   "$PYTHON" -m venv "$BUILD_VENV"
@@ -95,13 +95,33 @@ fi
 # 2. Locate artifacts and compute checksums
 # ---------------------------------------------------------------------------
 WHEEL_PATH="$(find "$REPO_ROOT/dist" -maxdepth 1 -type f -name '*.whl' -print -quit 2>/dev/null)"
-TUI_PATH="$REPO_ROOT/dist/tui/whisper-local-tui-darwin-arm64.tar.gz"
+OS_RAW="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH_RAW="$(uname -m)"
 
-if [ -z "$WHEEL_PATH" ] || [ ! -f "$WHEEL_PATH" ]; then
+case "$OS_RAW" in
+  darwin|linux) OS="$OS_RAW" ;;
+  *)
+    echo "Error: Unsupported OS '$OS_RAW' for local TUI artifact lookup." >&2
+    exit 1
+    ;;
+esac
+
+case "$ARCH_RAW" in
+  arm64|aarch64) ARCH="arm64" ;;
+  x86_64|amd64) ARCH="x64" ;;
+  *)
+    echo "Error: Unsupported architecture '$ARCH_RAW' for local TUI artifact lookup." >&2
+    exit 1
+    ;;
+esac
+
+TUI_PATH="$REPO_ROOT/dist/tui/murmur-tui-$OS-$ARCH.tar.gz"
+
+if [[ -z "$WHEEL_PATH" ]] || [[ ! -f "$WHEEL_PATH" ]]; then
   echo "Error: No wheel found in dist/. Run without --skip-build." >&2
   exit 1
 fi
-if [ ! -f "$TUI_PATH" ]; then
+if [[ ! -f "$TUI_PATH" ]]; then
   echo "Error: TUI tarball not found at $TUI_PATH. Run without --skip-build." >&2
   exit 1
 fi
@@ -135,7 +155,7 @@ git -C "$TAP_DIR" config user.email "local-test@localhost"
   --wheel-sha256 "$WHEEL_SHA" \
   --tui-url "file://$TUI_PATH" \
   --tui-sha256 "$TUI_SHA" \
-  --repository "local/whisper-local" \
+  --repository "local/murmur" \
   --tap-repo-path "$TAP_DIR"
 
 git -C "$TAP_DIR" add -A
@@ -152,20 +172,20 @@ brew tap "$TAP_NAME" "$TAP_DIR"
 # 4. Validate
 # ---------------------------------------------------------------------------
 echo "==> Running brew style..."
-if [ "$STRICT" = true ]; then
+if [[ "$STRICT" = true ]]; then
   brew style --formula "$TAP_NAME/$FORMULA_NAME"
 else
   brew style --formula "$TAP_NAME/$FORMULA_NAME" || true
 fi
 
 echo "==> Running brew audit..."
-if [ "$STRICT" = true ]; then
+if [[ "$STRICT" = true ]]; then
   brew audit --formula "$TAP_NAME/$FORMULA_NAME"
 else
   brew audit --formula "$TAP_NAME/$FORMULA_NAME" || true
 fi
 
-if [ "$AUDIT_ONLY" = true ]; then
+if [[ "$AUDIT_ONLY" = true ]]; then
   echo "==> Done (--audit-only). Skipping install."
   exit 0
 fi

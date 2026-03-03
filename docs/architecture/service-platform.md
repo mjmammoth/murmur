@@ -7,7 +7,7 @@ Accepted
 2026-02-23
 
 ## Context
-`whisper.local` is evolving from a single process (bridge + TUI lifecycle coupled) to a service-first model with:
+`murmur` is evolving from a single process (bridge + TUI lifecycle coupled) to a service-first model with:
 
 - background backend lifecycle independent from the TUI
 - attachable/detachable TUI sessions
@@ -23,34 +23,34 @@ To avoid repeated refactors, we need explicit contracts for:
 We define and own these contracts:
 
 1. Platform contracts
-- `src/whisper_local/platform/capabilities.py`
-  - `PlatformCapabilities` includes:
-    - `hotkey_capture`
-    - `hotkey_swallow`
-    - `status_indicator`
-    - `auto_paste`
-    - `hotkey_guidance`
-- `src/whisper_local/platform/providers.py`
-  - `HotkeyProvider`
-  - `StatusIndicatorProvider`
-  - `PasteProvider`
-- `src/whisper_local/platform/factory.py`
-  - capability detection
-  - provider construction
-  - hotkey validation
+   - `src/murmur/platform/capabilities.py`
+     - `PlatformCapabilities` includes:
+       - `hotkey_capture`
+       - `hotkey_swallow`
+       - `status_indicator`
+       - `auto_paste`
+       - `hotkey_guidance`
+   - `src/murmur/platform/providers.py`
+     - `HotkeyProvider`
+     - `StatusIndicatorProvider`
+     - `PasteProvider`
+   - `src/murmur/platform/factory.py`
+     - capability detection
+     - provider construction
+     - hotkey validation
 
 2. Service state contracts
-- `src/whisper_local/service_state.py`
-  - state directory: `~/.local/state/whisper.local`
-  - service file: `service.json`
-  - transcript database: `transcripts.sqlite3`
-  - typed `ServiceState` and `ServiceStatus`
+   - `src/murmur/service_state.py`
+     - state directory: `~/.local/state/murmur`
+     - service file: `service.json`
+     - transcript database: `transcripts.sqlite3`
+     - typed `ServiceState` and `ServiceStatus`
 
 3. Transcript persistence contract
-- `src/whisper_local/transcript_store.py`
-  - SQLite-backed transcript records
-  - bounded retention via config (`history.max_entries`)
-  - stable transcript message metadata (`id`, `created_at`)
+   - `src/murmur/transcript_store.py`
+     - SQLite-backed transcript records
+     - bounded retention via config (`history.max_entries`)
+     - stable transcript message metadata (`id`, `created_at`)
 
 ## Consequences
 - core runtime startup is platform-safe: macOS-only imports stay behind provider boundaries.

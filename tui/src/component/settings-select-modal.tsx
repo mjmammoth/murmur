@@ -412,7 +412,7 @@ export function SettingsSelectModal(): JSX.Element {
     if (options.length === 0) return;
     let next = selectedIndex();
 
-    for (let i = 0; i < options.length; i++) {
+    for (const _ of options) {
       next += delta;
       if (next < 0) next = options.length - 1;
       if (next >= options.length) next = 0;
@@ -678,14 +678,16 @@ export function SettingsSelectModal(): JSX.Element {
                       <text>
                         <span
                           style={{
-                            fg: isCurrent()
-                              ? option.disabled
-                                ? colors().warning
-                                : colors().success
-                              : colors().textDim,
+                            fg: (() => {
+                              if (!isCurrent()) return colors().textDim;
+                              return option.disabled ? colors().warning : colors().success;
+                            })(),
                           }}
                         >
-                          {isCurrent() ? "current" : option.disabled ? "disabled" : ""}
+                          {(() => {
+                            if (isCurrent()) return "current";
+                            return option.disabled ? "disabled" : "";
+                          })()}
                         </span>
                       </text>
                     </box>

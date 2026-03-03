@@ -1,4 +1,4 @@
-import { createContext, useContext, type JSX, type Accessor } from "solid-js";
+import { createContext, useContext } from "solid-js";
 
 /**
  * Create a typed context with a custom hook.

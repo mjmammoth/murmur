@@ -66,10 +66,10 @@ def main() -> int:
         result = termtosvg_main()
     except SystemExit as exc:
         code = exc.code
-        if code is None:
-            return 0
         if isinstance(code, int):
             return code
+        if code is None:
+            return 0
         return 1
     except Exception as exc:  # pragma: no cover - runtime passthrough guard
         print(f"termtosvg failed: {exc}", file=sys.stderr)

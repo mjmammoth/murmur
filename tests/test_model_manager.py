@@ -7,8 +7,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from whisper_local import model_manager
-from whisper_local.model_manager import (
+from murmur import model_manager
+from murmur.model_manager import (
     DownloadCancelledError,
     ModelInfo,
     ModelVariantInfo,
@@ -23,9 +23,9 @@ from whisper_local.model_manager import (
     remove_model,
     set_default_model,
     set_selected_model,
-    whisper_local_model_cache_paths,
+    murmur_model_cache_paths,
 )
-from whisper_local.model_ops import (
+from murmur.model_ops import (
     FasterWhisperModelRuntimeOperations,
     WhisperCppModelRuntimeOperations,
     get_model_runtime_operations_factory,
@@ -106,10 +106,10 @@ def test_model_cache_path(monkeypatch):
     assert str(cache_path).endswith("models--Systran--faster-whisper-tiny")
 
 
-def test_whisper_local_model_cache_paths_deduplicated_and_scoped(tmp_path: Path, monkeypatch) -> None:
+def test_murmur_model_cache_paths_deduplicated_and_scoped(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
 
-    paths = whisper_local_model_cache_paths()
+    paths = murmur_model_cache_paths()
     assert paths
     assert len(paths) == len(set(paths))
     assert paths[0] == model_manager._model_cache_paths(model_manager.MODEL_NAMES[0])[0]
@@ -383,7 +383,7 @@ def test_remove_model_removes_primary_and_alias_cache_paths(
     )
 
 
-@patch('whisper_local.model_manager.config_module')
+@patch('murmur.model_manager.config_module')
 def test_set_selected_model(mock_config_module):
     """Test set_selected_model updates config correctly."""
     mock_config = Mock()
@@ -397,7 +397,7 @@ def test_set_selected_model(mock_config_module):
     mock_config_module.save_config.assert_called_once_with(mock_config, None)
 
 
-@patch('whisper_local.model_manager.config_module')
+@patch('murmur.model_manager.config_module')
 def test_set_selected_model_with_path(mock_config_module):
     """Test set_selected_model with custom config path."""
     mock_config = Mock()
@@ -412,14 +412,14 @@ def test_set_selected_model_with_path(mock_config_module):
     mock_config_module.save_config.assert_called_once_with(mock_config, config_path)
 
 
-@patch('whisper_local.model_manager.config_module')
+@patch('murmur.model_manager.config_module')
 def test_set_selected_model_invalid_name(mock_config_module):
     """Test set_selected_model rejects unknown model name."""
     with pytest.raises(ValueError, match="Unknown model"):
         set_selected_model("invalid-model")
 
 
-@patch('whisper_local.model_manager.config_module')
+@patch('murmur.model_manager.config_module')
 def test_set_default_model_is_alias(mock_config_module):
     """Test set_default_model is an alias for set_selected_model."""
     mock_config = Mock()
@@ -432,7 +432,7 @@ def test_set_default_model_is_alias(mock_config_module):
     mock_config_module.save_config.assert_called_once()
 
 
-@patch('whisper_local.model_manager.snapshot_download')
+@patch('murmur.model_manager.snapshot_download')
 def test_download_model_success(mock_snapshot_download, tmp_path: Path):
     """Test download_model downloads successfully."""
     mock_snapshot_download.return_value = str(tmp_path / "model")
@@ -445,7 +445,7 @@ def test_download_model_success(mock_snapshot_download, tmp_path: Path):
     assert args[1]['repo_id'] == "Systran/faster-whisper-tiny"
 
 
-@patch('whisper_local.model_manager.snapshot_download')
+@patch('murmur.model_manager.snapshot_download')
 def test_download_model_with_progress_callback(mock_snapshot_download, tmp_path: Path):
     """Test download_model calls progress callback."""
     mock_snapshot_download.return_value = str(tmp_path / "model")
@@ -459,7 +459,7 @@ def test_download_model_with_progress_callback(mock_snapshot_download, tmp_path:
     assert 'tqdm_class' in args[1]
 
 
-@patch('whisper_local.model_manager.snapshot_download')
+@patch('murmur.model_manager.snapshot_download')
 def test_download_model_cancelled_before_start(mock_snapshot_download):
     """Test download_model raises DownloadCancelledError if cancelled before start."""
     cancel_check = Mock(return_value=True)
@@ -470,7 +470,7 @@ def test_download_model_cancelled_before_start(mock_snapshot_download):
     mock_snapshot_download.assert_not_called()
 
 
-@patch('whisper_local.model_manager.snapshot_download')
+@patch('murmur.model_manager.snapshot_download')
 def test_download_model_cancelled_during_transfer(mock_snapshot_download):
     """Test download_model raises DownloadCancelledError if cancelled during transfer."""
     cancel_check = Mock(side_effect=[False, True])  # First call False, second True
@@ -479,8 +479,8 @@ def test_download_model_cancelled_during_transfer(mock_snapshot_download):
         download_model("tiny", progress_callback=lambda x: None, cancel_check=cancel_check)
 
 
-@patch('whisper_local.model_manager._download_model_in_subprocess')
-@patch('whisper_local.model_manager.snapshot_download')
+@patch('murmur.model_manager._download_model_in_subprocess')
+@patch('murmur.model_manager.snapshot_download')
 def test_download_model_retries_on_fd_error(mock_snapshot_download, mock_subprocess, tmp_path: Path):
     """Test download_model retries in subprocess on FD error."""
     mock_snapshot_download.side_effect = RuntimeError("fds_to_keep error")
@@ -492,7 +492,7 @@ def test_download_model_retries_on_fd_error(mock_snapshot_download, mock_subproc
     mock_subprocess.assert_called_once()
 
 
-@patch('whisper_local.model_manager.snapshot_download')
+@patch('murmur.model_manager.snapshot_download')
 def test_download_model_reraises_other_errors(mock_snapshot_download):
     """Test download_model re-raises non-FD errors."""
     mock_snapshot_download.side_effect = RuntimeError("Some other error")
@@ -501,8 +501,8 @@ def test_download_model_reraises_other_errors(mock_snapshot_download):
         download_model("tiny")
 
 
-@patch('whisper_local.model_manager.get_installed_model_path')
-@patch('whisper_local.model_manager.download_model')
+@patch('murmur.model_manager.get_installed_model_path')
+@patch('murmur.model_manager.download_model')
 def test_ensure_model_available_already_installed(mock_download, mock_get_path, tmp_path: Path):
     """Test ensure_model_available returns existing path if model installed."""
     mock_get_path.return_value = tmp_path / "model"
@@ -513,8 +513,8 @@ def test_ensure_model_available_already_installed(mock_download, mock_get_path, 
     mock_download.assert_not_called()
 
 
-@patch('whisper_local.model_manager.get_installed_model_path')
-@patch('whisper_local.model_manager.download_model')
+@patch('murmur.model_manager.get_installed_model_path')
+@patch('murmur.model_manager.download_model')
 def test_ensure_model_available_downloads_if_missing(mock_download, mock_get_path, tmp_path: Path):
     """Test ensure_model_available downloads if model not installed."""
     mock_get_path.return_value = None
@@ -560,7 +560,7 @@ def test_model_size_cache_is_thread_safe():
     assert len(model_manager._MODEL_SIZE_CACHE) == 10
 
 
-@patch('whisper_local.model_manager.HfApi')
+@patch('murmur.model_manager.HfApi')
 def test_resolve_repo_total_bytes_success(mock_hf_api):
     """Test _resolve_repo_total_bytes calculates total correctly."""
     mock_info = Mock()
@@ -578,7 +578,7 @@ def test_resolve_repo_total_bytes_success(mock_hf_api):
     assert result == 6000
 
 
-@patch('whisper_local.model_manager.HfApi')
+@patch('murmur.model_manager.HfApi')
 def test_resolve_repo_total_bytes_api_error(mock_hf_api):
     """Test _resolve_repo_total_bytes returns None on API error."""
     mock_api_instance = Mock()
@@ -590,7 +590,7 @@ def test_resolve_repo_total_bytes_api_error(mock_hf_api):
     assert result is None
 
 
-@patch('whisper_local.model_manager.HfApi')
+@patch('murmur.model_manager.HfApi')
 def test_resolve_repo_total_bytes_no_siblings(mock_hf_api):
     """Test _resolve_repo_total_bytes returns None when no siblings."""
     mock_info = Mock()
@@ -626,7 +626,7 @@ def test_download_model_uses_factory_strategy():
     fake_factory = Mock()
     fake_factory.for_runtime.return_value = fake_ops
 
-    with patch("whisper_local.model_manager.get_model_runtime_operations_factory", return_value=fake_factory):
+    with patch("murmur.model_manager.get_model_runtime_operations_factory", return_value=fake_factory):
         result = download_model("tiny", runtime="whisper.cpp")
 
     assert result == Path("/tmp/model")
@@ -641,7 +641,7 @@ def test_download_model_uses_factory_strategy():
 def test_whisper_cpp_download_cancelled_before_start_raises():
     ops = WhisperCppModelRuntimeOperations()
 
-    with patch("whisper_local.model_manager.get_installed_whisper_cpp_model_path", return_value=None):
+    with patch("murmur.model_manager.get_installed_whisper_cpp_model_path", return_value=None):
         with pytest.raises(DownloadCancelledError, match="Download cancelled before start"):
             ops.download("tiny", cancel_check=lambda: True)
 
@@ -652,8 +652,8 @@ def test_whisper_cpp_download_cancelled_during_transfer_terminates_subprocess():
     process.poll.return_value = None
     process.wait.return_value = None
 
-    with patch("whisper_local.model_ops.subprocess.Popen", return_value=process), patch(
-        "whisper_local.model_manager._prune_whisper_cpp_cache"
+    with patch("murmur.model_ops.subprocess.Popen", return_value=process), patch(
+        "murmur.model_manager._prune_whisper_cpp_cache"
     ) as prune_cache:
         with pytest.raises(DownloadCancelledError, match="Download cancelled"):
             ops._download_file_in_subprocess(
@@ -674,8 +674,8 @@ def test_whisper_cpp_progress_uses_incremental_cache_delta():
     process.communicate.return_value = ("/tmp/model.bin\n", "")
     progress_updates: list[int] = []
 
-    with patch("whisper_local.model_ops.subprocess.Popen", return_value=process), patch(
-        "whisper_local.model_manager._cache_path_size_bytes",
+    with patch("murmur.model_ops.subprocess.Popen", return_value=process), patch(
+        "murmur.model_manager._cache_path_size_bytes",
         side_effect=[1000, 1200],
     ):
         result = ops._download_file_in_subprocess(
@@ -780,7 +780,7 @@ def test_make_progress_tqdm_non_download_bar_update_ignored():
 # _resolve_repo_file_size_bytes
 # ---------------------------------------------------------------------------
 
-@patch("whisper_local.model_manager.HfApi")
+@patch("murmur.model_manager.HfApi")
 def test_resolve_repo_file_size_bytes_match(mock_hf_api):
     mock_sibling = Mock()
     mock_sibling.rfilename = "model.bin"
@@ -793,7 +793,7 @@ def test_resolve_repo_file_size_bytes_match(mock_hf_api):
     assert result == 5000
 
 
-@patch("whisper_local.model_manager.HfApi")
+@patch("murmur.model_manager.HfApi")
 def test_resolve_repo_file_size_bytes_no_match(mock_hf_api):
     mock_sibling = Mock()
     mock_sibling.rfilename = "other.bin"
@@ -806,7 +806,7 @@ def test_resolve_repo_file_size_bytes_no_match(mock_hf_api):
     assert result is None
 
 
-@patch("whisper_local.model_manager.HfApi")
+@patch("murmur.model_manager.HfApi")
 def test_resolve_repo_file_size_bytes_api_error(mock_hf_api):
     mock_hf_api.return_value.model_info.side_effect = Exception("API error")
     result = model_manager._resolve_repo_file_size_bytes("test/repo", "model.bin")

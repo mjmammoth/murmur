@@ -37,6 +37,15 @@ export function ToastContextProvider(props: { children: JSX.Element }): JSX.Elem
   const [toasts, setToasts] = createSignal<Toast[]>([]);
   let nextId = 0;
   const lastLogAtByKey = new Map<string, number>();
+  const dismissTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+  function scheduleDismiss(id: number) {
+    const timer = setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+      dismissTimers.delete(id);
+    }, TOAST_DURATION);
+    dismissTimers.set(id, timer);
+  }
 
   function addToast(message: string, level: "info" | "error", meta?: ToastMeta) {
     const id = nextId++;
@@ -61,10 +70,7 @@ export function ToastContextProvider(props: { children: JSX.Element }): JSX.Elem
       }
     }
 
-    // Auto-dismiss
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, TOAST_DURATION);
+    scheduleDismiss(id);
   }
 
   function showToast(message: string, meta?: ToastMeta) {
@@ -82,6 +88,10 @@ export function ToastContextProvider(props: { children: JSX.Element }): JSX.Elem
     });
     onCleanup(() => {
       disposeToast();
+      for (const timer of dismissTimers.values()) {
+        clearTimeout(timer);
+      }
+      dismissTimers.clear();
     });
   });
 

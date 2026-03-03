@@ -5,13 +5,11 @@ describe("Home route welcome auto-open guard", () => {
     const welcomeShown = false;
     const firstRunSetupRequired = true;
     const hasConfig = true;
-    const hasModels = true;
     const currentDialog = { type: "settings-select" };
 
     const shouldOpenWelcome =
       !(welcomeShown && !firstRunSetupRequired) &&
       hasConfig &&
-      hasModels &&
       !currentDialog;
 
     expect(shouldOpenWelcome).toBe(false);
@@ -21,16 +19,36 @@ describe("Home route welcome auto-open guard", () => {
     const welcomeShown = false;
     const firstRunSetupRequired = true;
     const hasConfig = true;
-    const hasModels = true;
     const currentDialog = null;
 
     const shouldOpenWelcome =
       !(welcomeShown && !firstRunSetupRequired) &&
       hasConfig &&
-      hasModels &&
       !currentDialog;
 
     expect(shouldOpenWelcome).toBe(true);
+  });
+
+  test("should auto-open welcome while first-run remains pending even if models are not loaded", () => {
+    const firstRunSetupRequired = true;
+    const hasConfig = true;
+    const hasModels = false;
+    const currentDialog = null;
+    const welcomeShownBeforeConfigSync = false;
+    const welcomeShownAfterConfigSync = true;
+
+    const shouldOpenBeforeSync =
+      !(welcomeShownBeforeConfigSync && !firstRunSetupRequired) &&
+      hasConfig &&
+      !currentDialog;
+    const shouldOpenAfterSync =
+      !(welcomeShownAfterConfigSync && !firstRunSetupRequired) &&
+      hasConfig &&
+      !currentDialog;
+
+    expect(hasModels).toBe(false);
+    expect(shouldOpenBeforeSync).toBe(true);
+    expect(shouldOpenAfterSync).toBe(true);
   });
 });
 

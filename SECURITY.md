@@ -11,7 +11,7 @@
 
 Please report vulnerabilities privately through GitHub Security Advisories:
 
-- https://github.com/mjmammoth/whisper.local/security/advisories/new
+- https://github.com/mjmammoth/murmur/security/advisories/new
 
 Do not open public GitHub issues for security vulnerabilities.
 

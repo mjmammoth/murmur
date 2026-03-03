@@ -11,16 +11,16 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import NoReturn, cast
 
-from whisper_local import __version__
-from whisper_local.archive_extract import ArchiveExtractionError, install_tui_binary_from_archive
-from whisper_local.service_manager import ServiceManager
+from murmur import __version__
+from murmur.archive_extract import ArchiveExtractionError, install_tui_binary_from_archive
+from murmur.service_manager import ServiceManager
 
 
-DEFAULT_REPOSITORY = os.environ.get("WHISPER_LOCAL_REPO", "mjmammoth/whisper.local")
+DEFAULT_REPOSITORY = os.environ.get("MURMUR_REPO", "mjmammoth/murmur")
 DEFAULT_EXPECTED_SIGNING_FINGERPRINT = "031A071DD2F8736D5AB270EF239D1750F8F92826"
-INSTALLER_HOME = Path("~/.local/share/whisper.local").expanduser()
+INSTALLER_HOME = Path("~/.local/share/murmur").expanduser()
 INSTALLER_MANIFEST_NAME = "install-manifest.json"
 INSTALLER_MANIFEST = INSTALLER_HOME / INSTALLER_MANIFEST_NAME
 CHECKSUM_MANIFEST_NAMES = {"checksums.txt", "checksums.sha256", "checksums.sha256sum"}
@@ -139,7 +139,7 @@ def read_install_manifest(
 
 def _looks_like_homebrew_install(executable: Path) -> bool:
     executable_text = str(executable)
-    if "Cellar/whisper-local" in executable_text:
+    if "Cellar/murmur" in executable_text:
         return True
 
     brew_bin = shutil.which("brew")
@@ -148,7 +148,7 @@ def _looks_like_homebrew_install(executable: Path) -> bool:
 
     try:
         result = subprocess.run(
-            [brew_bin, "--prefix", "whisper-local"],
+            [brew_bin, "--prefix", "murmur"],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -199,20 +199,20 @@ def _normalize_fingerprint(value: str) -> str:
 
 def _expected_signing_fingerprint() -> str:
     configured = os.environ.get(
-        "WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT",
+        "MURMUR_SIGNING_KEY_FINGERPRINT",
         DEFAULT_EXPECTED_SIGNING_FINGERPRINT,
     )
     fingerprint = _normalize_fingerprint(configured)
     if not fingerprint:
         raise UpgradeError(
             "Upgrade verification failed: signing key fingerprint is empty "
-            "(set WHISPER_LOCAL_SIGNING_KEY_FINGERPRINT)."
+            "(set MURMUR_SIGNING_KEY_FINGERPRINT)."
         )
     return fingerprint
 
 
 def _signing_key_url_for_repository(repository: str) -> str:
-    override = os.environ.get("WHISPER_LOCAL_SIGNING_KEY_URL")
+    override = os.environ.get("MURMUR_SIGNING_KEY_URL")
     if override and override.strip():
         return override.strip()
 
@@ -229,7 +229,7 @@ def _github_get_json(url: str) -> dict[str, object]:
         url,
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "whisper-local-upgrade",
+            "User-Agent": "murmur-upgrade",
         },
     )
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -263,7 +263,7 @@ def _classify_assets(
     wheel_assets: list[dict[str, object]] = []
     tui_asset: dict[str, object] | None = None
     checksums_asset: dict[str, object] | None = None
-    expected_tui = f"whisper-local-tui-{target_name}.tar.gz"
+    expected_tui = f"murmur-tui-{target_name}.tar.gz"
 
     for name, asset in named_assets:
         if name.endswith(".whl"):
@@ -395,7 +395,6 @@ def resolve_release_assets(
 
 def _download_to_file(url: str, destination: Path, *, max_attempts: int = 3) -> None:
     import logging
-    import socket
     import time
     import urllib.error
 
@@ -404,9 +403,11 @@ def _download_to_file(url: str, destination: Path, *, max_attempts: int = 3) -> 
         url,
         headers={
             "Accept": "application/octet-stream",
-            "User-Agent": "whisper-local-upgrade",
+            "User-Agent": "murmur-upgrade",
         },
     )
+    if max_attempts <= 0:
+        raise ValueError(f"max_attempts must be positive, got {max_attempts}")
     last_exc: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
@@ -418,7 +419,7 @@ def _download_to_file(url: str, destination: Path, *, max_attempts: int = 3) -> 
                             break
                         handle.write(chunk)
             return
-        except (urllib.error.URLError, socket.timeout, OSError) as exc:
+        except OSError as exc:
             last_exc = exc
             if attempt < max_attempts:
                 delay = 2 ** (attempt - 1)
@@ -523,7 +524,7 @@ def _verify_release_signature(
     signing_key_url = _signing_key_url_for_repository(repository)
 
     with _temporary_directory(
-        prefix="whisper-local-upgrade-gpg-",
+        prefix="murmur-upgrade-gpg-",
         base_dir=temp_dir_base,
     ) as tmp_dir:
         tmp_root = Path(tmp_dir)
@@ -601,8 +602,8 @@ def _verify_downloaded_release_assets(
 
 def _expected_tui_binary_name(target: str) -> str:
     if target.startswith("windows-"):
-        return "whisper-local-tui.exe"
-    return "whisper-local-tui"
+        return "murmur-tui.exe"
+    return "murmur-tui"
 
 
 def _installed_version(python_executable: str) -> str:
@@ -611,7 +612,7 @@ def _installed_version(python_executable: str) -> str:
             [
                 python_executable,
                 "-c",
-                "import whisper_local; print(whisper_local.__version__)",
+                "import murmur; print(murmur.__version__)",
             ],
             check=True,
             stdout=subprocess.PIPE,
@@ -626,8 +627,92 @@ def _installed_version(python_executable: str) -> str:
 
 def _guidance_command_for_channel(channel: str) -> str:
     if channel == "homebrew":
-        return "brew update && brew upgrade whisper-local"
-    return "python -m pip install -U whisper-local"
+        return "brew update && brew upgrade murmur"
+    return "python -m pip install -U murmur"
+
+
+def _download_release_to_temp(
+    assets: ReleaseAssetBundle,
+    tmp_root: Path,
+    installer_home: Path,
+) -> None:
+    """Download and verify all release assets into a temporary directory."""
+    wheel_path = tmp_root / assets.wheel_name
+    tui_path = tmp_root / assets.tui_name
+    checksums_path = tmp_root / assets.checksums_name
+    signature_path = tmp_root / assets.signature_name
+
+    _download_to_file(assets.wheel_url, wheel_path)
+    _download_to_file(assets.tui_url, tui_path)
+    _download_to_file(assets.checksums_url, checksums_path)
+    _download_to_file(assets.signature_url, signature_path)
+
+    _verify_downloaded_release_assets(
+        bundle=assets,
+        checksums_path=checksums_path,
+        signature_path=signature_path,
+        wheel_path=wheel_path,
+        tui_path=tui_path,
+        temp_dir_base=installer_home,
+    )
+
+
+def _install_release_from_temp(
+    assets: ReleaseAssetBundle,
+    tmp_root: Path,
+    installer_home: Path,
+) -> None:
+    """Install wheel and TUI binary from a verified temp directory."""
+    wheel_path = tmp_root / assets.wheel_name
+    tui_path = tmp_root / assets.tui_name
+
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir", str(wheel_path)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        details = (exc.stdout or "") + (exc.stderr or "")
+        raise UpgradeError(f"pip install failed: {details.strip()}") from exc
+
+    target_dir = installer_home / "tui" / assets.target
+    expected_binary_name = _expected_tui_binary_name(assets.target)
+    try:
+        install_tui_binary_from_archive(
+            archive_path=tui_path,
+            target_dir=target_dir,
+            expected_binary_name=expected_binary_name,
+        )
+    except ArchiveExtractionError as exc:
+        raise UpgradeError(str(exc)) from exc
+
+
+def _handle_upgrade_failure(
+    exc: Exception,
+    was_running: bool,
+    manager: ServiceManager,
+    host: str,
+    port: int,
+    status_indicator: bool,
+) -> NoReturn:
+    """Attempt to restart service after a failed upgrade and raise an appropriate error."""
+    restart_exc: Exception | None = None
+    if was_running:
+        try:
+            manager.start_background(host=host, port=port, status_indicator=status_indicator)
+        except Exception as restart_error:
+            restart_exc = restart_error
+
+    if restart_exc is not None:
+        base_msg = str(exc) if isinstance(exc, UpgradeError) else f"Upgrade failed: {exc}"
+        raise UpgradeError(
+            f"{base_msg}; additionally failed to restart service: {restart_exc}"
+        ) from exc
+    msg = str(exc) if isinstance(exc, UpgradeError) else f"Upgrade failed: {exc}"
+    raise UpgradeError(msg) from exc
 
 
 def run_upgrade(
@@ -659,50 +744,12 @@ def run_upgrade(
         )
 
         with _temporary_directory(
-            prefix="whisper-local-upgrade-",
+            prefix="murmur-upgrade-",
             base_dir=installer_home,
         ) as tmp_dir:
             tmp_root = Path(tmp_dir)
-            wheel_path = tmp_root / assets.wheel_name
-            tui_path = tmp_root / assets.tui_name
-            checksums_path = tmp_root / assets.checksums_name
-            signature_path = tmp_root / assets.signature_name
-
-            _download_to_file(assets.wheel_url, wheel_path)
-            _download_to_file(assets.tui_url, tui_path)
-            _download_to_file(assets.checksums_url, checksums_path)
-            _download_to_file(assets.signature_url, signature_path)
-
-            _verify_downloaded_release_assets(
-                bundle=assets,
-                checksums_path=checksums_path,
-                signature_path=signature_path,
-                wheel_path=wheel_path,
-                tui_path=tui_path,
-                temp_dir_base=installer_home,
-            )
-
-            try:
-                subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir", str(wheel_path)],
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
-            except subprocess.CalledProcessError as exc:
-                details = (exc.stdout or "") + (exc.stderr or "")
-                raise UpgradeError(f"pip install failed: {details.strip()}") from exc
-            target_dir = installer_home / "tui" / assets.target
-            expected_binary_name = _expected_tui_binary_name(assets.target)
-            try:
-                install_tui_binary_from_archive(
-                    archive_path=tui_path,
-                    target_dir=target_dir,
-                    expected_binary_name=expected_binary_name,
-                )
-            except ArchiveExtractionError as exc:
-                raise UpgradeError(str(exc)) from exc
+            _download_release_to_temp(assets, tmp_root, installer_home)
+            _install_release_from_temp(assets, tmp_root, installer_home)
 
         restarted_service = False
         if was_running:
@@ -718,20 +765,4 @@ def run_upgrade(
             restarted_service=restarted_service,
         )
     except Exception as exc:
-        restart_exc: Exception | None = None
-        if was_running:
-            try:
-                manager.start_background(host=host, port=port, status_indicator=status_indicator)
-            except Exception as restart_error:
-                restart_exc = restart_error
-        if restart_exc is not None:
-            if isinstance(exc, UpgradeError):
-                raise UpgradeError(
-                    f"{exc}; additionally failed to restart service: {restart_exc}"
-                ) from exc
-            raise UpgradeError(
-                f"Upgrade failed: {exc}; additionally failed to restart service: {restart_exc}"
-            ) from exc
-        if isinstance(exc, UpgradeError):
-            raise
-        raise UpgradeError(f"Upgrade failed: {exc}") from exc
+        _handle_upgrade_failure(exc, was_running, manager, host, port, status_indicator)

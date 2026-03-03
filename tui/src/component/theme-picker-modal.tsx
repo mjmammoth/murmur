@@ -10,6 +10,13 @@ interface ThemePickerDialogData {
   returnFilterQuery?: string;
 }
 
+function badgeTextFor(themeOptionId: string, active: boolean): string {
+  const labels: string[] = [];
+  if (active) labels.push("active");
+  if (themeOptionId === "dark") labels.push("default");
+  return labels.join(" ");
+}
+
 /**
  * Render the theme picker modal with live preview, keyboard navigation, and mouse interactions.
  *
@@ -63,7 +70,7 @@ export function ThemePickerModal(): JSX.Element {
     const current = themeId();
     setInitialThemeId(current);
     const index = availableThemes.findIndex((theme) => theme.id === current);
-    setSelectedIndex(index >= 0 ? index : 0);
+    setSelectedIndex(Math.max(index, 0));
   });
 
   createEffect(() => {
@@ -124,13 +131,6 @@ export function ThemePickerModal(): JSX.Element {
     if (!selected) return;
     persistTheme(selected.id);
     closeModal();
-  }
-
-  function badgeTextFor(themeOptionId: string, active: boolean): string {
-    const labels: string[] = [];
-    if (active) labels.push("active");
-    if (themeOptionId === "dark") labels.push("default");
-    return labels.join(" ");
   }
 
   createEffect(() => {

@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-from whisper_local.transcribe import (
+from murmur.transcribe import (
     FasterWhisperRuntime,
     TranscriptionResult,
     Transcriber,
@@ -52,7 +52,7 @@ def test_faster_whisper_runtime_resolve_model_source_from_cache():
     """Test FasterWhisperRuntime resolves model from cache."""
     runtime = FasterWhisperRuntime("tiny", "cpu", "int8")
 
-    with patch("whisper_local.transcribe.get_installed_model_path") as mock_path:
+    with patch("murmur.transcribe.get_installed_model_path") as mock_path:
         mock_path.return_value = Path("/cache/tiny")
         source = runtime._resolve_model_source()
 
@@ -64,7 +64,7 @@ def test_faster_whisper_runtime_resolve_model_source_not_installed():
     """Test FasterWhisperRuntime raises when model not installed."""
     runtime = FasterWhisperRuntime("tiny", "cpu", "int8")
 
-    with patch("whisper_local.transcribe.get_installed_model_path", return_value=None):
+    with patch("murmur.transcribe.get_installed_model_path", return_value=None):
         with pytest.raises(RuntimeError, match="is not installed"):
             runtime._resolve_model_source()
 
@@ -73,7 +73,7 @@ def test_faster_whisper_runtime_load_missing_package():
     """Test FasterWhisperRuntime.load raises when faster-whisper not available."""
     runtime = FasterWhisperRuntime("tiny", "cpu", "int8")
 
-    with patch("whisper_local.transcribe.WhisperModel", None):
+    with patch("murmur.transcribe.WhisperModel", None):
         with pytest.raises(RuntimeError, match="faster-whisper runtime unavailable"):
             runtime.load()
 
@@ -82,9 +82,9 @@ def test_faster_whisper_runtime_load_success():
     """Test FasterWhisperRuntime.load initializes model."""
     runtime = FasterWhisperRuntime("tiny", "cpu", "int8")
 
-    with patch("whisper_local.transcribe.WhisperModel") as mock_model_class, \
-         patch("whisper_local.transcribe.get_installed_model_path", return_value=Path("/cache/tiny")), \
-         patch("whisper_local.transcribe._resolve_faster_runtime", return_value=("cpu", "int8")):
+    with patch("murmur.transcribe.WhisperModel") as mock_model_class, \
+         patch("murmur.transcribe.get_installed_model_path", return_value=Path("/cache/tiny")), \
+         patch("murmur.transcribe._resolve_faster_runtime", return_value=("cpu", "int8")):
 
         mock_model = Mock()
         mock_model_class.return_value = mock_model
@@ -177,7 +177,7 @@ def test_faster_whisper_runtime_transcribe_resamples_audio():
     mock_model.transcribe.return_value = ([mock_segment], mock_info)
     runtime._model = mock_model
 
-    with patch("whisper_local.transcribe.resample_audio") as mock_resample:
+    with patch("murmur.transcribe.resample_audio") as mock_resample:
         mock_resample.return_value = audio
         runtime.transcribe(audio, 48000)
 
@@ -192,8 +192,8 @@ def test_faster_whisper_runtime_transcribe_subprocess():
     runtime = FasterWhisperRuntime("tiny", "cpu", "int8")
     audio = np.array([0.1, 0.2], dtype=np.float32)
 
-    with patch("whisper_local.transcribe.get_installed_model_path", return_value=Path("/cache/tiny")), \
-         patch("whisper_local.transcribe._resolve_faster_runtime", return_value=("cpu", "int8")), \
+    with patch("murmur.transcribe.get_installed_model_path", return_value=Path("/cache/tiny")), \
+         patch("murmur.transcribe._resolve_faster_runtime", return_value=("cpu", "int8")), \
          patch("subprocess.run") as mock_run:
 
         mock_result = Mock()
@@ -221,10 +221,10 @@ def test_faster_whisper_runtime_subprocess_uses_secure_temp_dir(tmp_path: Path):
         def __exit__(self, exc_type, exc_val, exc_tb):
             return False
 
-    with patch("whisper_local.transcribe.get_installed_model_path", return_value=Path("/cache/tiny")), patch(
-        "whisper_local.transcribe._resolve_faster_runtime", return_value=("cpu", "int8")
-    ), patch("whisper_local.transcribe._secure_temp_root", return_value=tmp_path), patch(
-        "whisper_local.transcribe.tempfile.NamedTemporaryFile"
+    with patch("murmur.transcribe.get_installed_model_path", return_value=Path("/cache/tiny")), patch(
+        "murmur.transcribe._resolve_faster_runtime", return_value=("cpu", "int8")
+    ), patch("murmur.transcribe._secure_temp_root", return_value=tmp_path), patch(
+        "murmur.transcribe.tempfile.NamedTemporaryFile"
     ) as mock_named_tmp, patch("subprocess.run") as mock_run:
         mock_named_tmp.return_value = TempHandle(tmp_path / "audio.npy")
         mock_result = Mock()
@@ -269,7 +269,7 @@ def test_whisper_cpp_runtime_load_binary_not_found():
     """Test WhisperCppRuntime.load raises when binary not found."""
     runtime = WhisperCppRuntime("tiny", "cpu", "default")
 
-    with patch("whisper_local.transcribe._resolve_whisper_cpp_binary", return_value=None):
+    with patch("murmur.transcribe._resolve_whisper_cpp_binary", return_value=None):
         with pytest.raises(RuntimeError, match="whisper.cpp runtime unavailable"):
             runtime.load()
 
@@ -278,8 +278,8 @@ def test_whisper_cpp_runtime_load_custom_model_directory():
     """Test WhisperCppRuntime.load resolves model from custom directory."""
     runtime = WhisperCppRuntime("tiny", "cpu", "default", model_path="/models")
 
-    with patch("whisper_local.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
-         patch("whisper_local.transcribe._detect_whisper_cpp_gpu_control", return_value="no-gpu"):
+    with patch("murmur.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
+         patch("murmur.transcribe._detect_whisper_cpp_gpu_control", return_value="no-gpu"):
 
         mock_path = Mock(spec=Path)
         mock_path.is_dir.return_value = True
@@ -297,8 +297,8 @@ def test_whisper_cpp_runtime_load_custom_model_file():
     """Test WhisperCppRuntime.load resolves custom model file."""
     runtime = WhisperCppRuntime("tiny", "cpu", "default", model_path="/models/custom.bin")
 
-    with patch("whisper_local.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
-         patch("whisper_local.transcribe._detect_whisper_cpp_gpu_control", return_value="no-gpu"):
+    with patch("murmur.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
+         patch("murmur.transcribe._detect_whisper_cpp_gpu_control", return_value="no-gpu"):
 
         mock_path = Mock(spec=Path)
         mock_path.is_dir.return_value = False
@@ -315,8 +315,8 @@ def test_whisper_cpp_runtime_load_model_not_found():
     """Test WhisperCppRuntime.load raises when model file doesn't exist."""
     runtime = WhisperCppRuntime("tiny", "cpu", "default", model_path="/nonexistent.bin")
 
-    with patch("whisper_local.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
-         patch("whisper_local.transcribe._detect_whisper_cpp_gpu_control", return_value="no-gpu"):
+    with patch("murmur.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
+         patch("murmur.transcribe._detect_whisper_cpp_gpu_control", return_value="no-gpu"):
 
         mock_path = Mock(spec=Path)
         mock_path.is_dir.return_value = False
@@ -331,9 +331,9 @@ def test_whisper_cpp_runtime_load_from_cache():
     """Test WhisperCppRuntime.load loads model from cache."""
     runtime = WhisperCppRuntime("tiny", "cpu", "default")
 
-    with patch("whisper_local.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
-         patch("whisper_local.transcribe._detect_whisper_cpp_gpu_control", return_value="no-gpu"), \
-         patch("whisper_local.transcribe.get_installed_model_path", return_value=Path("/cache/ggml-tiny.bin")):
+    with patch("murmur.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
+         patch("murmur.transcribe._detect_whisper_cpp_gpu_control", return_value="no-gpu"), \
+         patch("murmur.transcribe.get_installed_model_path", return_value=Path("/cache/ggml-tiny.bin")):
 
         runtime.load()
 
@@ -350,7 +350,7 @@ def test_whisper_cpp_runtime_transcribe():
     audio = np.array([0.1, 0.2], dtype=np.float32)
 
     with patch("subprocess.run") as mock_run, \
-         patch("whisper_local.transcribe._write_wav_mono16"):
+         patch("murmur.transcribe._write_wav_mono16"):
 
         mock_result = Mock()
         mock_result.returncode = 0
@@ -388,10 +388,10 @@ def test_whisper_cpp_runtime_transcribe_uses_secure_temp_dir(tmp_path: Path):
         def __exit__(self, exc_type, exc_val, exc_tb):
             return False
 
-    with patch("whisper_local.transcribe._secure_temp_root", return_value=tmp_path), patch(
-        "whisper_local.transcribe.tempfile.TemporaryDirectory"
+    with patch("murmur.transcribe._secure_temp_root", return_value=tmp_path), patch(
+        "murmur.transcribe.tempfile.TemporaryDirectory"
     ) as mock_tmp_dir, patch("subprocess.run") as mock_run, patch(
-        "whisper_local.transcribe._write_wav_mono16"
+        "murmur.transcribe._write_wav_mono16"
     ), patch("pathlib.Path.exists", return_value=False):
         mock_tmp_dir.return_value = TempDirContext(tmp_path)
         mock_result = Mock()
@@ -405,7 +405,7 @@ def test_whisper_cpp_runtime_transcribe_uses_secure_temp_dir(tmp_path: Path):
     assert mock_tmp_dir.call_count == 1
     kwargs = mock_tmp_dir.call_args.kwargs
     assert kwargs["dir"] == str(tmp_path)
-    assert kwargs["prefix"] == "whisper-local-whispercpp-"
+    assert kwargs["prefix"] == "murmur-whispercpp-"
     assert result.text == "whisper output"
     assert result.language == "en"
 
@@ -420,7 +420,7 @@ def test_whisper_cpp_runtime_transcribe_with_gpu_device():
     audio = np.array([0.1, 0.2], dtype=np.float32)
 
     with patch("subprocess.run") as mock_run, \
-         patch("whisper_local.transcribe._write_wav_mono16"), \
+         patch("murmur.transcribe._write_wav_mono16"), \
          patch("pathlib.Path.exists", return_value=True), \
          patch("pathlib.Path.read_text", return_value="test"):
 
@@ -446,7 +446,7 @@ def test_whisper_cpp_runtime_transcribe_failure():
     audio = np.array([0.1, 0.2], dtype=np.float32)
 
     with patch("subprocess.run") as mock_run, \
-         patch("whisper_local.transcribe._write_wav_mono16"):
+         patch("murmur.transcribe._write_wav_mono16"):
 
         mock_result = Mock()
         mock_result.returncode = 1
@@ -534,10 +534,10 @@ def test_transcriber_runtime_info():
 
 def test_detect_runtime_capabilities_faster_whisper_available():
     """Test detect_runtime_capabilities with faster-whisper available."""
-    with patch("whisper_local.transcribe.WhisperModel", Mock()), \
-         patch("whisper_local.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
-         patch("whisper_local.transcribe._supported_compute_types", return_value=["int8", "float32"]), \
-         patch("whisper_local.transcribe.ctranslate2") as mock_ct2:
+    with patch("murmur.transcribe.WhisperModel", Mock()), \
+         patch("murmur.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
+         patch("murmur.transcribe._supported_compute_types", return_value=["int8", "float32"]), \
+         patch("murmur.transcribe.ctranslate2") as mock_ct2:
 
         mock_ct2.get_cuda_device_count.return_value = 0
 
@@ -551,10 +551,10 @@ def test_detect_runtime_capabilities_faster_whisper_available():
 
 def test_detect_runtime_capabilities_cuda_available():
     """Test detect_runtime_capabilities with CUDA available."""
-    with patch("whisper_local.transcribe.WhisperModel", Mock()), \
-         patch("whisper_local.transcribe._resolve_whisper_cpp_binary", return_value=None), \
-         patch("whisper_local.transcribe._supported_compute_types", return_value=["float16", "int8"]), \
-         patch("whisper_local.transcribe.ctranslate2") as mock_ct2:
+    with patch("murmur.transcribe.WhisperModel", Mock()), \
+         patch("murmur.transcribe._resolve_whisper_cpp_binary", return_value=None), \
+         patch("murmur.transcribe._supported_compute_types", return_value=["float16", "int8"]), \
+         patch("murmur.transcribe.ctranslate2") as mock_ct2:
 
         mock_ct2.get_cuda_device_count.return_value = 1
 
@@ -566,10 +566,10 @@ def test_detect_runtime_capabilities_cuda_available():
 
 def test_detect_runtime_capabilities_whisper_cpp_macos():
     """Test detect_runtime_capabilities enables MPS on macOS."""
-    with patch("whisper_local.transcribe.WhisperModel", None), \
-         patch("whisper_local.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
-         patch("whisper_local.transcribe._supported_compute_types", return_value=[]), \
-         patch("whisper_local.transcribe.sys.platform", "darwin"):
+    with patch("murmur.transcribe.WhisperModel", None), \
+         patch("murmur.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
+         patch("murmur.transcribe._supported_compute_types", return_value=[]), \
+         patch("murmur.transcribe.sys.platform", "darwin"):
 
         caps = detect_runtime_capabilities("whisper.cpp")
 
@@ -578,10 +578,10 @@ def test_detect_runtime_capabilities_whisper_cpp_macos():
 
 def test_detect_runtime_capabilities_whisper_cpp_not_macos():
     """Test detect_runtime_capabilities disables MPS on non-macOS."""
-    with patch("whisper_local.transcribe.WhisperModel", None), \
-         patch("whisper_local.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
-         patch("whisper_local.transcribe._supported_compute_types", return_value=[]), \
-         patch("whisper_local.transcribe.sys.platform", "linux"):
+    with patch("murmur.transcribe.WhisperModel", None), \
+         patch("murmur.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"), \
+         patch("murmur.transcribe._supported_compute_types", return_value=[]), \
+         patch("murmur.transcribe.sys.platform", "linux"):
 
         caps = detect_runtime_capabilities("whisper.cpp")
 
@@ -591,14 +591,14 @@ def test_detect_runtime_capabilities_whisper_cpp_not_macos():
 
 def test_ensure_whisper_cpp_installed_success():
     """Test ensure_whisper_cpp_installed passes when installed."""
-    with patch("whisper_local.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"):
+    with patch("murmur.transcribe._resolve_whisper_cpp_binary", return_value="/usr/bin/whisper-cli"):
         # Should not raise
         ensure_whisper_cpp_installed()
 
 
 def test_ensure_whisper_cpp_installed_missing():
     """Test ensure_whisper_cpp_installed raises when not installed."""
-    with patch("whisper_local.transcribe._resolve_whisper_cpp_binary", return_value=None):
+    with patch("murmur.transcribe._resolve_whisper_cpp_binary", return_value=None):
         with pytest.raises(RuntimeError, match="whisper.cpp is required"):
             ensure_whisper_cpp_installed()
 
@@ -642,9 +642,9 @@ def test_resample_audio_empty_result():
 
 def test_resolve_faster_runtime_mps_fallback():
     """Test _resolve_faster_runtime falls back from MPS to CPU."""
-    from whisper_local.transcribe import _resolve_faster_runtime
+    from murmur.transcribe import _resolve_faster_runtime
 
-    with patch("whisper_local.transcribe.logger"):
+    with patch("murmur.transcribe.logger"):
         device, compute = _resolve_faster_runtime("mps", "int8")
         assert device == "cpu"
         assert compute == "int8"
@@ -652,9 +652,9 @@ def test_resolve_faster_runtime_mps_fallback():
 
 def test_resolve_faster_runtime_cpu_float16_fallback():
     """Test _resolve_faster_runtime falls back from float16 to int8 on CPU."""
-    from whisper_local.transcribe import _resolve_faster_runtime
+    from murmur.transcribe import _resolve_faster_runtime
 
-    with patch("whisper_local.transcribe.logger"):
+    with patch("murmur.transcribe.logger"):
         device, compute = _resolve_faster_runtime("cpu", "float16")
         assert device == "cpu"
         assert compute == "int8"
@@ -662,7 +662,7 @@ def test_resolve_faster_runtime_cpu_float16_fallback():
 
 def test_resolve_faster_runtime_cuda_float16():
     """Test _resolve_faster_runtime keeps float16 on CUDA."""
-    from whisper_local.transcribe import _resolve_faster_runtime
+    from murmur.transcribe import _resolve_faster_runtime
 
     device, compute = _resolve_faster_runtime("cuda", "float16")
     assert device == "cuda"
@@ -671,35 +671,35 @@ def test_resolve_faster_runtime_cuda_float16():
 
 def test_resolve_whispercpp_device_mps_macos():
     """Test _resolve_whispercpp_device returns mps on macOS."""
-    from whisper_local.transcribe import _resolve_whispercpp_device
+    from murmur.transcribe import _resolve_whispercpp_device
 
-    with patch("whisper_local.transcribe.sys.platform", "darwin"):
+    with patch("murmur.transcribe.sys.platform", "darwin"):
         device = _resolve_whispercpp_device("mps")
         assert device == "mps"
 
 
 def test_resolve_whispercpp_device_mps_linux():
     """Test _resolve_whispercpp_device falls back from mps on Linux."""
-    from whisper_local.transcribe import _resolve_whispercpp_device
+    from murmur.transcribe import _resolve_whispercpp_device
 
-    with patch("whisper_local.transcribe.sys.platform", "linux"), \
-         patch("whisper_local.transcribe.logger"):
+    with patch("murmur.transcribe.sys.platform", "linux"), \
+         patch("murmur.transcribe.logger"):
         device = _resolve_whispercpp_device("mps")
         assert device == "cpu"
 
 
 def test_resolve_whispercpp_device_cuda_fallback():
     """Test _resolve_whispercpp_device falls back from CUDA."""
-    from whisper_local.transcribe import _resolve_whispercpp_device
+    from murmur.transcribe import _resolve_whispercpp_device
 
-    with patch("whisper_local.transcribe.logger"):
+    with patch("murmur.transcribe.logger"):
         device = _resolve_whispercpp_device("cuda")
         assert device == "cpu"
 
 
 def test_resolve_whisper_cpp_binary_finds_first():
     """Test _resolve_whisper_cpp_binary finds first available binary."""
-    from whisper_local.transcribe import _resolve_whisper_cpp_binary
+    from murmur.transcribe import _resolve_whisper_cpp_binary
 
     with patch("shutil.which") as mock_which:
         mock_which.side_effect = lambda x: "/usr/bin/whisper-cli" if x == "whisper-cli" else None
@@ -709,7 +709,7 @@ def test_resolve_whisper_cpp_binary_finds_first():
 
 def test_resolve_whisper_cpp_binary_not_found():
     """Test _resolve_whisper_cpp_binary returns None when not found."""
-    from whisper_local.transcribe import _resolve_whisper_cpp_binary
+    from murmur.transcribe import _resolve_whisper_cpp_binary
 
     with patch("shutil.which", return_value=None):
         binary = _resolve_whisper_cpp_binary()
@@ -718,7 +718,7 @@ def test_resolve_whisper_cpp_binary_not_found():
 
 def test_detect_whisper_cpp_gpu_control_no_gpu_flag():
     """Test _detect_whisper_cpp_gpu_control detects no-gpu flag."""
-    from whisper_local.transcribe import _detect_whisper_cpp_gpu_control
+    from murmur.transcribe import _detect_whisper_cpp_gpu_control
 
     with patch("subprocess.run") as mock_run:
         mock_result = Mock()
@@ -732,7 +732,7 @@ def test_detect_whisper_cpp_gpu_control_no_gpu_flag():
 
 def test_detect_whisper_cpp_gpu_control_ng_flag():
     """Test _detect_whisper_cpp_gpu_control detects -ng flag."""
-    from whisper_local.transcribe import _detect_whisper_cpp_gpu_control
+    from murmur.transcribe import _detect_whisper_cpp_gpu_control
 
     with patch("subprocess.run") as mock_run:
         mock_result = Mock()
@@ -746,7 +746,7 @@ def test_detect_whisper_cpp_gpu_control_ng_flag():
 
 def test_detect_whisper_cpp_gpu_control_unknown():
     """Test _detect_whisper_cpp_gpu_control returns unknown when flags not found."""
-    from whisper_local.transcribe import _detect_whisper_cpp_gpu_control
+    from murmur.transcribe import _detect_whisper_cpp_gpu_control
 
     with patch("subprocess.run") as mock_run:
         mock_result = Mock()
@@ -760,7 +760,7 @@ def test_detect_whisper_cpp_gpu_control_unknown():
 
 def test_detect_whisper_cpp_gpu_control_error():
     """Test _detect_whisper_cpp_gpu_control handles subprocess errors."""
-    from whisper_local.transcribe import _detect_whisper_cpp_gpu_control
+    from murmur.transcribe import _detect_whisper_cpp_gpu_control
 
     with patch("subprocess.run", side_effect=Exception("Command failed")):
         mode = _detect_whisper_cpp_gpu_control("/usr/bin/whisper-cli")
@@ -769,7 +769,7 @@ def test_detect_whisper_cpp_gpu_control_error():
 
 def test_write_wav_mono16():
     """Test _write_wav_mono16 writes correct WAV file."""
-    from whisper_local.transcribe import _write_wav_mono16
+    from murmur.transcribe import _write_wav_mono16
     import tempfile
     import wave
 
@@ -792,7 +792,7 @@ def test_write_wav_mono16():
 
 def test_write_wav_mono16_multidimensional():
     """Test _write_wav_mono16 handles multidimensional input."""
-    from whisper_local.transcribe import _write_wav_mono16
+    from murmur.transcribe import _write_wav_mono16
     import tempfile
 
     audio = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=np.float32)
@@ -809,7 +809,7 @@ def test_write_wav_mono16_multidimensional():
 
 def test_to_float32_already_float32():
     """Test _to_float32 returns array unchanged if already float32."""
-    from whisper_local.transcribe import _to_float32
+    from murmur.transcribe import _to_float32
 
     audio = np.array([0.1, 0.2], dtype=np.float32)
     result = _to_float32(audio)
@@ -818,7 +818,7 @@ def test_to_float32_already_float32():
 
 def test_to_float32_converts_int16():
     """Test _to_float32 converts int16 to float32."""
-    from whisper_local.transcribe import _to_float32
+    from murmur.transcribe import _to_float32
 
     audio = np.array([100, 200], dtype=np.int16)
     result = _to_float32(audio)
@@ -827,7 +827,7 @@ def test_to_float32_converts_int16():
 
 def test_to_float32_flattens():
     """Test _to_float32 flattens multidimensional arrays."""
-    from whisper_local.transcribe import _to_float32
+    from murmur.transcribe import _to_float32
 
     audio = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=np.float32)
     result = _to_float32(audio)
@@ -837,7 +837,7 @@ def test_to_float32_flattens():
 
 def test_subprocess_transcribe_script_constant_exists():
     """Test that _SUBPROCESS_TRANSCRIBE_SCRIPT constant is defined."""
-    from whisper_local.transcribe import _SUBPROCESS_TRANSCRIBE_SCRIPT
+    from murmur.transcribe import _SUBPROCESS_TRANSCRIBE_SCRIPT
 
     assert isinstance(_SUBPROCESS_TRANSCRIBE_SCRIPT, str)
     assert "WhisperModel" in _SUBPROCESS_TRANSCRIBE_SCRIPT

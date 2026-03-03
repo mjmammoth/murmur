@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from whisper_local.config import load_config, save_config
+from murmur.config import load_config, save_config
 
 
 def test_load_config_ignores_legacy_model_auto_download(tmp_path: Path) -> None:

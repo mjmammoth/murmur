@@ -7,7 +7,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from whisper_local.audio_file import _resample_audio, load_audio_file
+from murmur.audio_file import _resample_audio, load_audio_file
 
 
 # ---------------------------------------------------------------------------

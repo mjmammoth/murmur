@@ -26,7 +26,7 @@ def module():
 def template_file(tmp_path: Path) -> Path:
     template = tmp_path / "test.rb.tpl"
     template.write_text(
-        'class WhisperLocal < Formula\n'
+        'class Murmur < Formula\n'
         '  url "$WHEEL_URL"\n'
         '  sha256 "$WHEEL_SHA256"\n'
         '  darwin_arm_url "$TUI_URL_DARWIN_ARM64"\n'
@@ -170,7 +170,7 @@ def test_render_formula_substitutes_per_target_variables(module, template_file: 
 def test_render_formula_uses_secure_python_extraction(module) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     args = _base_args(
-        template=str(repo_root / "scripts" / "templates" / "whisper-local.rb.tpl"),
+        template=str(repo_root / "scripts" / "templates" / "murmur.rb.tpl"),
         tui_url_darwin_arm64="https://example.com/darwin-arm64.tar.gz",
         tui_sha256_darwin_arm64="1" * 64,
         tui_url_darwin_x64="https://example.com/darwin-x64.tar.gz",
@@ -187,13 +187,13 @@ def test_render_formula_uses_secure_python_extraction(module) -> None:
     assert "install_tui_binary_from_archive" in rendered
     assert 'system "tar", "-xzf"' not in rendered
     assert 'system "curl", "-fsSL"' not in rendered
-    assert 'resource "whisper-local-tui-darwin-arm64"' in rendered
+    assert 'resource "murmur-tui-darwin-arm64"' in rendered
 
 
 def test_render_preview_formula_template(module) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     args = _base_args(
-        template=str(repo_root / "scripts" / "templates" / "whisper-local-preview.rb.tpl"),
+        template=str(repo_root / "scripts" / "templates" / "murmur-preview.rb.tpl"),
         tui_url_darwin_arm64="https://example.com/darwin-arm64.tar.gz",
         tui_sha256_darwin_arm64="1" * 64,
         tui_url_darwin_x64="https://example.com/darwin-x64.tar.gz",
@@ -207,14 +207,14 @@ def test_render_preview_formula_template(module) -> None:
     resolved = module.validate_args(args)
     rendered = module.render_formula(args, resolved)
 
-    assert "class WhisperLocalPreview < Formula" in rendered
-    assert 'conflicts_with "whisper-local"' in rendered
+    assert "class MurmurPreview < Formula" in rendered
+    assert 'conflicts_with "murmur"' in rendered
 
 
 def test_write_formula(module, tmp_path: Path):
-    rendered = "class WhisperLocal < Formula\nend\n"
+    rendered = "class Murmur < Formula\nend\n"
     tap_repo_path = tmp_path / "tap"
-    formula_path = Path("Formula/whisper-local.rb")
+    formula_path = Path("Formula/murmur.rb")
 
     output = module.write_formula(rendered, tap_repo_path, formula_path)
 
@@ -249,7 +249,7 @@ def test_main_missing_tap_repo(module, tmp_path: Path, monkeypatch):
 
 def test_parse_args_defaults(module, monkeypatch):
     repo_root = Path(__file__).resolve().parents[1]
-    default_template = repo_root / "scripts" / "templates" / "whisper-local.rb.tpl"
+    default_template = repo_root / "scripts" / "templates" / "murmur.rb.tpl"
 
     args = [
         "script",
@@ -266,11 +266,11 @@ def test_parse_args_defaults(module, monkeypatch):
         "--repository",
         "owner/repo",
         "--tap-repo-path",
-        "/var/lib/whisper-local/tap",
+        "/var/lib/murmur/tap",
     ]
     monkeypatch.setattr(sys, "argv", args)
 
     parsed = module.parse_args()
 
     assert parsed.template == str(default_template)
-    assert parsed.formula_path == "Formula/whisper-local.rb"
+    assert parsed.formula_path == "Formula/murmur.rb"

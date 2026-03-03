@@ -1,6 +1,6 @@
 require "digest"
 
-class WhisperLocalPreview < Formula
+class MurmurPreview < Formula
   include Language::Python::Virtualenv
 
   desc "Local real-time voice transcription TUI using Whisper"
@@ -13,7 +13,7 @@ class WhisperLocalPreview < Formula
   depends_on "python@3.12"
   depends_on "whisper-cpp"
 
-  conflicts_with "whisper-local", because: "preview formula installs the same executables"
+  conflicts_with "murmur", because: "preview formula installs the same executables"
 
   def install
     virtualenv_create(libexec, "python3.12")
@@ -70,31 +70,31 @@ class WhisperLocalPreview < Formula
     elsif OS.linux?
       :linux
     else
-      odie "Unsupported platform for whisper-local formula"
+      odie "Unsupported platform for murmur formula"
     end
     arch_key = if Hardware::CPU.arm?
       :arm
     elsif Hardware::CPU.intel?
       :intel
     else
-      odie "Unsupported CPU architecture for whisper-local formula"
+      odie "Unsupported CPU architecture for murmur formula"
     end
     tui_url, tui_sha = tui_assets.fetch(platform_key).fetch(arch_key)
-    expected_binary_name = "whisper-local-tui"
+    expected_binary_name = "murmur-tui"
 
-    tui_archive = buildpath/"whisper-local-tui.tar.gz"
+    tui_archive = buildpath/"murmur-tui.tar.gz"
     system "curl", "-fsSL", "-o", tui_archive, tui_url
 
     actual_sha = Digest::SHA256.file(tui_archive).hexdigest
     odie "TUI artifact SHA mismatch" if actual_sha != tui_sha
 
     (libexec/"bin").mkpath
-    extraction_marker = buildpath/"whisper-local-tui-path.txt"
+    extraction_marker = buildpath/"murmur-tui-path.txt"
     extraction_script = <<~PY
       from pathlib import Path
       import sys
 
-      from whisper_local.archive_extract import install_tui_binary_from_archive
+      from murmur.archive_extract import install_tui_binary_from_archive
 
       archive_path = Path(sys.argv[1])
       target_dir = Path(sys.argv[2])
@@ -112,33 +112,28 @@ class WhisperLocalPreview < Formula
 
     tui_bin = Pathname.new(extraction_marker.read.strip)
     chmod 0755, tui_bin
-    (bin/"whisper-local").write_env_script(
-      libexec/"bin/whisper-local", WHISPER_LOCAL_TUI_BIN: tui_bin
+    (bin/"murmur").write_env_script(
+      libexec/"bin/murmur", MURMUR_TUI_BIN: tui_bin
     )
-    if (libexec/"bin/whisper.local").exist?
-      (bin/"whisper.local").write_env_script(
-        libexec/"bin/whisper.local", WHISPER_LOCAL_TUI_BIN: tui_bin
-      )
-    end
   end
 
   def caveats
     <<~EOS
-      whisper.local can run as a background service:
-        whisper.local start
-        whisper.local status
-        whisper.local tui
+      murmur can run as a background service:
+        murmur start
+        murmur status
+        murmur tui
 
       On Wayland, global key swallowing may be unavailable.
       Bind a desktop shortcut to:
-        whisper.local trigger toggle
+        murmur trigger toggle
 
       First run downloads the selected model and may take a few minutes.
     EOS
   end
 
   test do
-    assert_match "usage", shell_output("#{bin}/whisper-local --help")
-    assert_match "Service", shell_output("#{bin}/whisper-local status")
+    assert_match "usage", shell_output("#{bin}/murmur --help")
+    assert_match(/running|stale|stopped/, shell_output("#{bin}/murmur status"))
   end
 end

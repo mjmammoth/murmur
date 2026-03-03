@@ -5,7 +5,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pyperclip
 
@@ -33,6 +33,28 @@ def _clipboard_text_snapshot() -> str | None:
     except pyperclip.PyperclipException as exc:
         logger.debug("Clipboard paste snapshot unavailable: %s", exc)
         return None
+
+
+def _extract_pasteboard_item_data(item: Any) -> dict[str, bytes]:
+    """Extract type-to-bytes mapping from a single pasteboard item."""
+    type_data: dict[str, bytes] = {}
+    try:
+        item_types = item.types() or []
+    except Exception:
+        return {}
+    for item_type in item_types:
+        try:
+            payload = item.dataForType_(item_type)
+        except Exception:
+            continue
+        if payload is None:
+            continue
+        try:
+            data_bytes = bytes(payload)
+        except Exception:
+            continue
+        type_data[str(item_type)] = data_bytes
+    return type_data
 
 
 def _clipboard_macos_snapshot() -> list[dict[str, bytes]] | None:
@@ -65,20 +87,7 @@ def _clipboard_macos_snapshot() -> list[dict[str, bytes]] | None:
 
     snapshot: list[dict[str, bytes]] = []
     for item in items:
-        type_data: dict[str, bytes] = {}
-        item_types = item.types() or []
-        for item_type in item_types:
-            try:
-                payload = item.dataForType_(item_type)
-            except Exception:
-                continue
-            if payload is None:
-                continue
-            try:
-                data_bytes = bytes(payload)
-            except Exception:
-                continue
-            type_data[str(item_type)] = data_bytes
+        type_data = _extract_pasteboard_item_data(item)
         if type_data:
             snapshot.append(type_data)
     return snapshot

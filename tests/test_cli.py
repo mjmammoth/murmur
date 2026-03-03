@@ -10,15 +10,15 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from whisper_local import cli
-from whisper_local.uninstall import (
+from murmur import cli
+from murmur.uninstall import (
     RemovalFailure,
     UninstallActionRequired,
     UninstallError,
     UninstallOptions,
     UninstallResult,
 )
-from whisper_local.upgrade import UpgradeActionRequired, UpgradeError, UpgradeResult
+from murmur.upgrade import UpgradeActionRequired, UpgradeError, UpgradeResult
 
 
 def test_build_parser_includes_start_command() -> None:
@@ -93,8 +93,8 @@ def test_build_parser_models_pull_with_runtime() -> None:
     assert args.runtime == "whisper.cpp"
 
 
-@patch("whisper_local.cli.load_config")
-@patch("whisper_local.bridge.run_bridge")
+@patch("murmur.cli.load_config")
+@patch("murmur.bridge.run_bridge")
 def test_run_bridge_calls_bridge_with_config(mock_run_bridge: Mock, mock_load_config: Mock) -> None:
     mock_config = Mock()
     mock_load_config.return_value = mock_config
@@ -105,8 +105,8 @@ def test_run_bridge_calls_bridge_with_config(mock_run_bridge: Mock, mock_load_co
     mock_run_bridge.assert_called_once_with(mock_config, "localhost", 7878, capture_logs=True)
 
 
-@patch("whisper_local.cli.resolve_tui_runtime")
-@patch("whisper_local.cli.subprocess.Popen")
+@patch("murmur.cli.resolve_tui_runtime")
+@patch("murmur.cli.subprocess.Popen")
 def test_run_tui_starts_tui_process(mock_popen: Mock, mock_resolve: Mock) -> None:
     runtime = Mock()
     runtime.mode = "packaged"
@@ -126,8 +126,8 @@ def test_run_tui_starts_tui_process(mock_popen: Mock, mock_resolve: Mock) -> Non
     )
 
 
-@patch("whisper_local.cli.sys.stdout")
-@patch("whisper_local.cli.sys.stdin")
+@patch("murmur.cli.sys.stdout")
+@patch("murmur.cli.sys.stdin")
 def test_restore_terminal_state_when_tty(mock_stdin: Mock, mock_stdout: Mock) -> None:
     mock_stdin.isatty.return_value = True
     mock_stdout.isatty.return_value = True
@@ -138,8 +138,8 @@ def test_restore_terminal_state_when_tty(mock_stdin: Mock, mock_stdout: Mock) ->
     mock_stdout.flush.assert_called()
 
 
-@patch("whisper_local.cli.sys.stdout")
-@patch("whisper_local.cli.sys.stdin")
+@patch("murmur.cli.sys.stdout")
+@patch("murmur.cli.sys.stdin")
 def test_restore_terminal_state_when_not_tty(mock_stdin: Mock, mock_stdout: Mock) -> None:
     mock_stdin.isatty.return_value = False
     mock_stdout.isatty.return_value = False
@@ -149,9 +149,9 @@ def test_restore_terminal_state_when_not_tty(mock_stdin: Mock, mock_stdout: Mock
     mock_stdout.write.assert_not_called()
 
 
-@patch("whisper_local.cli._ensure_service_running")
-@patch("whisper_local.cli._run_tui")
-@patch("whisper_local.cli._restore_terminal_state")
+@patch("murmur.cli._ensure_service_running")
+@patch("murmur.cli._run_tui")
+@patch("murmur.cli._restore_terminal_state")
 def test_run_tui_attach_auto_starts_service(
     mock_restore: Mock,
     mock_run_tui: Mock,
@@ -172,8 +172,8 @@ def test_run_tui_attach_auto_starts_service(
     mock_restore.assert_called_once()
 
 
-@patch("whisper_local.cli._run_bridge")
-@patch("whisper_local.cli.create_status_indicator_provider")
+@patch("murmur.cli._run_bridge")
+@patch("murmur.cli.create_status_indicator_provider")
 def test_service_run_foreground_without_status_indicator_skips_indicator_provider(
     mock_create_indicator_provider: Mock,
     mock_run_bridge: Mock,
@@ -184,9 +184,9 @@ def test_service_run_foreground_without_status_indicator_skips_indicator_provide
     mock_run_bridge.assert_called_once_with("localhost", 7878, capture_logs=True)
 
 
-@patch("whisper_local.cli.logger")
-@patch("whisper_local.cli._run_bridge")
-@patch("whisper_local.cli.create_status_indicator_provider")
+@patch("murmur.cli.logger")
+@patch("murmur.cli._run_bridge")
+@patch("murmur.cli.create_status_indicator_provider")
 def test_service_run_foreground_stops_indicator_after_successful_start(
     mock_create_indicator_provider: Mock,
     mock_run_bridge: Mock,
@@ -204,9 +204,9 @@ def test_service_run_foreground_stops_indicator_after_successful_start(
     mock_run_bridge.assert_called_once_with("localhost", 7878, capture_logs=True)
 
 
-@patch("whisper_local.cli.logger")
-@patch("whisper_local.cli._run_bridge")
-@patch("whisper_local.cli.create_status_indicator_provider")
+@patch("murmur.cli.logger")
+@patch("murmur.cli._run_bridge")
+@patch("murmur.cli.create_status_indicator_provider")
 def test_service_run_foreground_does_not_stop_indicator_when_start_fails(
     mock_create_indicator_provider: Mock,
     mock_run_bridge: Mock,
@@ -224,7 +224,7 @@ def test_service_run_foreground_does_not_stop_indicator_when_start_fails(
     mock_run_bridge.assert_called_once_with("localhost", 7878, capture_logs=True)
 
 
-@patch("whisper_local.cli._ensure_service_running", side_effect=RuntimeError("boom"))
+@patch("murmur.cli._ensure_service_running", side_effect=RuntimeError("boom"))
 def test_run_tui_attach_exits_when_service_start_fails(mock_ensure_service: Mock, capsys) -> None:
     with pytest.raises(SystemExit) as exc_info:
         cli._run_tui_attach("localhost", 7878, status_indicator=True)
@@ -235,9 +235,9 @@ def test_run_tui_attach_exits_when_service_start_fails(mock_ensure_service: Mock
     mock_ensure_service.assert_called_once()
 
 
-@patch("whisper_local.cli._service_run")
+@patch("murmur.cli._service_status")
 def test_main_no_command_prints_help(
-    mock_service_run: Mock,
+    mock_service_status: Mock,
     monkeypatch: pytest.MonkeyPatch,
     capsys,
 ) -> None:
@@ -245,12 +245,12 @@ def test_main_no_command_prints_help(
 
     cli.main()
 
-    mock_service_run.assert_not_called()
+    mock_service_status.assert_called_once()
     captured = capsys.readouterr()
     assert "usage:" in captured.out
 
 
-@patch("whisper_local.cli._run_tui_attach")
+@patch("murmur.cli._run_tui_attach")
 def test_main_run_command_uses_tui_attach(mock_attach: Mock, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "run", "--host", "127.0.0.1", "--port", "9000"])
 
@@ -261,7 +261,7 @@ def test_main_run_command_uses_tui_attach(mock_attach: Mock, monkeypatch: pytest
     assert "deprecated" in captured.err.lower()
 
 
-@patch("whisper_local.cli._run_bridge")
+@patch("murmur.cli._run_bridge")
 def test_main_runs_bridge_command(mock_run_bridge: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "bridge", "--host", "127.0.0.1", "--port", "9000"])
 
@@ -270,7 +270,7 @@ def test_main_runs_bridge_command(mock_run_bridge: Mock, monkeypatch: pytest.Mon
     mock_run_bridge.assert_called_once_with("127.0.0.1", 9000, capture_logs=False)
 
 
-@patch("whisper_local.cli._run_tui_attach")
+@patch("murmur.cli._run_tui_attach")
 def test_main_runs_tui_command(mock_attach: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "tui", "--no-status-indicator"])
 
@@ -279,7 +279,7 @@ def test_main_runs_tui_command(mock_attach: Mock, monkeypatch: pytest.MonkeyPatc
     mock_attach.assert_called_once_with("localhost", 7878, status_indicator=False)
 
 
-@patch("whisper_local.cli._service_run")
+@patch("murmur.cli._service_run")
 def test_main_start_command_defaults_to_background_service(
     mock_service_run: Mock,
     monkeypatch: pytest.MonkeyPatch,
@@ -291,7 +291,7 @@ def test_main_start_command_defaults_to_background_service(
     mock_service_run.assert_called_once_with("localhost", 7878, foreground=False, status_indicator=True)
 
 
-@patch("whisper_local.cli._service_run")
+@patch("murmur.cli._service_run")
 def test_main_start_command(mock_service_run: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         sys,
@@ -304,7 +304,7 @@ def test_main_start_command(mock_service_run: Mock, monkeypatch: pytest.MonkeyPa
     mock_service_run.assert_called_once_with("0.0.0.0", 8123, foreground=True, status_indicator=False)
 
 
-@patch("whisper_local.cli._service_stop")
+@patch("murmur.cli._service_stop")
 def test_main_stop_command(mock_service_stop: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "stop"])
 
@@ -313,7 +313,7 @@ def test_main_stop_command(mock_service_stop: Mock, monkeypatch: pytest.MonkeyPa
     mock_service_stop.assert_called_once()
 
 
-@patch("whisper_local.cli._service_status")
+@patch("murmur.cli._service_status")
 def test_main_status_command(mock_service_status: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "status"])
 
@@ -322,7 +322,7 @@ def test_main_status_command(mock_service_status: Mock, monkeypatch: pytest.Monk
     mock_service_status.assert_called_once()
 
 
-@patch("whisper_local.cli._trigger")
+@patch("murmur.cli._trigger")
 def test_main_trigger_command(mock_trigger: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "trigger", "toggle"])
 
@@ -337,7 +337,7 @@ def test_main_trigger_command(mock_trigger: Mock, monkeypatch: pytest.MonkeyPatc
     )
 
 
-@patch("whisper_local.cli._trigger")
+@patch("murmur.cli._trigger")
 def test_main_trigger_command_with_custom_timeout(
     mock_trigger: Mock,
     monkeypatch: pytest.MonkeyPatch,
@@ -355,8 +355,8 @@ def test_main_trigger_command_with_custom_timeout(
     )
 
 
-@patch("whisper_local.cli._ensure_service_running")
-@patch("whisper_local.cli.asyncio.run")
+@patch("murmur.cli._ensure_service_running")
+@patch("murmur.cli.asyncio.run")
 def test_trigger_success_prints_ack(
     mock_asyncio_run: Mock,
     mock_ensure_service: Mock,
@@ -386,8 +386,8 @@ def test_trigger_success_prints_ack(
     assert "Trigger acknowledged: status=recording" in captured.out
 
 
-@patch("whisper_local.cli._ensure_service_running")
-@patch("whisper_local.cli._trigger_async", new_callable=AsyncMock)
+@patch("murmur.cli._ensure_service_running")
+@patch("murmur.cli._trigger_async", new_callable=AsyncMock)
 def test_trigger_uses_resolved_service_endpoint(
     mock_trigger_async: AsyncMock,
     mock_ensure_service: Mock,
@@ -412,8 +412,8 @@ def test_trigger_uses_resolved_service_endpoint(
     assert "Trigger acknowledged: status=ready" in captured.out
 
 
-@patch("whisper_local.cli._ensure_service_running")
-@patch("whisper_local.cli.asyncio.run")
+@patch("murmur.cli._ensure_service_running")
+@patch("murmur.cli.asyncio.run")
 def test_trigger_timeout_exits_non_zero(
     mock_asyncio_run: Mock,
     mock_ensure_service: Mock,
@@ -445,8 +445,8 @@ def test_trigger_timeout_exits_non_zero(
     assert "timed out" in captured.out
 
 
-@patch("whisper_local.cli._ensure_service_running")
-@patch("whisper_local.cli.asyncio.run")
+@patch("murmur.cli._ensure_service_running")
+@patch("murmur.cli.asyncio.run")
 def test_trigger_error_exits_non_zero(
     mock_asyncio_run: Mock,
     mock_ensure_service: Mock,
@@ -478,7 +478,7 @@ def test_trigger_error_exits_non_zero(
     assert "trigger command failed" in captured.out
 
 
-@patch("whisper_local.cli._upgrade")
+@patch("murmur.cli._upgrade")
 def test_main_upgrade_command(mock_upgrade: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "upgrade", "--version", "v2.0.0"])
 
@@ -487,7 +487,7 @@ def test_main_upgrade_command(mock_upgrade: Mock, monkeypatch: pytest.MonkeyPatc
     mock_upgrade.assert_called_once_with(requested_version="v2.0.0")
 
 
-@patch("whisper_local.cli._uninstall")
+@patch("murmur.cli._uninstall")
 def test_main_uninstall_command(mock_uninstall: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "uninstall", "--yes"])
 
@@ -511,7 +511,7 @@ def test_main_version_flag_prints_and_exits(
     assert "9.9.9" in captured.out
 
 
-@patch("whisper_local.cli._print_version")
+@patch("murmur.cli._print_version")
 def test_main_version_command(mock_print_version: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "version"])
 
@@ -527,9 +527,9 @@ def test_print_version_outputs_installed_version(monkeypatch: pytest.MonkeyPatch
     assert captured.out.strip() == "1.2.3"
 
 
-@patch("whisper_local.uninstall.run_uninstall")
-@patch("whisper_local.cli.sys.stdout")
-@patch("whisper_local.cli.sys.stdin")
+@patch("murmur.uninstall.run_uninstall")
+@patch("murmur.cli.sys.stdout")
+@patch("murmur.cli.sys.stdin")
 def test_uninstall_non_interactive_without_flags_requires_yes(
     mock_stdin: Mock,
     mock_stdout: Mock,
@@ -550,10 +550,10 @@ def test_uninstall_non_interactive_without_flags_requires_yes(
     mock_run_uninstall.assert_not_called()
 
 
-@patch("whisper_local.uninstall.run_uninstall")
+@patch("murmur.uninstall.run_uninstall")
 @patch("builtins.input", side_effect=["2", "y"])
-@patch("whisper_local.cli.sys.stdout")
-@patch("whisper_local.cli.sys.stdin")
+@patch("murmur.cli.sys.stdout")
+@patch("murmur.cli.sys.stdin")
 def test_uninstall_interactive_prompt_selects_scope(
     mock_stdin: Mock,
     mock_stdout: Mock,
@@ -582,13 +582,13 @@ def test_uninstall_interactive_prompt_selects_scope(
     )
 
 
-@patch("whisper_local.uninstall.run_uninstall")
+@patch("murmur.uninstall.run_uninstall")
 def test_uninstall_success_outputs_summary(mock_run_uninstall: Mock, capsys) -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["uninstall", "--yes"])
     mock_run_uninstall.return_value = UninstallResult(
         channel="installer",
-        removed_paths=(Path("/var/lib/whisper-local/a"), Path("/var/lib/whisper-local/b")),
+        removed_paths=(Path("/var/lib/murmur/a"), Path("/var/lib/murmur/b")),
         failed_paths=(),
         warnings=("warn",),
     )
@@ -601,13 +601,13 @@ def test_uninstall_success_outputs_summary(mock_run_uninstall: Mock, capsys) -> 
     assert "Uninstall complete." in captured.out
 
 
-@patch("whisper_local.uninstall.run_uninstall")
+@patch("murmur.uninstall.run_uninstall")
 def test_uninstall_action_required_exits_with_guidance(mock_run_uninstall: Mock, capsys) -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["uninstall", "--yes"])
     mock_run_uninstall.side_effect = UninstallActionRequired(
         channel="homebrew",
-        command="brew uninstall whisper-local",
+        command="brew uninstall murmur",
     )
 
     with pytest.raises(SystemExit) as exc_info:
@@ -615,10 +615,10 @@ def test_uninstall_action_required_exits_with_guidance(mock_run_uninstall: Mock,
 
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
-    assert "brew uninstall whisper-local" in captured.out
+    assert "brew uninstall murmur" in captured.out
 
 
-@patch("whisper_local.uninstall.run_uninstall")
+@patch("murmur.uninstall.run_uninstall")
 def test_uninstall_error_exits_non_zero(mock_run_uninstall: Mock, capsys) -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["uninstall", "--yes"])
@@ -632,14 +632,14 @@ def test_uninstall_error_exits_non_zero(mock_run_uninstall: Mock, capsys) -> Non
     assert "Error: failed" in captured.out
 
 
-@patch("whisper_local.uninstall.run_uninstall")
+@patch("murmur.uninstall.run_uninstall")
 def test_uninstall_reports_failed_paths_as_non_zero(mock_run_uninstall: Mock, capsys) -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["uninstall", "--yes"])
     mock_run_uninstall.return_value = UninstallResult(
         channel="installer",
-        removed_paths=(Path("/var/lib/whisper-local/a"),),
-        failed_paths=(RemovalFailure(path=Path("/var/lib/whisper-local/b"), reason="permission denied"),),
+        removed_paths=(Path("/var/lib/murmur/a"),),
+        failed_paths=(RemovalFailure(path=Path("/var/lib/murmur/b"), reason="permission denied"),),
         warnings=(),
     )
 
@@ -651,7 +651,7 @@ def test_uninstall_reports_failed_paths_as_non_zero(mock_run_uninstall: Mock, ca
     assert "Failed to remove:" in captured.out
 
 
-@patch("whisper_local.upgrade.run_upgrade")
+@patch("murmur.upgrade.run_upgrade")
 def test_upgrade_success_output(mock_run_upgrade: Mock, capsys) -> None:
     mock_run_upgrade.return_value = UpgradeResult(
         channel="installer",
@@ -668,11 +668,11 @@ def test_upgrade_success_output(mock_run_upgrade: Mock, capsys) -> None:
     assert "restarted" in captured.out
 
 
-@patch("whisper_local.upgrade.run_upgrade")
+@patch("murmur.upgrade.run_upgrade")
 def test_upgrade_action_required_exits_with_guidance(mock_run_upgrade: Mock, capsys) -> None:
     mock_run_upgrade.side_effect = UpgradeActionRequired(
         channel="homebrew",
-        command="brew update && brew upgrade whisper-local",
+        command="brew update && brew upgrade murmur",
     )
 
     with pytest.raises(SystemExit) as exc_info:
@@ -680,10 +680,10 @@ def test_upgrade_action_required_exits_with_guidance(mock_run_upgrade: Mock, cap
 
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
-    assert "brew upgrade whisper-local" in captured.out
+    assert "brew upgrade murmur" in captured.out
 
 
-@patch("whisper_local.upgrade.run_upgrade", side_effect=UpgradeError("network error"))
+@patch("murmur.upgrade.run_upgrade", side_effect=UpgradeError("network error"))
 def test_upgrade_error_exits_non_zero(mock_run_upgrade: Mock, capsys) -> None:
     with pytest.raises(SystemExit) as exc_info:
         cli._upgrade(requested_version=None)
@@ -693,7 +693,7 @@ def test_upgrade_error_exits_non_zero(mock_run_upgrade: Mock, capsys) -> None:
     assert "network error" in captured.out
 
 
-@patch("whisper_local.model_manager.list_installed_models")
+@patch("murmur.model_manager.list_installed_models")
 def test_main_models_list_runtime_variants(mock_list_models: Mock, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "models", "list"])
 
@@ -725,7 +725,7 @@ def test_main_models_without_subcommand_exits_with_error(
     assert "No subcommand provided for 'models'" in captured.err
 
 
-@patch("whisper_local.cli.load_config")
+@patch("murmur.cli.load_config")
 def test_main_config_command(mock_load_config: Mock, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     monkeypatch.setattr(sys, "argv", ["cli", "config"])
 
@@ -744,12 +744,12 @@ def test_main_config_command(mock_load_config: Mock, monkeypatch: pytest.MonkeyP
 
 
 def test_prog_name_uses_argv() -> None:
-    with patch.object(sys, "argv", ["/usr/bin/whisper-local"]):
+    with patch.object(sys, "argv", ["/usr/bin/murmur"]):
         parser = cli.build_parser()
-        assert "whisper-local" in parser.prog
+        assert "murmur" in parser.prog
 
 
-@patch("whisper_local.cli.ServiceManager")
+@patch("murmur.cli.ServiceManager")
 def test_ensure_service_running_returns_service_status(mock_service_manager: Mock) -> None:
     expected_status = Mock()
     manager_instance = mock_service_manager.return_value
@@ -790,9 +790,9 @@ def test_wait_for_status_ignores_non_object_json_payloads() -> None:
     assert message == "Ready"
 
 
-@patch("whisper_local.cli.subprocess.run", side_effect=RuntimeError("stty failed"))
-@patch("whisper_local.cli.sys.stdout")
-@patch("whisper_local.cli.sys.stdin")
+@patch("murmur.cli.subprocess.run", side_effect=RuntimeError("stty failed"))
+@patch("murmur.cli.sys.stdout")
+@patch("murmur.cli.sys.stdin")
 def test_restore_terminal_state_ignores_stty_failures(
     mock_stdin: Mock,
     mock_stdout: Mock,
@@ -808,9 +808,9 @@ def test_restore_terminal_state_ignores_stty_failures(
     mock_run.assert_called_once_with(["stty", "sane"], check=False)
 
 
-@patch("whisper_local.cli.subprocess.run")
-@patch("whisper_local.cli.sys.stdout")
-@patch("whisper_local.cli.sys.stdin")
+@patch("murmur.cli.subprocess.run")
+@patch("murmur.cli.sys.stdout")
+@patch("murmur.cli.sys.stdin")
 def test_restore_terminal_state_ignores_terminal_write_failures(
     mock_stdin: Mock,
     mock_stdout: Mock,
@@ -825,9 +825,9 @@ def test_restore_terminal_state_ignores_terminal_write_failures(
     mock_run.assert_called_once_with(["stty", "sane"], check=False)
 
 
-@patch("whisper_local.cli._ensure_service_running")
-@patch("whisper_local.cli._run_tui")
-@patch("whisper_local.cli._restore_terminal_state")
+@patch("murmur.cli._ensure_service_running")
+@patch("murmur.cli._run_tui")
+@patch("murmur.cli._restore_terminal_state")
 def test_run_tui_attach_handles_keyboard_interrupt(
     mock_restore: Mock,
     mock_run_tui: Mock,
@@ -844,9 +844,9 @@ def test_run_tui_attach_handles_keyboard_interrupt(
     mock_restore.assert_called_once()
 
 
-@patch("whisper_local.cli._ensure_service_running")
-@patch("whisper_local.cli._run_tui", side_effect=FileNotFoundError("tui binary not found"))
-@patch("whisper_local.cli._restore_terminal_state")
+@patch("murmur.cli._ensure_service_running")
+@patch("murmur.cli._run_tui", side_effect=FileNotFoundError("tui binary not found"))
+@patch("murmur.cli._restore_terminal_state")
 def test_run_tui_attach_handles_missing_tui_binary(
     mock_restore: Mock,
     mock_run_tui: Mock,
@@ -865,9 +865,9 @@ def test_run_tui_attach_handles_missing_tui_binary(
     mock_restore.assert_called_once()
 
 
-@patch("whisper_local.cli.logger")
-@patch("whisper_local.cli._run_bridge")
-@patch("whisper_local.cli.create_status_indicator_provider")
+@patch("murmur.cli.logger")
+@patch("murmur.cli._run_bridge")
+@patch("murmur.cli.create_status_indicator_provider")
 def test_service_run_foreground_ignores_indicator_stop_failure(
     mock_create_indicator_provider: Mock,
     mock_run_bridge: Mock,
@@ -886,7 +886,7 @@ def test_service_run_foreground_ignores_indicator_stop_failure(
     mock_run_bridge.assert_called_once_with("localhost", 7878, capture_logs=True)
 
 
-@patch("whisper_local.cli.ServiceManager")
+@patch("murmur.cli.ServiceManager")
 def test_service_run_background_reports_running_status(mock_service_manager: Mock, capsys) -> None:
     manager = mock_service_manager.return_value
     manager.start_background.return_value = Mock(running=True, stale=False, pid=42, host="h", port=10)
@@ -898,7 +898,7 @@ def test_service_run_background_reports_running_status(mock_service_manager: Moc
     assert "Service running pid=42 host=h port=10" in captured.out
 
 
-@patch("whisper_local.cli.ServiceManager")
+@patch("murmur.cli.ServiceManager")
 def test_service_run_background_reports_stale_status(mock_service_manager: Mock, capsys) -> None:
     manager = mock_service_manager.return_value
     manager.start_background.return_value = Mock(running=False, stale=True, pid=None, host="h", port=10)
@@ -909,7 +909,7 @@ def test_service_run_background_reports_stale_status(mock_service_manager: Mock,
     assert "Service state was stale and has been cleaned up" in captured.out
 
 
-@patch("whisper_local.cli.ServiceManager")
+@patch("murmur.cli.ServiceManager")
 def test_service_run_background_reports_requested_status(mock_service_manager: Mock, capsys) -> None:
     manager = mock_service_manager.return_value
     manager.start_background.return_value = Mock(running=False, stale=False, pid=None, host="h", port=10)
@@ -920,7 +920,7 @@ def test_service_run_background_reports_requested_status(mock_service_manager: M
     assert "Service start requested" in captured.out
 
 
-@patch("whisper_local.cli.ServiceManager")
+@patch("murmur.cli.ServiceManager")
 def test_service_stop_prints_not_running_when_no_state(mock_service_manager: Mock, capsys) -> None:
     manager = mock_service_manager.return_value
     manager.load_state.return_value = None
@@ -932,7 +932,7 @@ def test_service_stop_prints_not_running_when_no_state(mock_service_manager: Moc
     assert "Service is not running" in captured.out
 
 
-@patch("whisper_local.cli.ServiceManager")
+@patch("murmur.cli.ServiceManager")
 def test_service_stop_prints_stopped_when_state_exists(mock_service_manager: Mock, capsys) -> None:
     manager = mock_service_manager.return_value
     manager.load_state.return_value = Mock()
@@ -944,8 +944,13 @@ def test_service_stop_prints_stopped_when_state_exists(mock_service_manager: Moc
     assert "Service stopped" in captured.out
 
 
-@patch("whisper_local.cli.ServiceManager")
-def test_service_status_prints_running_with_indicator(mock_service_manager: Mock, capsys) -> None:
+@patch("murmur.cli._runtime_status_snapshot")
+@patch("murmur.cli.ServiceManager")
+def test_service_status_prints_running_with_indicator(
+    mock_service_manager: Mock,
+    mock_runtime_snapshot: Mock,
+    capsys,
+) -> None:
     manager = mock_service_manager.return_value
     manager.status.return_value = Mock(
         running=True,
@@ -955,14 +960,133 @@ def test_service_status_prints_running_with_indicator(mock_service_manager: Mock
         port=8787,
         status_indicator_pid=88,
     )
+    mock_runtime_snapshot.return_value = {
+        "status": "ready",
+        "message": "Ready",
+        "config": {
+            "first_run_setup_required": False,
+            "startup": {
+                "phase": "ready",
+                "onboarding_close_ready": True,
+                "blockers": [],
+            },
+        },
+        "kickoff_sent": False,
+    }
 
     cli._service_status()
 
     captured = capsys.readouterr()
     assert "running pid=55 host=127.0.0.1 port=8787 indicator_pid=88" in captured.out
+    assert 'app_status=ready message="Ready"' in captured.out
+    assert "app_ready=true" in captured.out
+    mock_runtime_snapshot.assert_called_once_with(
+        "127.0.0.1",
+        8787,
+        kickoff_onboarding=True,
+        timeout_seconds=cli.STATUS_SNAPSHOT_TIMEOUT_SECONDS,
+    )
 
 
-@patch("whisper_local.cli.ServiceManager")
+@patch("murmur.cli._runtime_status_snapshot")
+@patch("murmur.cli.ServiceManager")
+def test_service_status_prints_first_run_guidance_and_blockers(
+    mock_service_manager: Mock,
+    mock_runtime_snapshot: Mock,
+    capsys,
+) -> None:
+    manager = mock_service_manager.return_value
+    manager.status.return_value = Mock(
+        running=True,
+        stale=False,
+        pid=55,
+        host="localhost",
+        port=7878,
+        status_indicator_pid=None,
+    )
+    mock_runtime_snapshot.return_value = {
+        "status": "connecting",
+        "message": cli.FIRST_RUN_SETUP_MESSAGE,
+        "config": {
+            "first_run_setup_required": True,
+            "startup": {
+                "phase": "running",
+                "runtime_probe": "running",
+                "audio_scan": "running",
+                "components": "running",
+                "model": "pending",
+                "onboarding_close_ready": False,
+                "blockers": ["Download and select a model to continue."],
+            },
+        },
+        "kickoff_sent": True,
+    }
+
+    cli._service_status()
+
+    captured = capsys.readouterr()
+    assert "app_status=connecting" in captured.out
+    assert "startup phase=running" in captured.out
+    assert "startup_blockers:" in captured.out
+    assert "setup_init=started_via_status" in captured.out
+    assert "murmur models pull small" in captured.out
+    assert "murmur models select small" in captured.out
+
+
+@patch("murmur.cli._runtime_status_snapshot", side_effect=RuntimeError("boom"))
+@patch("murmur.cli.ServiceManager")
+def test_service_status_handles_runtime_snapshot_failure(
+    mock_service_manager: Mock,
+    mock_runtime_snapshot: Mock,
+    capsys,
+) -> None:
+    manager = mock_service_manager.return_value
+    manager.status.return_value = Mock(
+        running=True,
+        stale=False,
+        pid=11,
+        host="localhost",
+        port=7878,
+        status_indicator_pid=None,
+    )
+
+    cli._service_status()
+
+    captured = capsys.readouterr()
+    assert "running pid=11 host=localhost port=7878" in captured.out
+    assert 'app_status=unknown message="Unable to query runtime state: boom"' in captured.out
+    mock_runtime_snapshot.assert_called_once()
+
+
+@patch("murmur.cli._runtime_status_snapshot")
+@patch("murmur.cli.asyncio.get_running_loop", return_value=Mock())
+@patch("murmur.cli.ServiceManager")
+def test_service_status_handles_active_event_loop(
+    mock_service_manager: Mock,
+    mock_get_running_loop: Mock,
+    mock_runtime_snapshot: Mock,
+    capsys,
+) -> None:
+    manager = mock_service_manager.return_value
+    manager.status.return_value = Mock(
+        running=True,
+        stale=False,
+        pid=21,
+        host="localhost",
+        port=7878,
+        status_indicator_pid=None,
+    )
+
+    cli._service_status()
+
+    captured = capsys.readouterr()
+    assert "running pid=21 host=localhost port=7878" in captured.out
+    assert cli.RUNNING_LOOP_STATUS_MESSAGE in captured.out
+    mock_get_running_loop.assert_called_once()
+    mock_runtime_snapshot.assert_not_called()
+
+
+@patch("murmur.cli.ServiceManager")
 def test_service_status_prints_stale_status(mock_service_manager: Mock, capsys) -> None:
     manager = mock_service_manager.return_value
     manager.status.return_value = Mock(
@@ -980,7 +1104,7 @@ def test_service_status_prints_stale_status(mock_service_manager: Mock, capsys) 
     assert "stale (cleaned) previous_pid=10 host=localhost port=7878" in captured.out
 
 
-@patch("whisper_local.cli.ServiceManager")
+@patch("murmur.cli.ServiceManager")
 def test_service_status_prints_stopped(mock_service_manager: Mock, capsys) -> None:
     manager = mock_service_manager.return_value
     manager.status.return_value = Mock(
@@ -1098,7 +1222,7 @@ def test_trigger_async_sends_start_command_and_returns_ack(monkeypatch: pytest.M
     connect_state = _install_fake_websockets_module(monkeypatch, websocket)
     wait_for_status = AsyncMock(side_effect=[(None, None), ("recording", "ack")])
 
-    with patch("whisper_local.cli._wait_for_status", wait_for_status):
+    with patch("murmur.cli._wait_for_status", wait_for_status):
         result = asyncio.run(cli._trigger_async("localhost", 7878, "start", 3.0))
 
     assert result == "recording"
@@ -1110,7 +1234,10 @@ def test_trigger_async_sends_start_command_and_returns_ack(monkeypatch: pytest.M
     assert [json.loads(msg)["type"] for msg in websocket.sent_messages] == ["start_recording"]
     assert wait_for_status.await_count == 2
     assert wait_for_status.await_args_list[0].kwargs["timeout_seconds"] == 0.75
-    assert wait_for_status.await_args_list[1].kwargs["expected_statuses"] == {"recording"}
+    assert wait_for_status.await_args_list[1].kwargs["expected_statuses"] == {
+        "recording",
+        "connecting",
+    }
 
 
 def test_trigger_async_toggle_recording_sends_stop_command(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1118,7 +1245,7 @@ def test_trigger_async_toggle_recording_sends_stop_command(monkeypatch: pytest.M
     _install_fake_websockets_module(monkeypatch, websocket)
     wait_for_status = AsyncMock(side_effect=[("recording", None), ("ready", "ack")])
 
-    with patch("whisper_local.cli._wait_for_status", wait_for_status):
+    with patch("murmur.cli._wait_for_status", wait_for_status):
         result = asyncio.run(cli._trigger_async("localhost", 7878, "toggle", 2.0))
 
     assert result == "ready"
@@ -1126,7 +1253,6 @@ def test_trigger_async_toggle_recording_sends_stop_command(monkeypatch: pytest.M
     assert wait_for_status.await_args_list[1].kwargs["expected_statuses"] == {
         "transcribing",
         "ready",
-        "error",
     }
 
 
@@ -1137,7 +1263,7 @@ def test_trigger_async_returns_immediately_when_status_already_matches(
     _install_fake_websockets_module(monkeypatch, websocket)
     wait_for_status = AsyncMock(return_value=("recording", "already"))
 
-    with patch("whisper_local.cli._wait_for_status", wait_for_status):
+    with patch("murmur.cli._wait_for_status", wait_for_status):
         result = asyncio.run(cli._trigger_async("localhost", 7878, "start", 1.0))
 
     assert result == "recording"
@@ -1145,12 +1271,25 @@ def test_trigger_async_returns_immediately_when_status_already_matches(
     assert wait_for_status.await_count == 1
 
 
+def test_trigger_async_stop_from_error_sends_stop_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    websocket = _FakeWebSocket()
+    _install_fake_websockets_module(monkeypatch, websocket)
+    wait_for_status = AsyncMock(side_effect=[("error", "runtime not ready"), ("ready", "stopped")])
+
+    with patch("murmur.cli._wait_for_status", wait_for_status):
+        result = asyncio.run(cli._trigger_async("localhost", 7878, "stop", 1.0))
+
+    assert result == "ready"
+    assert [json.loads(msg)["type"] for msg in websocket.sent_messages] == ["stop_recording"]
+    assert wait_for_status.await_count == 2
+
+
 def test_trigger_async_timeout_raises_with_status_details(monkeypatch: pytest.MonkeyPatch) -> None:
     websocket = _FakeWebSocket()
     _install_fake_websockets_module(monkeypatch, websocket)
     wait_for_status = AsyncMock(side_effect=[(None, None), (None, None)])
 
-    with patch("whisper_local.cli._wait_for_status", wait_for_status):
+    with patch("murmur.cli._wait_for_status", wait_for_status):
         with pytest.raises(TimeoutError) as exc_info:
             asyncio.run(cli._trigger_async("localhost", 7878, "start", 1.0))
 
@@ -1158,7 +1297,85 @@ def test_trigger_async_timeout_raises_with_status_details(monkeypatch: pytest.Mo
     assert "last_status=unknown" in str(exc_info.value)
 
 
-@patch("whisper_local.cli._ensure_service_running", side_effect=RuntimeError("start failed"))
+def test_extract_config_update_rejects_invalid_json() -> None:
+    assert cli._extract_config_update("{broken-json") is None
+
+
+def test_extract_config_update_rejects_non_config_payload() -> None:
+    assert cli._extract_config_update('{"type":"status","status":"ready"}') is None
+
+
+def test_extract_config_update_returns_config_dict() -> None:
+    payload = '{"type":"config","config":{"first_run_setup_required":true}}'
+    assert cli._extract_config_update(payload) == {"first_run_setup_required": True}
+
+
+def test_runtime_status_snapshot_kicks_off_setup_when_first_run_idle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    websocket = _FakeWebSocket()
+    _install_fake_websockets_module(monkeypatch, websocket)
+    collect = AsyncMock(
+        side_effect=[
+            (
+                "connecting",
+                cli.FIRST_RUN_SETUP_MESSAGE,
+                {"first_run_setup_required": True, "startup": {"phase": "idle"}},
+            ),
+            (
+                "connecting",
+                cli.FIRST_RUN_SETUP_MESSAGE,
+                {"first_run_setup_required": True, "startup": {"phase": "running"}},
+            ),
+        ]
+    )
+
+    with patch("murmur.cli._collect_runtime_snapshot", collect):
+        result = asyncio.run(
+            cli._runtime_status_snapshot(
+                "localhost",
+                7878,
+                kickoff_onboarding=True,
+                timeout_seconds=1.0,
+            )
+        )
+
+    assert result["kickoff_sent"] is True
+    assert [json.loads(msg)["type"] for msg in websocket.sent_messages] == ["begin_onboarding_setup"]
+    assert collect.await_count == 2
+    assert collect.await_args_list[0].kwargs["timeout_seconds"] == 1.0
+    assert 0 <= collect.await_args_list[1].kwargs["timeout_seconds"] <= 1.0
+
+
+def test_runtime_status_snapshot_skips_kickoff_when_not_first_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    websocket = _FakeWebSocket()
+    _install_fake_websockets_module(monkeypatch, websocket)
+    collect = AsyncMock(
+        return_value=(
+            "ready",
+            "Ready",
+            {"first_run_setup_required": False, "startup": {"phase": "ready"}},
+        )
+    )
+
+    with patch("murmur.cli._collect_runtime_snapshot", collect):
+        result = asyncio.run(
+            cli._runtime_status_snapshot(
+                "localhost",
+                7878,
+                kickoff_onboarding=True,
+                timeout_seconds=1.0,
+            )
+        )
+
+    assert result["kickoff_sent"] is False
+    assert websocket.sent_messages == []
+    assert collect.await_count == 1
+
+
+@patch("murmur.cli._ensure_service_running", side_effect=RuntimeError("start failed"))
 def test_trigger_exits_when_service_start_fails(mock_ensure_service: Mock, capsys) -> None:
     with pytest.raises(SystemExit) as exc_info:
         cli._trigger(
@@ -1220,10 +1437,10 @@ def test_confirm_uninstall_accepts_yes_only(mock_input: Mock) -> None:
     assert mock_input.call_count == 2
 
 
-@patch("whisper_local.uninstall.run_uninstall")
-@patch("whisper_local.cli.sys.stdout")
-@patch("whisper_local.cli.sys.stdin")
-@patch("whisper_local.cli._confirm_uninstall", return_value=False)
+@patch("murmur.uninstall.run_uninstall")
+@patch("murmur.cli.sys.stdout")
+@patch("murmur.cli.sys.stdin")
+@patch("murmur.cli._confirm_uninstall", return_value=False)
 def test_uninstall_interactive_cancelled_by_user_exits(
     mock_confirm: Mock,
     mock_stdin: Mock,
@@ -1244,7 +1461,7 @@ def test_uninstall_interactive_cancelled_by_user_exits(
     mock_run_uninstall.assert_not_called()
 
 
-@patch("whisper_local.model_manager.list_installed_models")
+@patch("murmur.model_manager.list_installed_models")
 def test_handle_models_command_list_without_runtime_variants(mock_list_models: Mock, capsys) -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["models", "list"])
@@ -1260,7 +1477,7 @@ def test_handle_models_command_list_without_runtime_variants(mock_list_models: M
     assert "tiny: installed" in captured.out
 
 
-@patch("whisper_local.model_manager.download_model")
+@patch("murmur.model_manager.download_model")
 def test_handle_models_command_pull_default_runtime(download_model: Mock, capsys) -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["models", "pull", "tiny"])
@@ -1272,7 +1489,7 @@ def test_handle_models_command_pull_default_runtime(download_model: Mock, capsys
     assert "Downloaded tiny" in captured.out
 
 
-@patch("whisper_local.model_manager.download_model")
+@patch("murmur.model_manager.download_model")
 def test_handle_models_command_pull_with_runtime(download_model: Mock, capsys) -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["models", "pull", "tiny", "--runtime", "whisper.cpp"])
@@ -1284,7 +1501,7 @@ def test_handle_models_command_pull_with_runtime(download_model: Mock, capsys) -
     assert "Downloaded tiny (whisper.cpp)" in captured.out
 
 
-@patch("whisper_local.model_manager.remove_model")
+@patch("murmur.model_manager.remove_model")
 def test_handle_models_command_remove_default_runtime(remove_model: Mock, capsys) -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["models", "remove", "tiny"])
@@ -1296,7 +1513,7 @@ def test_handle_models_command_remove_default_runtime(remove_model: Mock, capsys
     assert "Removed tiny" in captured.out
 
 
-@patch("whisper_local.model_manager.remove_model")
+@patch("murmur.model_manager.remove_model")
 def test_handle_models_command_remove_with_runtime(remove_model: Mock, capsys) -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["models", "remove", "tiny", "--runtime", "whisper.cpp"])
@@ -1308,7 +1525,7 @@ def test_handle_models_command_remove_with_runtime(remove_model: Mock, capsys) -
     assert "Removed tiny (whisper.cpp)" in captured.out
 
 
-@patch("whisper_local.model_manager.set_selected_model")
+@patch("murmur.model_manager.set_selected_model")
 def test_handle_models_command_select(set_selected_model: Mock, capsys) -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["models", "select", "base"])
@@ -1320,7 +1537,7 @@ def test_handle_models_command_select(set_selected_model: Mock, capsys) -> None:
     assert "Selected model set to base" in captured.out
 
 
-@patch("whisper_local.cli.load_config")
+@patch("murmur.cli.load_config")
 def test_handle_config_command_prints_scalar_and_nested_values(mock_load_config: Mock, capsys) -> None:
     args = argparse.Namespace(path=None)
     config = Mock()
@@ -1342,14 +1559,14 @@ def test_main_unknown_command_prints_help() -> None:
     parser = Mock()
     parser.parse_args.return_value = argparse.Namespace(command="unknown")
 
-    with patch("whisper_local.cli.build_parser", return_value=parser):
+    with patch("murmur.cli.build_parser", return_value=parser):
         cli.main()
 
     parser.print_help.assert_called_once()
 
 
 def test_cli_module_entrypoint_calls_main(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    monkeypatch.setattr(sys, "argv", ["whisper-local"])
+    monkeypatch.setattr(sys, "argv", ["murmur"])
 
     runpy.run_path(str(Path(cli.__file__)), run_name="__main__")
 

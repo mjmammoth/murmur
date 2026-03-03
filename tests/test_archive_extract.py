@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from whisper_local import archive_extract
-from whisper_local.archive_extract import ArchiveExtractionError, install_tui_binary_from_archive
+from murmur import archive_extract
+from murmur.archive_extract import ArchiveExtractionError, install_tui_binary_from_archive
 
 
 def _write_tar_gz_archive(archive_path: Path, entries: list[tuple[str, bytes]]) -> None:
@@ -22,30 +22,30 @@ def _write_tar_gz_archive(archive_path: Path, entries: list[tuple[str, bytes]]) 
 def test_install_tui_binary_from_archive_extracts_linux_binary(tmp_path: Path) -> None:
     archive_path = tmp_path / "tui.tar.gz"
     target_dir = tmp_path / "tui" / "linux-x64"
-    _write_tar_gz_archive(archive_path, [("whisper-local-tui", b"binary")])
+    _write_tar_gz_archive(archive_path, [("murmur-tui", b"binary")])
 
     installed = install_tui_binary_from_archive(
         archive_path=archive_path,
         target_dir=target_dir,
-        expected_binary_name="whisper-local-tui",
+        expected_binary_name="murmur-tui",
     )
 
-    assert installed == target_dir / "whisper-local-tui"
+    assert installed == target_dir / "murmur-tui"
     assert installed.read_bytes() == b"binary"
 
 
 def test_install_tui_binary_from_archive_extracts_windows_binary(tmp_path: Path) -> None:
     archive_path = tmp_path / "tui.tar.gz"
     target_dir = tmp_path / "tui" / "windows-x64"
-    _write_tar_gz_archive(archive_path, [("whisper-local-tui.exe", b"binary")])
+    _write_tar_gz_archive(archive_path, [("murmur-tui.exe", b"binary")])
 
     installed = install_tui_binary_from_archive(
         archive_path=archive_path,
         target_dir=target_dir,
-        expected_binary_name="whisper-local-tui.exe",
+        expected_binary_name="murmur-tui.exe",
     )
 
-    assert installed == target_dir / "whisper-local-tui.exe"
+    assert installed == target_dir / "murmur-tui.exe"
     assert installed.read_bytes() == b"binary"
 
 
@@ -55,7 +55,7 @@ def test_install_tui_binary_from_archive_rejects_extra_entries(tmp_path: Path) -
     _write_tar_gz_archive(
         archive_path,
         [
-            ("whisper-local-tui", b"binary"),
+            ("murmur-tui", b"binary"),
             ("extra.txt", b"extra"),
         ],
     )
@@ -64,10 +64,10 @@ def test_install_tui_binary_from_archive_rejects_extra_entries(tmp_path: Path) -
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
-    assert not (target_dir / "whisper-local-tui.tmp").exists(), "staged temp file should be cleaned up on error"
+    assert not (target_dir / "murmur-tui.tmp").exists(), "staged temp file should be cleaned up on error"
 
 
 def test_install_tui_binary_from_archive_rejects_wrong_filename(tmp_path: Path) -> None:
@@ -75,11 +75,11 @@ def test_install_tui_binary_from_archive_rejects_wrong_filename(tmp_path: Path) 
     target_dir = tmp_path / "tui" / "linux-x64"
     _write_tar_gz_archive(archive_path, [("other-binary", b"binary")])
 
-    with pytest.raises(ArchiveExtractionError, match="must be named 'whisper-local-tui'"):
+    with pytest.raises(ArchiveExtractionError, match="must be named 'murmur-tui'"):
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
 
@@ -96,14 +96,14 @@ def test_install_tui_binary_from_archive_rejects_unsafe_member_paths(
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
 
 def test_install_tui_binary_from_archive_rejects_nested_paths(tmp_path: Path) -> None:
     archive_path = tmp_path / "tui.tar.gz"
     target_dir = tmp_path / "tui" / "linux-x64"
-    _write_tar_gz_archive(archive_path, [("nested/whisper-local-tui", b"binary")])
+    _write_tar_gz_archive(archive_path, [("nested/murmur-tui", b"binary")])
 
     with pytest.raises(
         ArchiveExtractionError, match="entry must be a single root-level binary file"
@@ -111,7 +111,7 @@ def test_install_tui_binary_from_archive_rejects_nested_paths(tmp_path: Path) ->
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
 
@@ -119,7 +119,7 @@ def test_install_tui_binary_from_archive_rejects_links(tmp_path: Path) -> None:
     archive_path = tmp_path / "tui.tar.gz"
     target_dir = tmp_path / "tui" / "linux-x64"
     with tarfile.open(archive_path, "w:gz") as tar_handle:
-        symlink = tarfile.TarInfo(name="whisper-local-tui")
+        symlink = tarfile.TarInfo(name="murmur-tui")
         symlink.type = tarfile.SYMTYPE
         symlink.linkname = "/tmp/target"
         tar_handle.addfile(symlink)
@@ -128,7 +128,7 @@ def test_install_tui_binary_from_archive_rejects_links(tmp_path: Path) -> None:
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
 
@@ -136,7 +136,7 @@ def test_install_tui_binary_from_archive_rejects_hardlinks(tmp_path: Path) -> No
     archive_path = tmp_path / "tui.tar.gz"
     target_dir = tmp_path / "tui" / "linux-x64"
     with tarfile.open(archive_path, "w:gz") as tar_handle:
-        hardlink = tarfile.TarInfo(name="whisper-local-tui")
+        hardlink = tarfile.TarInfo(name="murmur-tui")
         hardlink.type = tarfile.LNKTYPE
         hardlink.linkname = "target"
         tar_handle.addfile(hardlink)
@@ -145,7 +145,7 @@ def test_install_tui_binary_from_archive_rejects_hardlinks(tmp_path: Path) -> No
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
 
@@ -161,7 +161,7 @@ def test_install_tui_binary_from_archive_rejects_special_files(tmp_path: Path) -
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
 
@@ -179,7 +179,7 @@ def test_install_tui_binary_from_archive_rejects_device_files(tmp_path: Path) ->
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
 
@@ -187,7 +187,7 @@ def test_install_tui_binary_from_archive_rejects_non_regular_entries(tmp_path: P
     archive_path = tmp_path / "tui.tar.gz"
     target_dir = tmp_path / "tui" / "linux-x64"
     with tarfile.open(archive_path, "w:gz") as tar_handle:
-        directory = tarfile.TarInfo(name="whisper-local-tui")
+        directory = tarfile.TarInfo(name="murmur-tui")
         directory.type = tarfile.DIRTYPE
         tar_handle.addfile(directory)
 
@@ -195,7 +195,7 @@ def test_install_tui_binary_from_archive_rejects_non_regular_entries(tmp_path: P
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
 
@@ -205,7 +205,7 @@ def test_install_tui_binary_from_archive_rejects_negative_member_size(tmp_path: 
     target_dir = tmp_path / "tui" / "linux-x64"
 
     class NegativeSizeMember:
-        name = "whisper-local-tui"
+        name = "murmur-tui"
         size = -1
 
         def issym(self) -> bool:
@@ -229,25 +229,25 @@ def test_install_tui_binary_from_archive_rejects_negative_member_size(tmp_path: 
     tar_context.__enter__.return_value = tar_handle
     tar_context.__exit__.return_value = False
 
-    with patch("whisper_local.archive_extract.tarfile.open", return_value=tar_context):
+    with patch("murmur.archive_extract.tarfile.open", return_value=tar_context):
         with pytest.raises(ArchiveExtractionError, match="member with invalid size"):
             install_tui_binary_from_archive(
                 archive_path=archive_path,
                 target_dir=target_dir,
-                expected_binary_name="whisper-local-tui",
+                expected_binary_name="murmur-tui",
             )
 
 
 def test_install_tui_binary_from_archive_rejects_zero_byte_executable(tmp_path: Path) -> None:
     archive_path = tmp_path / "tui.tar.gz"
     target_dir = tmp_path / "tui" / "linux-x64"
-    _write_tar_gz_archive(archive_path, [("whisper-local-tui", b"")])
+    _write_tar_gz_archive(archive_path, [("murmur-tui", b"")])
 
     with pytest.raises(ArchiveExtractionError, match="zero-byte executable entry"):
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
 
@@ -257,14 +257,14 @@ def test_install_tui_binary_from_archive_rejects_large_uncompressed_archive(
 ) -> None:
     archive_path = tmp_path / "tui.tar.gz"
     target_dir = tmp_path / "tui" / "linux-x64"
-    _write_tar_gz_archive(archive_path, [("whisper-local-tui", b"binary")])
+    _write_tar_gz_archive(archive_path, [("murmur-tui", b"binary")])
     monkeypatch.setattr(archive_extract, "MAX_UNCOMPRESSED_BYTES", 3)
 
     with pytest.raises(ArchiveExtractionError, match="maximum allowed extracted size"):
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
 
@@ -274,14 +274,14 @@ def test_install_tui_binary_from_archive_rejects_suspicious_compression_ratio(
 ) -> None:
     archive_path = tmp_path / "tui.tar.gz"
     target_dir = tmp_path / "tui" / "linux-x64"
-    _write_tar_gz_archive(archive_path, [("whisper-local-tui", b"binary")])
+    _write_tar_gz_archive(archive_path, [("murmur-tui", b"binary")])
     monkeypatch.setattr(archive_extract, "MAX_COMPRESSION_RATIO", 0.001)
 
     with pytest.raises(ArchiveExtractionError, match="maximum allowed compression ratio"):
         install_tui_binary_from_archive(
             archive_path=archive_path,
             target_dir=target_dir,
-            expected_binary_name="whisper-local-tui",
+            expected_binary_name="murmur-tui",
         )
 
 
@@ -291,7 +291,7 @@ def test_install_tui_binary_from_archive_rejects_truncated_member_stream(tmp_pat
     target_dir = tmp_path / "tui" / "linux-x64"
 
     class TruncatedMember:
-        name = "whisper-local-tui"
+        name = "murmur-tui"
         size = 6
 
         def issym(self) -> bool:
@@ -316,14 +316,14 @@ def test_install_tui_binary_from_archive_rejects_truncated_member_stream(tmp_pat
     tar_context.__enter__.return_value = tar_handle
     tar_context.__exit__.return_value = False
 
-    with patch("whisper_local.archive_extract.tarfile.open", return_value=tar_context):
+    with patch("murmur.archive_extract.tarfile.open", return_value=tar_context):
         with pytest.raises(ArchiveExtractionError, match="size did not match metadata"):
             install_tui_binary_from_archive(
                 archive_path=archive_path,
                 target_dir=target_dir,
-                expected_binary_name="whisper-local-tui",
+                expected_binary_name="murmur-tui",
             )
-    assert not (target_dir / "whisper-local-tui.tmp").exists()
+    assert not (target_dir / "murmur-tui.tmp").exists()
 
 
 def test_install_tui_binary_from_archive_rejects_oversized_member_stream(tmp_path: Path) -> None:
@@ -332,7 +332,7 @@ def test_install_tui_binary_from_archive_rejects_oversized_member_stream(tmp_pat
     target_dir = tmp_path / "tui" / "linux-x64"
 
     class OversizedMember:
-        name = "whisper-local-tui"
+        name = "murmur-tui"
         size = 3
 
         def issym(self) -> bool:
@@ -357,10 +357,10 @@ def test_install_tui_binary_from_archive_rejects_oversized_member_stream(tmp_pat
     tar_context.__enter__.return_value = tar_handle
     tar_context.__exit__.return_value = False
 
-    with patch("whisper_local.archive_extract.tarfile.open", return_value=tar_context):
+    with patch("murmur.archive_extract.tarfile.open", return_value=tar_context):
         with pytest.raises(ArchiveExtractionError, match="exceeded declared metadata size"):
             install_tui_binary_from_archive(
                 archive_path=archive_path,
                 target_dir=target_dir,
-                expected_binary_name="whisper-local-tui",
+                expected_binary_name="murmur-tui",
             )

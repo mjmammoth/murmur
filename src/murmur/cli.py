@@ -8,20 +8,20 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, TYPE_CHECKING, TypeAlias
+from typing import Any, TYPE_CHECKING, Union
 
-from whisper_local import __version__
-from whisper_local.config import SUPPORTED_RUNTIMES, load_config
-from whisper_local.platform import create_status_indicator_provider
-from whisper_local.service_manager import ServiceManager
-from whisper_local.tui_runtime import resolve_tui_runtime
+from murmur import __version__
+from murmur.config import SUPPORTED_RUNTIMES, load_config
+from murmur.platform import create_status_indicator_provider
+from murmur.service_manager import ServiceManager
+from murmur.tui_runtime import resolve_tui_runtime
 
 if TYPE_CHECKING:
-    from whisper_local.service_state import ServiceStatus
+    from murmur.service_state import ServiceStatus
     from websockets.asyncio.client import ClientConnection
     from websockets.legacy.client import WebSocketClientProtocol
 
-    WebSocketClientType: TypeAlias = ClientConnection | WebSocketClientProtocol
+    WebSocketClientType = Union[ClientConnection, WebSocketClientProtocol]
 else:
     WebSocketClientType = Any
 
@@ -29,13 +29,21 @@ else:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+_BRIDGE_HOST_HELP = "Bridge host"
+_BRIDGE_PORT_HELP = "Bridge port"
 NO_STATUS_INDICATOR_AUTOSTART_HELP = (
     "Disable macOS menu bar status indicator while auto-starting service"
+)
+STATUS_SNAPSHOT_TIMEOUT_SECONDS = 1.5
+FIRST_RUN_SETUP_MESSAGE = "First run setup required. Download and select a model in Model Manager."
+SETUP_GUIDANCE_MODEL = "small"
+RUNNING_LOOP_STATUS_MESSAGE = (
+    "Runtime snapshot unavailable while an event loop is active; run murmur status from a synchronous shell."
 )
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "whisper.local"))
+    parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "murmur"))
     parser.add_argument(
         "--version",
         action="version",
@@ -45,8 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Deprecated alias: preserve for compatibility, but behavior now matches `tui`.
     run_parser = subparsers.add_parser("run", help="[Deprecated] Attach TUI to service")
-    run_parser.add_argument("--host", default="localhost", help="Bridge host")
-    run_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    run_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
+    run_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     run_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
@@ -54,16 +62,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     bridge_parser = subparsers.add_parser("bridge", help="Start only the WebSocket bridge server")
-    bridge_parser.add_argument("--host", default="localhost", help="Bridge host")
-    bridge_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    bridge_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
+    bridge_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     bridge_parser.add_argument("--capture-logs", action="store_true", help=argparse.SUPPRESS)
 
     tui_parser = subparsers.add_parser(
         "tui",
         help="Attach the TypeScript TUI to the service (auto-starts service if needed)",
     )
-    tui_parser.add_argument("--host", default="localhost", help="Bridge host")
-    tui_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    tui_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
+    tui_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     tui_parser.add_argument(
         "--no-status-indicator",
         action="store_true",
@@ -71,8 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     start_parser = subparsers.add_parser("start", help="Start service")
-    start_parser.add_argument("--host", default="localhost", help="Bridge host")
-    start_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    start_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
+    start_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     start_parser.add_argument(
         "--foreground",
         action="store_true",
@@ -92,8 +100,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Control recording without opening TUI",
     )
     trigger_parser.add_argument("action", choices=("start", "stop", "toggle"))
-    trigger_parser.add_argument("--host", default="localhost", help="Bridge host")
-    trigger_parser.add_argument("--port", type=int, default=7878, help="Bridge port")
+    trigger_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
+    trigger_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     trigger_parser.add_argument(
         "--timeout-seconds",
         type=float,
@@ -140,7 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     upgrade_parser = subparsers.add_parser(
         "upgrade",
-        help="Upgrade whisper.local (auto-upgrade only for installer-managed installs)",
+        help="Upgrade murmur (auto-upgrade only for installer-managed installs)",
     )
     upgrade_parser.add_argument(
         "--version",
@@ -149,7 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     uninstall_parser = subparsers.add_parser(
         "uninstall",
-        help="Uninstall whisper.local (auto-uninstall only for installer-managed installs)",
+        help="Uninstall murmur (auto-uninstall only for installer-managed installs)",
     )
     uninstall_parser.add_argument(
         "--yes",
@@ -159,17 +167,17 @@ def build_parser() -> argparse.ArgumentParser:
     uninstall_parser.add_argument(
         "--remove-state",
         action="store_true",
-        help="Remove ~/.local/state/whisper.local during uninstall",
+        help="Remove ~/.local/state/murmur during uninstall",
     )
     uninstall_parser.add_argument(
         "--remove-config",
         action="store_true",
-        help="Remove ~/.config/whisper.local during uninstall",
+        help="Remove ~/.config/murmur during uninstall",
     )
     uninstall_parser.add_argument(
         "--remove-model-cache",
         action="store_true",
-        help="Remove whisper.local model caches under ~/.cache/huggingface",
+        help="Remove murmur model caches under ~/.cache/huggingface",
     )
     uninstall_parser.add_argument(
         "--all-data",
@@ -177,13 +185,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Equivalent to --remove-state --remove-config --remove-model-cache",
     )
 
-    subparsers.add_parser("version", help="Print installed whisper.local version")
+    subparsers.add_parser("version", help="Print installed murmur version")
 
     return parser
 
 
 def _run_bridge(host: str, port: int, capture_logs: bool = False) -> None:
-    from whisper_local.bridge import run_bridge
+    from murmur.bridge import run_bridge
 
     config = load_config()
     run_bridge(config, host, port, capture_logs=capture_logs)
@@ -290,6 +298,29 @@ def _service_status() -> None:
             else ""
         )
         print(f"running pid={status.pid} host={status.host} port={status.port}{indicator}")
+        host = status.host or "localhost"
+        port = status.port if status.port is not None else 7878
+        try:
+            loop_running = False
+            try:
+                asyncio.get_running_loop()
+                loop_running = True
+            except RuntimeError:
+                pass
+            if loop_running:
+                raise RuntimeError(RUNNING_LOOP_STATUS_MESSAGE)
+            snapshot = asyncio.run(
+                _runtime_status_snapshot(
+                    host,
+                    port,
+                    kickoff_onboarding=True,
+                    timeout_seconds=STATUS_SNAPSHOT_TIMEOUT_SECONDS,
+                )
+            )
+            _print_runtime_status_snapshot(snapshot)
+        except Exception as exc:
+            error_message = f"Unable to query runtime state: {exc}"
+            print(f"app_status=unknown message={json.dumps(error_message, ensure_ascii=True)}")
         return
     if status.stale:
         print(f"stale (cleaned) previous_pid={status.pid} host={status.host} port={status.port}")
@@ -347,6 +378,201 @@ def _extract_status_update(raw: str | bytes) -> tuple[str | None, str | None] | 
     return last_status, last_message
 
 
+def _extract_config_update(raw: str | bytes) -> dict[str, Any] | None:
+    if isinstance(raw, bytes):
+        try:
+            raw = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("type") != "config":
+        return None
+    config = payload.get("config")
+    if not isinstance(config, dict):
+        return None
+    return config
+
+
+async def _collect_runtime_snapshot(
+    websocket: WebSocketClientType,
+    *,
+    timeout_seconds: float,
+    initial_status: str | None = None,
+    initial_message: str | None = None,
+    initial_config: dict[str, Any] | None = None,
+) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    deadline = time.monotonic() + max(0.0, timeout_seconds)
+    status = initial_status
+    message = initial_message
+    config = initial_config
+
+    while True:
+        if status is not None and config is not None:
+            return status, message, config
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return status, message, config
+        try:
+            raw = await asyncio.wait_for(websocket.recv(), timeout=remaining)
+        except TimeoutError:
+            return status, message, config
+
+        status_update = _extract_status_update(raw)
+        if status_update is not None:
+            status, message = status_update
+            continue
+
+        config_update = _extract_config_update(raw)
+        if config_update is not None:
+            config = config_update
+
+
+def _startup_phase_from_config(config: dict[str, Any] | None) -> str:
+    if not isinstance(config, dict):
+        return ""
+    startup = config.get("startup")
+    if not isinstance(startup, dict):
+        return ""
+    value = startup.get("phase")
+    if not isinstance(value, str):
+        return ""
+    return value.strip().lower()
+
+
+def _first_run_pending(config: dict[str, Any] | None) -> bool:
+    if not isinstance(config, dict):
+        return False
+    return bool(config.get("first_run_setup_required"))
+
+
+async def _maybe_kickoff_onboarding(
+    websocket: WebSocketClientType,
+    config: dict[str, Any] | None,
+    status: str | None,
+    message: str | None,
+    timeout_seconds: float,
+    snapshot_started: float,
+) -> tuple[str | None, str | None, dict[str, Any] | None, bool]:
+    """Send onboarding kickoff if first-run is pending and phase is idle, then re-collect."""
+    if not _first_run_pending(config):
+        return status, message, config, False
+    phase = _startup_phase_from_config(config)
+    if phase not in {"", "idle"}:
+        return status, message, config, False
+
+    await websocket.send(json.dumps({"type": "begin_onboarding_setup"}))
+    remaining_timeout = max(0.0, timeout_seconds - (time.monotonic() - snapshot_started))
+    if remaining_timeout > 0:
+        status, message, config = await _collect_runtime_snapshot(
+            websocket,
+            timeout_seconds=remaining_timeout,
+        )
+    return status, message, config, True
+
+
+async def _runtime_status_snapshot(
+    host: str,
+    port: int,
+    *,
+    kickoff_onboarding: bool,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    import websockets
+
+    uri = f"ws://{host}:{port}?client=passive"
+    async with websockets.connect(uri, ping_interval=10, ping_timeout=10) as websocket:
+        snapshot_started = time.monotonic()
+        status, message, config = await _collect_runtime_snapshot(
+            websocket,
+            timeout_seconds=timeout_seconds,
+        )
+
+        kickoff_sent = False
+        if kickoff_onboarding:
+            status, message, config, kickoff_sent = await _maybe_kickoff_onboarding(
+                websocket, config, status, message, timeout_seconds, snapshot_started,
+            )
+
+        return {
+            "status": status,
+            "message": message,
+            "config": config,
+            "kickoff_sent": kickoff_sent,
+        }
+
+
+def _parse_startup_detail(config: dict[str, Any]) -> tuple[dict[str, Any], str, list[str], bool]:
+    """Extract startup sub-fields from a config dict."""
+    startup = config.get("startup")
+    startup_dict = startup if isinstance(startup, dict) else {}
+    phase = _startup_phase_from_config(config) or "unknown"
+    blockers = startup_dict.get("blockers")
+    blocker_list = [str(item) for item in blockers] if isinstance(blockers, list) else []
+    close_ready = bool(startup_dict.get("onboarding_close_ready"))
+    return startup_dict, phase, blocker_list, close_ready
+
+
+def _print_startup_summary(startup_dict: dict[str, Any], phase: str) -> None:
+    """Print the startup component summary line."""
+    runtime_probe = str(startup_dict.get("runtime_probe", "unknown"))
+    audio_scan = str(startup_dict.get("audio_scan", "unknown"))
+    components = str(startup_dict.get("components", "unknown"))
+    model_state = str(startup_dict.get("model", "unknown"))
+    print(
+        "startup "
+        f"phase={phase} runtime_probe={runtime_probe} "
+        f"audio_scan={audio_scan} components={components} model={model_state}"
+    )
+
+
+def _print_first_run_guidance(kickoff_sent: bool) -> None:
+    """Print first-run setup guidance to stdout."""
+    if kickoff_sent:
+        print("setup_init=started_via_status")
+    print(f"setup_required=true message={json.dumps(FIRST_RUN_SETUP_MESSAGE, ensure_ascii=True)}")
+    print("next_steps:")
+    print(f"  murmur models pull {SETUP_GUIDANCE_MODEL}")
+    print(f"  murmur models select {SETUP_GUIDANCE_MODEL}")
+    print("  murmur status")
+
+
+def _print_runtime_status_snapshot(snapshot: dict[str, Any]) -> None:
+    status = snapshot.get("status")
+    message = snapshot.get("message")
+    config = snapshot.get("config")
+    kickoff_sent = bool(snapshot.get("kickoff_sent"))
+
+    status_text = status if isinstance(status, str) and status else "unknown"
+    message_text = message if isinstance(message, str) and message else "unknown"
+    print(f"app_status={status_text} message={json.dumps(message_text, ensure_ascii=True)}")
+
+    if not isinstance(config, dict):
+        print("runtime_detail=unavailable")
+        return
+
+    first_run = _first_run_pending(config)
+    startup_dict, phase, blocker_list, close_ready = _parse_startup_detail(config)
+
+    if not first_run and status_text == "ready" and close_ready and not blocker_list:
+        print("app_ready=true")
+        return
+
+    _print_startup_summary(startup_dict, phase)
+
+    if blocker_list:
+        print("startup_blockers:")
+        for blocker in blocker_list:
+            print(f"  - {blocker}")
+
+    if first_run:
+        _print_first_run_guidance(kickoff_sent)
+
+
 async def _trigger_async(host: str, port: int, action: str, timeout_seconds: float) -> str:
     import websockets
 
@@ -362,12 +588,14 @@ async def _trigger_async(host: str, port: int, action: str, timeout_seconds: flo
         if action == "toggle":
             effective = "stop" if current_status == "recording" else "start"
 
-        expected_statuses = (
-            {"recording"}
-            if effective == "start"
-            else {"transcribing", "ready", "error"}
-        )
-        if current_status in expected_statuses:
+        if effective == "start":
+            expected_statuses = {"recording", "connecting"}
+            should_return_without_send = current_status == "recording"
+        else:
+            expected_statuses = {"transcribing", "ready"}
+            should_return_without_send = current_status in {"transcribing", "ready"}
+
+        if should_return_without_send:
             return current_status
 
         message_type = "start_recording" if effective == "start" else "stop_recording"
@@ -418,7 +646,7 @@ def _trigger(
 
 
 def _upgrade(*, requested_version: str | None) -> None:
-    from whisper_local.upgrade import UpgradeActionRequired, UpgradeError, run_upgrade
+    from murmur.upgrade import UpgradeActionRequired, UpgradeError, run_upgrade
 
     try:
         result = run_upgrade(requested_version=requested_version)
@@ -430,7 +658,7 @@ def _upgrade(*, requested_version: str | None) -> None:
         raise SystemExit(1)
 
     print(
-        f"Upgraded whisper.local {result.previous_version} -> {result.new_version} "
+        f"Upgraded murmur {result.previous_version} -> {result.new_version} "
         f"({result.tag})"
     )
     if result.restarted_service:
@@ -467,13 +695,13 @@ def _prompt_uninstall_scope() -> tuple[bool, bool, bool]:
 
 def _print_uninstall_plan(*, remove_state: bool, remove_config: bool, remove_model_cache: bool) -> None:
     print("Uninstall plan:")
-    print("  - Remove installer launchers and runtime under ~/.local/share/whisper.local")
+    print("  - Remove installer launchers and runtime under ~/.local/share/murmur")
     if remove_state:
-        print("  - Remove ~/.local/state/whisper.local")
+        print("  - Remove ~/.local/state/murmur")
     if remove_config:
-        print("  - Remove ~/.config/whisper.local")
+        print("  - Remove ~/.config/murmur")
     if remove_model_cache:
-        print("  - Remove whisper.local model caches under ~/.cache/huggingface/hub")
+        print("  - Remove murmur model caches under ~/.cache/huggingface/hub")
 
 
 def _confirm_uninstall() -> bool:
@@ -481,18 +709,15 @@ def _confirm_uninstall() -> bool:
     return response in {"y", "yes"}
 
 
-def _uninstall(args: argparse.Namespace) -> None:
-    from whisper_local.uninstall import (
-        UninstallActionRequired,
-        UninstallError,
-        UninstallOptions,
-        run_uninstall,
-    )
-
-    remove_state, remove_config, remove_model_cache, explicit_scope = _resolve_uninstall_scope(args)
-    tty_session = sys.stdin.isatty() and sys.stdout.isatty()
-    assume_yes = bool(getattr(args, "yes", False))
-
+def _resolve_interactive_scope(
+    remove_state: bool,
+    remove_config: bool,
+    remove_model_cache: bool,
+    explicit_scope: bool,
+    assume_yes: bool,
+    tty_session: bool,
+) -> tuple[bool, bool, bool]:
+    """Resolve uninstall scope interactively if needed, raising SystemExit on cancellation."""
     if not assume_yes and not tty_session and not explicit_scope:
         print(
             "Error: non-interactive uninstall requires --yes or explicit scope flags "
@@ -513,21 +738,11 @@ def _uninstall(args: argparse.Namespace) -> None:
             print("Uninstall cancelled.")
             raise SystemExit(1)
 
-    options = UninstallOptions(
-        remove_state=remove_state,
-        remove_config=remove_config,
-        remove_model_cache=remove_model_cache,
-    )
+    return remove_state, remove_config, remove_model_cache
 
-    try:
-        result = run_uninstall(options=options)
-    except UninstallActionRequired as exc:
-        print(str(exc))
-        raise SystemExit(2)
-    except UninstallError as exc:
-        print(f"Error: {exc}")
-        raise SystemExit(1)
 
+def _print_uninstall_result(result: Any) -> None:
+    """Print uninstall result details, raising SystemExit(1) on failures."""
     if result.removed_paths:
         print("Removed paths:")
         for path in result.removed_paths:
@@ -549,17 +764,90 @@ def _uninstall(args: argparse.Namespace) -> None:
     print("Uninstall complete.")
 
 
+def _uninstall(args: argparse.Namespace) -> None:
+    from murmur.uninstall import (
+        UninstallActionRequired,
+        UninstallError,
+        UninstallOptions,
+        run_uninstall,
+    )
+
+    remove_state, remove_config, remove_model_cache, explicit_scope = _resolve_uninstall_scope(args)
+    tty_session = sys.stdin.isatty() and sys.stdout.isatty()
+    assume_yes = bool(getattr(args, "yes", False))
+
+    remove_state, remove_config, remove_model_cache = _resolve_interactive_scope(
+        remove_state, remove_config, remove_model_cache,
+        explicit_scope, assume_yes, tty_session,
+    )
+
+    options = UninstallOptions(
+        remove_state=remove_state,
+        remove_config=remove_config,
+        remove_model_cache=remove_model_cache,
+    )
+
+    try:
+        result = run_uninstall(options=options)
+    except UninstallActionRequired as exc:
+        print(str(exc))
+        raise SystemExit(2)
+    except UninstallError as exc:
+        print(f"Error: {exc}")
+        raise SystemExit(1)
+
+    _print_uninstall_result(result)
+
+
 def _print_version() -> None:
     print(__version__)
 
 
+def _print_model_info(model: Any) -> None:
+    """Print a single model's variant information."""
+    variants = getattr(model, "variants", None)
+    if isinstance(variants, dict):
+        fw_variant = variants.get("faster-whisper")
+        cpp_variant = variants.get("whisper.cpp")
+        fw_state = "installed" if fw_variant and fw_variant.installed else "available"
+        wcpp_state = "installed" if cpp_variant and cpp_variant.installed else "available"
+        print(f"{model.name}: faster-whisper={fw_state}, whisper.cpp={wcpp_state}")
+    else:
+        state = "installed" if bool(getattr(model, "installed", False)) else "available"
+        print(f"{model.name}: {state}")
+
+
+def _handle_models_list() -> None:
+    from murmur.model_manager import list_installed_models
+
+    for model in list_installed_models():
+        _print_model_info(model)
+
+
+def _handle_models_pull(name: str, runtime: str) -> None:
+    from murmur.model_manager import download_model
+
+    if runtime == "faster-whisper":
+        download_model(name)
+        print(f"Downloaded {name}")
+    else:
+        download_model(name, runtime=runtime)
+        print(f"Downloaded {name} ({runtime})")
+
+
+def _handle_models_remove(name: str, runtime: str) -> None:
+    from murmur.model_manager import remove_model
+
+    if runtime == "faster-whisper":
+        remove_model(name)
+        print(f"Removed {name}")
+    else:
+        remove_model(name, runtime=runtime)
+        print(f"Removed {name} ({runtime})")
+
+
 def _handle_models_command(args: argparse.Namespace) -> None:
-    from whisper_local.model_manager import (
-        download_model,
-        list_installed_models,
-        remove_model,
-        set_selected_model,
-    )
+    from murmur.model_manager import set_selected_model
 
     if args.models_command is None:
         print(
@@ -569,41 +857,20 @@ def _handle_models_command(args: argparse.Namespace) -> None:
         raise SystemExit(2)
 
     if args.models_command == "list":
-        for model in list_installed_models():
-            variants = getattr(model, "variants", None)
-            if isinstance(variants, dict):
-                fw_variant = variants.get("faster-whisper")
-                cpp_variant = variants.get("whisper.cpp")
-                fw_state = "installed" if fw_variant and fw_variant.installed else "available"
-                wcpp_state = "installed" if cpp_variant and cpp_variant.installed else "available"
-                print(f"{model.name}: faster-whisper={fw_state}, whisper.cpp={wcpp_state}")
-            else:
-                state = "installed" if bool(getattr(model, "installed", False)) else "available"
-                print(f"{model.name}: {state}")
+        _handle_models_list()
         return
 
     if args.models_command == "pull":
-        if args.runtime == "faster-whisper":
-            download_model(args.name)
-            print(f"Downloaded {args.name}")
-        else:
-            download_model(args.name, runtime=args.runtime)
-            print(f"Downloaded {args.name} ({args.runtime})")
+        _handle_models_pull(args.name, args.runtime)
         return
 
     if args.models_command == "remove":
-        if args.runtime == "faster-whisper":
-            remove_model(args.name)
-            print(f"Removed {args.name}")
-        else:
-            remove_model(args.name, runtime=args.runtime)
-            print(f"Removed {args.name} ({args.runtime})")
+        _handle_models_remove(args.name, args.runtime)
         return
 
     if args.models_command in ("select", "set-default"):
         set_selected_model(args.name)
         print(f"Selected model set to {args.name}")
-        return
 
 
 def _handle_config_command(args: argparse.Namespace) -> None:
@@ -626,6 +893,8 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command is None:
+        _service_status()
+        print()
         parser.print_help()
         return
 

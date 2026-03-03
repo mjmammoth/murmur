@@ -82,6 +82,36 @@ export { useBackend };
 
 const RECONNECT_DELAY = 2000;
 
+function registerHandler<T>(handlers: T[], handler: T): () => void {
+  handlers.push(handler);
+  return () => {
+    const index = handlers.indexOf(handler);
+    if (index >= 0) {
+      handlers.splice(index, 1);
+    }
+  };
+}
+
+function emitHandlers<TArgs extends unknown[]>(
+  handlers: Array<(...args: TArgs) => void>,
+  ...args: TArgs
+) {
+  for (const handler of handlers) {
+    handler(...args);
+  }
+}
+
+/**
+ * Create a unique queue key for a model within a specific runtime.
+ *
+ * @param name - The model's name
+ * @param runtime - The runtime identifier
+ * @returns The composed key in the format `runtime:name`
+ */
+function modelPullKey(name: string, runtime: RuntimeName) {
+  return `${runtime}:${name}`;
+}
+
 /**
  * Provide a runtime WebSocket context and manage connection, server-derived state, and related actions for child components.
  *
@@ -136,36 +166,6 @@ export function BackendContextProvider(props: {
   const runtimeSwitchRequiredHandlers: (
     (payload: { runtime: RuntimeName; model: string; format: string }) => void
   )[] = [];
-
-  function registerHandler<T>(handlers: T[], handler: T): () => void {
-    handlers.push(handler);
-    return () => {
-      const index = handlers.indexOf(handler);
-      if (index >= 0) {
-        handlers.splice(index, 1);
-      }
-    };
-  }
-
-  function emitHandlers<TArgs extends unknown[]>(
-    handlers: Array<(...args: TArgs) => void>,
-    ...args: TArgs
-  ) {
-    for (const handler of [...handlers]) {
-      handler(...args);
-    }
-  }
-
-  /**
-   * Create a unique queue key for a model within a specific runtime.
-   *
-   * @param name - The model's name
-   * @param runtime - The runtime identifier
-   * @returns The composed key in the format `runtime:name`
-   */
-  function modelPullKey(name: string, runtime: RuntimeName) {
-    return `${runtime}:${name}`;
-  }
 
   /**
    * Adds a model pull (for a specific runtime) to the pending download queue if it is not already queued.
@@ -353,6 +353,85 @@ export function BackendContextProvider(props: {
    *
    * @param message - The server message to process
    */
+  function handleModelsMessage(message: ServerMessage & { type: "models" }) {
+    setModels(message.models);
+    const installedPullKeys = new Set<string>();
+    for (const model of message.models) {
+      for (const variantRuntime of Object.keys(model.variants) as RuntimeName[]) {
+        if (model.variants[variantRuntime]?.installed) {
+          installedPullKeys.add(modelPullKey(model.name, variantRuntime));
+        }
+      }
+    }
+    setQueuedModelPullKeys((prev) => prev.filter((key) => !installedPullKeys.has(key)));
+
+    const modelOp = activeModelOp();
+    if (modelOp?.type === "pulling") {
+      const pulled = message.models.find((model) => model.name === modelOp.model);
+      if (pulled?.variants?.[modelOp.runtime]?.installed) {
+        setActiveModelOp(null);
+        setDownloadProgress(null);
+      }
+    } else if (modelOp?.type === "removing") {
+      const removed = message.models.find((model) => model.name === modelOp.model);
+      if (!removed?.variants?.[modelOp.runtime]?.installed) {
+        setActiveModelOp(null);
+        setDownloadProgress(null);
+      }
+    }
+  }
+
+  function handleToastMessage(message: ServerMessage & { type: "toast" }) {
+    const modelOp = activeModelOp();
+    const pullAction = message.action === "download_cancelled" ||
+      message.action === "download_failed" ||
+      message.action === "download_complete";
+    if (pullAction && message.model) {
+      if (message.runtime) {
+        dequeueModelPull(message.model, message.runtime);
+      } else {
+        dequeueModelPullByName(message.model);
+      }
+    }
+    if (
+      modelOp?.type === "pulling" &&
+      pullAction &&
+      (!message.model || message.model === modelOp.model) &&
+      (!message.runtime || message.runtime === modelOp.runtime)
+    ) {
+      setActiveModelOp(null);
+      setDownloadProgress(null);
+    }
+    if (
+      modelOp?.type === "removing" &&
+      (message.action === "remove_complete" || message.action === "remove_failed")
+    ) {
+      setActiveModelOp(null);
+      setDownloadProgress(null);
+    }
+    emitToast(message.message, message.level ?? "info");
+  }
+
+  function handleDownloadProgress(message: ServerMessage & { type: "download_progress" }) {
+    dequeueModelPull(message.model, message.runtime);
+    setDownloadProgress({
+      model: message.model,
+      runtime: message.runtime,
+      percent: message.percent,
+    });
+    setActiveModelOp((prev) => {
+      if (prev?.type === "removing") return prev;
+      if (
+        prev?.type === "pulling" &&
+        prev.model === message.model &&
+        prev.runtime === message.runtime
+      ) {
+        return prev;
+      }
+      return { type: "pulling", model: message.model, runtime: message.runtime };
+    });
+  }
+
   function handleMessage(message: ServerMessage) {
     switch (message.type) {
       case "status":
@@ -373,34 +452,9 @@ export function BackendContextProvider(props: {
         emitHandlers(transcriptHistoryHandlers, message.entries);
         break;
 
-      case "models": {
-        setModels(message.models);
-        const installedPullKeys = new Set<string>();
-        for (const model of message.models) {
-          for (const variantRuntime of Object.keys(model.variants) as RuntimeName[]) {
-            if (model.variants[variantRuntime]?.installed) {
-              installedPullKeys.add(modelPullKey(model.name, variantRuntime));
-            }
-          }
-        }
-        setQueuedModelPullKeys((prev) => prev.filter((key) => !installedPullKeys.has(key)));
-
-        const modelOp = activeModelOp();
-        if (modelOp?.type === "pulling") {
-          const pulled = message.models.find((model) => model.name === modelOp.model);
-          if (pulled?.variants?.[modelOp.runtime]?.installed) {
-            setActiveModelOp(null);
-            setDownloadProgress(null);
-          }
-        } else if (modelOp?.type === "removing") {
-          const removed = message.models.find((model) => model.name === modelOp.model);
-          if (!removed || !removed.variants?.[modelOp.runtime]?.installed) {
-            setActiveModelOp(null);
-            setDownloadProgress(null);
-          }
-        }
+      case "models":
+        handleModelsMessage(message);
         break;
-      }
 
       case "config":
         setConfig(message.config);
@@ -437,56 +491,12 @@ export function BackendContextProvider(props: {
         emitToast(message.message, "error");
         break;
 
-      case "toast": {
-        const modelOp = activeModelOp();
-        const pullAction = message.action === "download_cancelled" ||
-          message.action === "download_failed" ||
-          message.action === "download_complete";
-        if (pullAction && message.model) {
-          if (message.runtime) {
-            dequeueModelPull(message.model, message.runtime);
-          } else {
-            dequeueModelPullByName(message.model);
-          }
-        }
-        if (
-          modelOp?.type === "pulling" &&
-          pullAction &&
-          (!message.model || message.model === modelOp.model) &&
-          (!message.runtime || message.runtime === modelOp.runtime)
-        ) {
-          setActiveModelOp(null);
-          setDownloadProgress(null);
-        }
-        if (
-          modelOp?.type === "removing" &&
-          (message.action === "remove_complete" || message.action === "remove_failed")
-        ) {
-          setActiveModelOp(null);
-          setDownloadProgress(null);
-        }
-        emitToast(message.message, message.level ?? "info");
+      case "toast":
+        handleToastMessage(message);
         break;
-      }
 
       case "download_progress":
-        dequeueModelPull(message.model, message.runtime);
-        setDownloadProgress({
-          model: message.model,
-          runtime: message.runtime,
-          percent: message.percent,
-        });
-        setActiveModelOp((prev) => {
-          if (prev?.type === "removing") return prev;
-          if (
-            prev?.type === "pulling" &&
-            prev.model === message.model &&
-            prev.runtime === message.runtime
-          ) {
-            return prev;
-          }
-          return { type: "pulling", model: message.model, runtime: message.runtime };
-        });
+        handleDownloadProgress(message);
         break;
 
       case "runtime_switch_requires_model_variant":
@@ -633,6 +643,9 @@ export function BackendContextProvider(props: {
         return;
       case "set_theme":
         patchUiConfig((ui) => ({ ...ui, theme: message.theme }));
+        return;
+      case "set_welcome_shown":
+        patchUiConfig((ui) => ({ ...ui, welcome_shown: true }));
         return;
       case "toggle_auto_revert_clipboard":
         setAutoRevertClipboard(message.enabled);

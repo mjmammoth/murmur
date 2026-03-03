@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pyperclip
 
-from whisper_local.output import (
+from murmur.output import (
     ClipboardSnapshot,
     _clipboard_macos_snapshot,
     _clipboard_text_snapshot,
@@ -24,8 +24,8 @@ from whisper_local.output import (
 
 
 def test_capture_clipboard_snapshot_collects_macos_and_text() -> None:
-    with patch("whisper_local.output._clipboard_macos_snapshot", return_value=[{"public.text": b"abc"}]), patch(
-        "whisper_local.output._clipboard_text_snapshot", return_value="hello"
+    with patch("murmur.output._clipboard_macos_snapshot", return_value=[{"public.text": b"abc"}]), patch(
+        "murmur.output._clipboard_text_snapshot", return_value="hello"
     ):
         snapshot = capture_clipboard_snapshot()
 
@@ -36,8 +36,8 @@ def test_capture_clipboard_snapshot_collects_macos_and_text() -> None:
 def test_restore_clipboard_snapshot_prefers_macos_path() -> None:
     snapshot = ClipboardSnapshot(macos_items=[{"public.text": b"abc"}], text="hello")
 
-    with patch("whisper_local.output._restore_macos_snapshot", return_value=True) as mock_restore_macos, patch(
-        "whisper_local.output.pyperclip.copy"
+    with patch("murmur.output._restore_macos_snapshot", return_value=True) as mock_restore_macos, patch(
+        "murmur.output.pyperclip.copy"
     ) as mock_copy:
         restored = restore_clipboard_snapshot(snapshot)
 
@@ -49,8 +49,8 @@ def test_restore_clipboard_snapshot_prefers_macos_path() -> None:
 def test_restore_clipboard_snapshot_falls_back_to_text() -> None:
     snapshot = ClipboardSnapshot(macos_items=[{"public.text": b"abc"}], text="hello")
 
-    with patch("whisper_local.output._restore_macos_snapshot", return_value=False), patch(
-        "whisper_local.output.pyperclip.copy"
+    with patch("murmur.output._restore_macos_snapshot", return_value=False), patch(
+        "murmur.output.pyperclip.copy"
     ) as mock_copy:
         restored = restore_clipboard_snapshot(snapshot)
 
@@ -116,7 +116,7 @@ def test_clipboard_macos_snapshot_uses_pasteboard_api(monkeypatch) -> None:
 
     fake_appkit = types.SimpleNamespace(NSPasteboard=FakePasteboard)
     monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
-    monkeypatch.setattr("whisper_local.output.sys.platform", "darwin")
+    monkeypatch.setattr("murmur.output.sys.platform", "darwin")
 
     snapshot = _clipboard_macos_snapshot()
 
@@ -171,7 +171,7 @@ def test_clipboard_macos_snapshot_skips_empty_items(monkeypatch) -> None:
 
     fake_appkit = types.SimpleNamespace(NSPasteboard=FakePasteboard)
     monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
-    monkeypatch.setattr("whisper_local.output.sys.platform", "darwin")
+    monkeypatch.setattr("murmur.output.sys.platform", "darwin")
 
     snapshot = _clipboard_macos_snapshot()
 
@@ -269,7 +269,7 @@ def test_restore_macos_snapshot_writes_all_items(monkeypatch) -> None:
 
     monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
     monkeypatch.setitem(sys.modules, "Foundation", fake_foundation)
-    monkeypatch.setattr("whisper_local.output.sys.platform", "darwin")
+    monkeypatch.setattr("murmur.output.sys.platform", "darwin")
 
     restored = _restore_macos_snapshot([{"public.utf8-plain-text": b"hello"}])
 
@@ -366,7 +366,7 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
 
     monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
     monkeypatch.setitem(sys.modules, "Foundation", fake_foundation)
-    monkeypatch.setattr("whisper_local.output.sys.platform", "darwin")
+    monkeypatch.setattr("murmur.output.sys.platform", "darwin")
 
     restored = _restore_macos_snapshot([{"public.utf8-plain-text": b"hello"}])
 
@@ -378,12 +378,12 @@ def test_restore_macos_snapshot_returns_false_when_write_fails(monkeypatch) -> N
 # ---------------------------------------------------------------------------
 
 def test_clipboard_text_snapshot_success():
-    with patch("whisper_local.output.pyperclip.paste", return_value="hello"):
+    with patch("murmur.output.pyperclip.paste", return_value="hello"):
         assert _clipboard_text_snapshot() == "hello"
 
 
 def test_clipboard_text_snapshot_exception():
-    with patch("whisper_local.output.pyperclip.paste", side_effect=pyperclip.PyperclipException("fail")):
+    with patch("murmur.output.pyperclip.paste", side_effect=pyperclip.PyperclipException("fail")):
         assert _clipboard_text_snapshot() is None
 
 
@@ -392,13 +392,13 @@ def test_clipboard_text_snapshot_exception():
 # ---------------------------------------------------------------------------
 
 def test_copy_to_clipboard_success():
-    with patch("whisper_local.output.pyperclip.copy") as mock_copy:
+    with patch("murmur.output.pyperclip.copy") as mock_copy:
         assert copy_to_clipboard("test") is True
     mock_copy.assert_called_once_with("test")
 
 
 def test_copy_to_clipboard_failure():
-    with patch("whisper_local.output.pyperclip.copy", side_effect=pyperclip.PyperclipException("fail")):
+    with patch("murmur.output.pyperclip.copy", side_effect=pyperclip.PyperclipException("fail")):
         assert copy_to_clipboard("test") is False
 
 
@@ -407,19 +407,19 @@ def test_copy_to_clipboard_failure():
 # ---------------------------------------------------------------------------
 
 def test_paste_from_clipboard_non_darwin():
-    with patch("whisper_local.output.sys.platform", "linux"):
+    with patch("murmur.output.sys.platform", "linux"):
         assert paste_from_clipboard() is False
 
 
 def test_paste_from_clipboard_darwin_success():
-    with patch("whisper_local.output.sys.platform", "darwin"), \
-         patch("whisper_local.output.subprocess.run"):
+    with patch("murmur.output.sys.platform", "darwin"), \
+         patch("murmur.output.subprocess.run"):
         assert paste_from_clipboard() is True
 
 
 def test_paste_from_clipboard_file_not_found():
-    with patch("whisper_local.output.sys.platform", "darwin"), \
-         patch("whisper_local.output.subprocess.run", side_effect=FileNotFoundError):
+    with patch("murmur.output.sys.platform", "darwin"), \
+         patch("murmur.output.subprocess.run", side_effect=FileNotFoundError):
         assert paste_from_clipboard() is False
 
 
@@ -430,8 +430,8 @@ def test_paste_from_clipboard_file_not_found():
     OSError("random error"),
 ], ids=["CalledProcessError-permission", "CalledProcessError-other", "OSError-permission", "OSError-other"])
 def test_paste_from_clipboard_error_paths(side_effect):
-    with patch("whisper_local.output.sys.platform", "darwin"), \
-         patch("whisper_local.output.subprocess.run", side_effect=side_effect):
+    with patch("murmur.output.sys.platform", "darwin"), \
+         patch("murmur.output.subprocess.run", side_effect=side_effect):
         assert paste_from_clipboard() is False
 
 
@@ -463,7 +463,7 @@ def test_restore_clipboard_snapshot_none():
 
 def test_restore_clipboard_snapshot_text_pyperclip_failure():
     snapshot = ClipboardSnapshot(macos_items=None, text="hello")
-    with patch("whisper_local.output.pyperclip.copy", side_effect=pyperclip.PyperclipException("fail")):
+    with patch("murmur.output.pyperclip.copy", side_effect=pyperclip.PyperclipException("fail")):
         assert restore_clipboard_snapshot(snapshot) is False
 
 
@@ -477,12 +477,12 @@ def test_restore_clipboard_snapshot_no_text_no_macos():
 # ---------------------------------------------------------------------------
 
 def test_clipboard_macos_snapshot_non_darwin():
-    with patch("whisper_local.output.sys.platform", "linux"):
+    with patch("murmur.output.sys.platform", "linux"):
         assert _clipboard_macos_snapshot() is None
 
 
 def test_clipboard_macos_snapshot_appkit_import_error(monkeypatch):
-    monkeypatch.setattr("whisper_local.output.sys.platform", "darwin")
+    monkeypatch.setattr("murmur.output.sys.platform", "darwin")
     # Remove AppKit from modules so the import fails
     with patch.dict("sys.modules", {"AppKit": None}):
         assert _clipboard_macos_snapshot() is None
@@ -506,5 +506,5 @@ def test_clipboard_macos_snapshot_empty_pasteboard(monkeypatch):
 
     fake_appkit = types.SimpleNamespace(NSPasteboard=FakePasteboard)
     monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
-    monkeypatch.setattr("whisper_local.output.sys.platform", "darwin")
+    monkeypatch.setattr("murmur.output.sys.platform", "darwin")
     assert _clipboard_macos_snapshot() == []

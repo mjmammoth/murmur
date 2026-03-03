@@ -5,11 +5,11 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from whisper_local.config import default_config_path
-from whisper_local.model_manager import whisper_local_model_cache_paths
-from whisper_local.service_manager import ServiceManager
-from whisper_local.service_state import state_directory
-from whisper_local.upgrade import (
+from murmur.config import default_config_path
+from murmur.model_manager import murmur_model_cache_paths
+from murmur.service_manager import ServiceManager
+from murmur.service_state import state_directory
+from murmur.upgrade import (
     INSTALLER_HOME,
     INSTALLER_MANIFEST_NAME,
     detect_install_channel,
@@ -17,8 +17,7 @@ from whisper_local.upgrade import (
 )
 
 
-DEFAULT_LAUNCHER_PATH = Path("~/.local/bin/whisper.local").expanduser()
-ALT_LAUNCHER_PATH = Path("~/.local/bin/whisper-local").expanduser()
+DEFAULT_LAUNCHER_PATH = Path("~/.local/bin/murmur").expanduser()
 
 
 class UninstallError(RuntimeError):
@@ -117,7 +116,7 @@ def _run_installer_uninstall(
 
     if options.remove_model_cache:
         try:
-            cache_paths = whisper_local_model_cache_paths()
+            cache_paths = murmur_model_cache_paths()
         except Exception as exc:
             warnings.append(f"Failed to resolve model cache paths: {exc}")
             cache_paths = ()
@@ -159,7 +158,6 @@ def _installer_launcher_candidates(installer_home: Path) -> tuple[Path, ...]:
     manifest = read_install_manifest(installer_home / INSTALLER_MANIFEST_NAME)
     candidates = [
         DEFAULT_LAUNCHER_PATH.expanduser().resolve(strict=False),
-        ALT_LAUNCHER_PATH.expanduser().resolve(strict=False),
     ]
     manifest_launchers = manifest.get("launchers") if manifest is not None else None
     if isinstance(manifest_launchers, list):
@@ -197,16 +195,16 @@ def _looks_like_installer_launcher(path: Path, installer_home: Path) -> bool:
     except Exception:
         return False
 
-    if str(installer_home) in content and "whisper_local.cli" in content:
+    if str(installer_home) in content and "murmur.cli" in content:
         return True
     if (
-        "WHISPER_LOCAL_TUI_BIN" in content
-        and 'exec "${PYTHON_BIN}" -m whisper_local.cli "$@"' in content
+        "MURMUR_TUI_BIN" in content
+        and 'exec "${PYTHON_BIN}" -m murmur.cli "$@"' in content
         and "APP_HOME=" in content
     ):
         return True
     if (
-        'exec "${SCRIPT_DIR}/whisper.local" "$@"' in content
+        'exec "${SCRIPT_DIR}/murmur" "$@"' in content
         and "SCRIPT_DIR=" in content
         and "set -euo pipefail" in content
     ):
@@ -229,5 +227,5 @@ def _path_is_within(path: Path, root: Path) -> bool:
 
 def _guidance_command_for_channel(channel: str) -> str:
     if channel == "homebrew":
-        return "brew uninstall whisper-local"
-    return "python -m pip uninstall whisper-local"
+        return "brew uninstall murmur"
+    return "python -m pip uninstall murmur"

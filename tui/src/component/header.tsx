@@ -3,7 +3,7 @@ import { useTheme } from "../context/theme";
 import { BrandTitle } from "./brand-title";
 
 interface HeaderProps {
-  onQuitClick?: () => void;
+  readonly onQuitClick?: () => void;
 }
 
 /**

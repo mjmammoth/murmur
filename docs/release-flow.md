@@ -12,9 +12,9 @@ flowchart TD
   B -->|post| D["GitHub Release prerelease=false"]
   B -->|prerelease (a/b/rc/dev)| E["GitHub Release prerelease=true"]
 
-  C --> F["Update Homebrew formula whisper.local"]
+  C --> F["Update Homebrew formula murmur"]
   D --> F
-  E --> G["Update Homebrew formula whisper.local-preview"]
+  E --> G["Update Homebrew formula murmur-preview"]
 
   C --> H["Default install/upgrade latest -> stable"]
   D --> H
@@ -50,28 +50,29 @@ Rejected examples:
 
 ## Homebrew Channels
 
-- Stable + post tags update `Formula/whisper.local.rb`.
-- Pre-release tags update `Formula/whisper.local-preview.rb`.
+- Stable + post tags update `Formula/murmur.rb`.
+- Pre-release tags update `Formula/murmur-preview.rb`.
 - Preview formula conflicts with stable formula because both install the same executables.
-- Legacy dashed names are maintained as aliases (`whisper-local`, `whisper-local-preview`).
+- No legacy aliases are maintained.
 
-Install commands:
+Install one or the other (they conflict):
 
 ```bash
 brew tap mjmammoth/tap
-brew install whisper.local
-brew install whisper.local-preview
+brew install murmur          # stable
+# OR
+brew install murmur-preview  # pre-release
 ```
 
 ## Installer and Upgrade Defaults
 
 - Installer default (`install` with no tag) resolves GitHub `releases/latest`, so it stays on stable/post releases.
-- CLI upgrade default (`whisper.local upgrade`) uses the same latest stable behavior.
+- CLI upgrade default (`murmur upgrade`) uses the same latest stable behavior.
 - To install a pre-release explicitly, pass the tag:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mjmammoth/whisper.local/main/install | bash -s -- v1.2.4rc1
-whisper.local upgrade --version v1.2.4rc1
+curl -fsSL https://raw.githubusercontent.com/mjmammoth/murmur/main/install | bash -s -- v1.2.4rc1
+murmur upgrade --version v1.2.4rc1
 ```
 
 ## Release Checklist

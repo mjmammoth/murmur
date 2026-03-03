@@ -25,7 +25,16 @@ import {
 import { Welcome } from "../component/welcome";
 import { exitApp } from "../util/exit";
 import { setSigintHandler } from "../util/interrupt";
-import type { ModelManagerDialogData } from "../types";
+
+
+/**
+ * Prevents mouse events inside a modal from bubbling to parent elements.
+ *
+ * @param event - The mouse event to stop from propagating
+ */
+function stopModalMouseBubble(event: MouseEvent) {
+  event.stopPropagation();
+}
 
 /**
  * Render the application's Home screen and manage its UI state, global input handlers, backend interactions, and modal overlays.
@@ -85,8 +94,6 @@ export function Home(): JSX.Element {
     if (welcomeShown() && !firstRunSetupRequired()) return;
     const cfg = backend.config();
     if (!cfg) return;
-    const models = backend.models();
-    if (models.length === 0) return;
 
     const currentDialog = dialog.currentDialog();
     if (currentDialog) return;
@@ -188,6 +195,30 @@ export function Home(): JSX.Element {
     setSigintHandler(null);
   });
 
+  function handleLogsPanelKey(key: KeyEvent): boolean {
+    if (!logsVisible() || dialog.isOpen()) return false;
+    if (key.name === "escape") {
+      setShowLogs(false);
+      setActivePane("main");
+      return true;
+    }
+    if (key.name === "tab") {
+      key.preventDefault();
+      setActivePane((pane) => (pane === "main" ? "logs" : "main"));
+      return true;
+    }
+    if (activePane() === "logs" && (key.name === "left" || key.name === "right")) {
+      key.preventDefault();
+      if (key.name === "left") {
+        setLogLevelIndex((idx) => Math.max(0, idx - 1));
+      } else {
+        setLogLevelIndex((idx) => Math.min(LOG_LEVELS.length - 1, idx + 1));
+      }
+      return true;
+    }
+    return false;
+  }
+
   useKeyHandler((key: KeyEvent) => {
     if (key.ctrl && key.name === "c") {
       key.preventDefault();
@@ -200,39 +231,12 @@ export function Home(): JSX.Element {
       return;
     }
 
-    // Log panel toggle works even with dialogs open
     if (key.name === "l" && !dialog.isOpen()) {
       toggleLogsPanel();
       return;
     }
 
-    if (key.name === "escape" && logsVisible() && !dialog.isOpen()) {
-      setShowLogs(false);
-      setActivePane("main");
-      return;
-    }
-
-    if (key.name === "tab" && logsVisible() && !dialog.isOpen()) {
-      key.preventDefault();
-      setActivePane((pane) => (pane === "main" ? "logs" : "main"));
-      return;
-    }
-
-    if (
-      logsVisible() &&
-      activePane() === "logs" &&
-      !dialog.isOpen() &&
-      (key.name === "left" || key.name === "right")
-    ) {
-      key.preventDefault();
-      if (key.name === "left") {
-        setLogLevelIndex((idx) => Math.max(0, idx - 1));
-      } else {
-        setLogLevelIndex((idx) => Math.min(LOG_LEVELS.length - 1, idx + 1));
-      }
-      return;
-    }
-
+    if (handleLogsPanelKey(key)) return;
     if (dialog.isOpen()) return;
 
     if (logsVisible() && activePane() === "logs") {
@@ -241,9 +245,7 @@ export function Home(): JSX.Element {
       }
     }
 
-    const keyName = key.name;
-
-    switch (keyName) {
+    switch (key.name) {
       case "q":
         requestExit();
         break;
@@ -316,18 +318,6 @@ export function Home(): JSX.Element {
     if (event.button !== 0) return;
     event.preventDefault();
     dialog.requestDismiss();
-  }
-
-  /**
-   * Prevents mouse events inside a modal from bubbling to parent elements.
-   *
-   * Stops propagation of the provided mouse event so clicks within modal content
-   * do not trigger backdrop handlers (for example, dialog dismissal).
-   *
-   * @param event - The mouse event to stop from propagating
-   */
-  function stopModalMouseBubble(event: MouseEvent) {
-    event.stopPropagation();
   }
 
   return (

@@ -46,12 +46,12 @@ function levelTag(level: string): string {
 }
 
 function normalizeLogLines(message: string): string[] {
-  const withoutAnsi = message.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
-  const normalizedNewlines = withoutAnsi.replace(/\r\n?/g, "\n");
-  const withoutControls = normalizedNewlines.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+  const withoutAnsi = message.replaceAll(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+  const normalizedNewlines = withoutAnsi.replaceAll(/\r\n?/g, "\n");
+  const withoutControls = normalizedNewlines.replaceAll(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
   const lines = withoutControls
     .split("\n")
-    .map((line) => line.replace(/\t/g, "  ").trimEnd());
+    .map((line) => line.replaceAll("\t", "  ").trimEnd());
 
   if (lines.length === 0) return [""];
   if (lines.every((line) => line.length === 0)) return [""];

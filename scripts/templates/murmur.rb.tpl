@@ -1,4 +1,4 @@
-class WhisperLocal < Formula
+class Murmur < Formula
   include Language::Python::Virtualenv
 
   desc "Local real-time voice transcription TUI using Whisper"
@@ -11,22 +11,22 @@ class WhisperLocal < Formula
   depends_on "python@3.12"
   depends_on "whisper-cpp"
 
-  resource "whisper-local-tui-darwin-arm64" do
+  resource "murmur-tui-darwin-arm64" do
     url "$TUI_URL_DARWIN_ARM64"
     sha256 "$TUI_SHA256_DARWIN_ARM64"
   end
 
-  resource "whisper-local-tui-darwin-x64" do
+  resource "murmur-tui-darwin-x64" do
     url "$TUI_URL_DARWIN_X64"
     sha256 "$TUI_SHA256_DARWIN_X64"
   end
 
-  resource "whisper-local-tui-linux-x64" do
+  resource "murmur-tui-linux-x64" do
     url "$TUI_URL_LINUX_X64"
     sha256 "$TUI_SHA256_LINUX_X64"
   end
 
-  resource "whisper-local-tui-linux-arm64" do
+  resource "murmur-tui-linux-arm64" do
     url "$TUI_URL_LINUX_ARM64"
     sha256 "$TUI_SHA256_LINUX_ARM64"
   end
@@ -60,12 +60,12 @@ class WhisperLocal < Formula
 
     tui_resource_names = {
       darwin: {
-        arm:   "whisper-local-tui-darwin-arm64",
-        intel: "whisper-local-tui-darwin-x64",
+        arm:   "murmur-tui-darwin-arm64",
+        intel: "murmur-tui-darwin-x64",
       },
       linux:  {
-        arm:   "whisper-local-tui-linux-arm64",
-        intel: "whisper-local-tui-linux-x64",
+        arm:   "murmur-tui-linux-arm64",
+        intel: "murmur-tui-linux-x64",
       },
     }
 
@@ -74,30 +74,30 @@ class WhisperLocal < Formula
     elsif OS.linux?
       :linux
     else
-      odie "Unsupported platform for whisper-local formula"
+      odie "Unsupported platform for murmur formula"
     end
     arch_key = if Hardware::CPU.arm?
       :arm
     elsif Hardware::CPU.intel?
       :intel
     else
-      odie "Unsupported CPU architecture for whisper-local formula"
+      odie "Unsupported CPU architecture for murmur formula"
     end
     tui_resource_name = tui_resource_names.fetch(platform_key).fetch(arch_key)
-    expected_binary_name = "whisper-local-tui"
+    expected_binary_name = "murmur-tui"
 
     tui_resource = resource(tui_resource_name)
     tui_resource.fetch
-    tui_archive = buildpath/"whisper-local-tui.tar.gz"
+    tui_archive = buildpath/"murmur-tui.tar.gz"
     cp tui_resource.cached_download, tui_archive
 
     (libexec/"bin").mkpath
-    extraction_marker = buildpath/"whisper-local-tui-path.txt"
+    extraction_marker = buildpath/"murmur-tui-path.txt"
     extraction_script = <<~PY
       from pathlib import Path
       import sys
 
-      from whisper_local.archive_extract import install_tui_binary_from_archive
+      from murmur.archive_extract import install_tui_binary_from_archive
 
       archive_path = Path(sys.argv[1])
       target_dir = Path(sys.argv[2])
@@ -115,33 +115,28 @@ class WhisperLocal < Formula
 
     tui_bin = Pathname.new(extraction_marker.read.strip)
     chmod 0755, tui_bin
-    (bin/"whisper-local").write_env_script(
-      libexec/"bin/whisper-local", WHISPER_LOCAL_TUI_BIN: tui_bin
+    (bin/"murmur").write_env_script(
+      libexec/"bin/murmur", MURMUR_TUI_BIN: tui_bin
     )
-    if (libexec/"bin/whisper.local").exist?
-      (bin/"whisper.local").write_env_script(
-        libexec/"bin/whisper.local", WHISPER_LOCAL_TUI_BIN: tui_bin
-      )
-    end
   end
 
   def caveats
     <<~EOS
-      whisper.local can run as a background service:
-        whisper.local start
-        whisper.local status
-        whisper.local tui
+      murmur can run as a background service:
+        murmur start
+        murmur status
+        murmur tui
 
       On Wayland, global key swallowing may be unavailable.
       Bind a desktop shortcut to:
-        whisper.local trigger toggle
+        murmur trigger toggle
 
       First run downloads the selected model and may take a few minutes.
     EOS
   end
 
   test do
-    assert_match "usage", shell_output("#{bin}/whisper-local --help")
-    assert_match "Service", shell_output("#{bin}/whisper-local status")
+    assert_match "usage", shell_output("#{bin}/murmur --help")
+    assert_match(/running|stale|stopped/, shell_output("#{bin}/murmur status"))
   end
 end

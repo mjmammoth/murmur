@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible problem in whisper.local
+description: Report a reproducible problem in murmur
 title: "[Bug]: "
 labels:
   - bug
@@ -44,10 +44,10 @@ body:
       required: true
 
   - type: input
-    id: whisper_local_version
+    id: murmur_version
     attributes:
-      label: whisper.local version/commit
-      description: Output of `whisper.local --version` or the git commit hash.
+      label: murmur version/commit
+      description: Output of `murmur --version` or the git commit hash.
       placeholder: v1.2.3 or abc1234
     validations:
       required: true

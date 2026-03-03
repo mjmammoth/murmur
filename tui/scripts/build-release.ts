@@ -50,7 +50,7 @@ function run(command: string, args: string[], cwd: string): string {
 function parseRequestedTargets(): readonly string[] {
   const cliArg = process.argv.find((arg) => arg.startsWith("--targets="));
   const fromCli = cliArg ? cliArg.slice("--targets=".length) : "";
-  const fromEnv = process.env.WHISPER_LOCAL_TUI_TARGETS ?? "";
+  const fromEnv = process.env.MURMUR_TUI_TARGETS ?? "";
   const raw = fromCli || fromEnv;
   if (!raw.trim()) {
     return DEFAULT_TARGET_IDS;
@@ -77,12 +77,12 @@ function resolveTargets(requested: readonly string[]): BuildTarget[] {
       throw new Error(`Unsupported target '${id}'. Supported targets: ${DEFAULT_TARGET_IDS.join(", ")}`);
     }
     const isWindows = id.startsWith("windows-");
-    const binaryName = isWindows ? "whisper-local-tui.exe" : "whisper-local-tui";
+    const binaryName = isWindows ? "murmur-tui.exe" : "murmur-tui";
     targets.push({
       id,
       bunTarget: `bun-${id}`,
       binaryName,
-      archiveName: `whisper-local-tui-${id}.tar.gz`,
+      archiveName: `murmur-tui-${id}.tar.gz`,
     });
   }
   return targets;
@@ -183,7 +183,7 @@ async function fetchRuntimePackageTarball(
   let tarballBuffer: Buffer;
   try {
     const response = await fetch(packageUrl, {
-      headers: { "User-Agent": "whisper-local-build-release" },
+      headers: { "User-Agent": "murmur-build-release" },
       signal,
     });
     if (!response.ok) {
@@ -363,7 +363,7 @@ async function main(): Promise<void> {
   const gitSha = run("git", ["rev-parse", "HEAD"], repoRoot);
   const manifestPath = resolve(distRoot, "manifest.json");
   const manifest = {
-    name: "whisper-local-tui",
+    name: "murmur-tui",
     version: packageJson.version,
     build_timestamp: new Date().toISOString(),
     git_sha: gitSha,

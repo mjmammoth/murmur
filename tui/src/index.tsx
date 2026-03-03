@@ -30,7 +30,7 @@ function restoreTerminalState() {
 }
 
 const captureSeconds = Number.parseFloat(
-  process.env.WHISPER_LOCAL_TUI_CAPTURE_SECONDS ?? "",
+  process.env.MURMUR_TUI_CAPTURE_SECONDS ?? "",
 );
 const captureMode = Number.isFinite(captureSeconds) && captureSeconds > 0;
 
@@ -59,7 +59,10 @@ for (let i = 0; i < args.length; i++) {
     host = args[i + 1];
     i++;
   } else if (args[i] === "--port" && args[i + 1]) {
-    port = parseInt(args[i + 1], 10);
+    const parsedPort = Number.parseInt(args[i + 1], 10);
+    if (Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535) {
+      port = parsedPort;
+    }
     i++;
   }
 }

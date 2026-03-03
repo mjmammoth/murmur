@@ -8,9 +8,9 @@ from unittest.mock import ANY, Mock, patch
 
 import pytest
 
-from whisper_local import service_manager
-from whisper_local.service_manager import ServiceManager
-from whisper_local.service_state import (
+from murmur import service_manager
+from murmur.service_manager import ServiceManager
+from murmur.service_state import (
     ServiceState,
     service_log_path,
     service_state_path,
@@ -20,7 +20,7 @@ from whisper_local.service_state import (
 
 def test_is_pid_alive_treats_eperm_as_alive() -> None:
     with patch(
-        "whisper_local.service_manager.os.kill",
+        "murmur.service_manager.os.kill",
         side_effect=OSError(errno.EPERM, "operation not permitted"),
     ):
         assert service_manager._is_pid_alive(1234) is True
@@ -30,10 +30,10 @@ def test_terminate_pid_attempts_non_blocking_waitpid_after_final_kill() -> None:
     expected_kill_signal = getattr(service_manager.signal, "SIGKILL", service_manager.signal.SIGTERM)
     expected_wnohang = getattr(service_manager.os, "WNOHANG", 0)
 
-    with patch("whisper_local.service_manager._is_pid_alive", return_value=True), patch(
-        "whisper_local.service_manager.os.kill"
+    with patch("murmur.service_manager._is_pid_alive", return_value=True), patch(
+        "murmur.service_manager.os.kill"
     ) as mock_kill, patch(
-        "whisper_local.service_manager.os.waitpid",
+        "murmur.service_manager.os.waitpid",
         create=True,
     ) as mock_waitpid:
         service_manager._terminate_pid(1234, timeout=0.0)
@@ -44,10 +44,10 @@ def test_terminate_pid_attempts_non_blocking_waitpid_after_final_kill() -> None:
 
 
 def test_terminate_pid_ignores_waitpid_errors() -> None:
-    with patch("whisper_local.service_manager._is_pid_alive", return_value=True), patch(
-        "whisper_local.service_manager.os.kill"
+    with patch("murmur.service_manager._is_pid_alive", return_value=True), patch(
+        "murmur.service_manager.os.kill"
     ), patch(
-        "whisper_local.service_manager.os.waitpid",
+        "murmur.service_manager.os.waitpid",
         side_effect=ChildProcessError,
         create=True,
     ):
@@ -55,8 +55,8 @@ def test_terminate_pid_ignores_waitpid_errors() -> None:
 
 
 def test_terminate_pid_skips_when_expected_pid_check_fails() -> None:
-    with patch("whisper_local.service_manager._is_pid_alive", return_value=True), patch(
-        "whisper_local.service_manager.os.kill"
+    with patch("murmur.service_manager._is_pid_alive", return_value=True), patch(
+        "murmur.service_manager.os.kill"
     ) as mock_kill:
         service_manager._terminate_pid(1234, is_expected_pid=lambda _: False)
 
@@ -65,11 +65,11 @@ def test_terminate_pid_skips_when_expected_pid_check_fails() -> None:
 
 def test_pid_matches_bridge_process_checks_expected_arguments() -> None:
     with patch(
-        "whisper_local.service_manager._process_argv",
+        "murmur.service_manager._process_argv",
         return_value=(
             "/usr/bin/python3",
             "-m",
-            "whisper_local.cli",
+            "murmur.cli",
             "bridge",
             "--host",
             "localhost",
@@ -85,11 +85,11 @@ def test_pid_matches_bridge_process_checks_expected_arguments() -> None:
 
 def test_pid_matches_status_indicator_process_checks_expected_arguments() -> None:
     with patch(
-        "whisper_local.service_manager._process_argv",
+        "murmur.service_manager._process_argv",
         return_value=(
             "/usr/bin/python3",
             "-m",
-            "whisper_local.status_indicator",
+            "murmur.status_indicator",
             "--host",
             "localhost",
             "--port",
@@ -139,7 +139,7 @@ def test_status_marks_and_cleans_stale_state(tmp_path: Path) -> None:
     state_path.write_text(f"{json.dumps(state.to_dict())}\n", encoding="utf-8")
     manager = ServiceManager(state_path=state_path)
 
-    with patch("whisper_local.service_manager._is_pid_alive", return_value=False):
+    with patch("murmur.service_manager._is_pid_alive", return_value=False):
         status = manager.status()
 
     assert status.running is False
@@ -160,10 +160,10 @@ def test_status_marks_alive_but_unreachable_state_stale(tmp_path: Path) -> None:
     state_path.write_text(f"{json.dumps(state.to_dict())}\n", encoding="utf-8")
     manager = ServiceManager(state_path=state_path)
 
-    with patch("whisper_local.service_manager._is_pid_alive", return_value=True), patch(
-        "whisper_local.service_manager._is_port_reachable",
+    with patch("murmur.service_manager._is_pid_alive", return_value=True), patch(
+        "murmur.service_manager._is_port_reachable",
         return_value=False,
-    ), patch("whisper_local.service_manager._terminate_pid") as mock_terminate:
+    ), patch("murmur.service_manager._terminate_pid") as mock_terminate:
         status = manager.status()
 
     assert status.running is False
@@ -183,7 +183,7 @@ def test_save_state_does_not_ensure_global_state_directory(tmp_path: Path) -> No
     manager = ServiceManager(state_path=state_path)
     state = ServiceState.new(pid=1234, host="localhost", port=7878, status_indicator_pid=None)
 
-    with patch("whisper_local.service_manager.ensure_state_directory") as mock_ensure_state_dir:
+    with patch("murmur.service_manager.ensure_state_directory") as mock_ensure_state_dir:
         manager.save_state(state)
 
     mock_ensure_state_dir.assert_not_called()
@@ -199,14 +199,14 @@ def test_start_background_persists_service_state(tmp_path: Path) -> None:
     indicator_provider = Mock()
     indicator_provider.pid = 5678
 
-    with patch("whisper_local.service_manager.subprocess.Popen", return_value=process), patch(
-        "whisper_local.service_manager._wait_for_port", return_value=True
+    with patch("murmur.service_manager.subprocess.Popen", return_value=process), patch(
+        "murmur.service_manager._wait_for_port", return_value=True
     ), patch(
-        "whisper_local.service_manager._is_pid_alive", return_value=True
+        "murmur.service_manager._is_pid_alive", return_value=True
     ), patch(
-        "whisper_local.service_manager._is_port_reachable", return_value=True
+        "murmur.service_manager._is_port_reachable", return_value=True
     ), patch(
-        "whisper_local.service_manager.create_status_indicator_provider",
+        "murmur.service_manager.create_status_indicator_provider",
         return_value=indicator_provider,
     ):
         status = manager.start_background(host="localhost", port=7878, status_indicator=True)
@@ -230,16 +230,16 @@ def test_start_background_uses_indicator_provider_when_requested_on_non_darwin(
     process.pid = 1234
     indicator_provider = Mock()
     indicator_provider.pid = 5678
-    monkeypatch.setattr("whisper_local.service_manager.sys.platform", "linux")
+    monkeypatch.setattr("murmur.service_manager.sys.platform", "linux")
 
-    with patch("whisper_local.service_manager.subprocess.Popen", return_value=process), patch(
-        "whisper_local.service_manager._wait_for_port", return_value=True
+    with patch("murmur.service_manager.subprocess.Popen", return_value=process), patch(
+        "murmur.service_manager._wait_for_port", return_value=True
     ), patch(
-        "whisper_local.service_manager._is_pid_alive", return_value=True
+        "murmur.service_manager._is_pid_alive", return_value=True
     ), patch(
-        "whisper_local.service_manager._is_port_reachable", return_value=True
+        "murmur.service_manager._is_port_reachable", return_value=True
     ), patch(
-        "whisper_local.service_manager.create_status_indicator_provider",
+        "murmur.service_manager.create_status_indicator_provider",
         return_value=indicator_provider,
     ) as mock_create_indicator_provider:
         status = manager.start_background(host="localhost", port=7878, status_indicator=True)
@@ -273,12 +273,12 @@ def test_start_background_restarts_when_existing_state_target_differs(tmp_path: 
     replacement_status.host = "127.0.0.1"
     replacement_status.port = 9000
 
-    with patch("whisper_local.service_manager.subprocess.Popen", return_value=process), patch(
-        "whisper_local.service_manager._wait_for_port", return_value=True
+    with patch("murmur.service_manager.subprocess.Popen", return_value=process), patch(
+        "murmur.service_manager._wait_for_port", return_value=True
     ), patch(
-        "whisper_local.service_manager._is_pid_alive", return_value=True
+        "murmur.service_manager._is_pid_alive", return_value=True
     ), patch(
-        "whisper_local.service_manager._terminate_pid"
+        "murmur.service_manager._terminate_pid"
     ) as mock_terminate, patch.object(
         manager, "status", return_value=replacement_status
     ):
@@ -317,24 +317,24 @@ def test_start_background_recovers_missing_indicator_on_darwin(tmp_path: Path, m
             return True
         return False
 
-    monkeypatch.setattr("whisper_local.service_manager.sys.platform", "darwin")
-    with patch("whisper_local.service_manager.ensure_state_directory"), patch(
-        "whisper_local.service_manager.subprocess.Popen",
+    monkeypatch.setattr("murmur.service_manager.sys.platform", "darwin")
+    with patch("murmur.service_manager.ensure_state_directory"), patch(
+        "murmur.service_manager.subprocess.Popen",
         return_value=process,
     ), patch(
-        "whisper_local.service_manager._wait_for_port",
+        "murmur.service_manager._wait_for_port",
         return_value=True,
     ), patch(
-        "whisper_local.service_manager._is_pid_alive",
+        "murmur.service_manager._is_pid_alive",
         side_effect=_pid_alive,
     ), patch(
-        "whisper_local.service_manager._is_port_reachable",
+        "murmur.service_manager._is_port_reachable",
         return_value=True,
     ), patch(
-        "whisper_local.service_manager.create_status_indicator_provider",
+        "murmur.service_manager.create_status_indicator_provider",
         return_value=indicator_provider,
     ) as mock_create_indicator_provider, patch(
-        "whisper_local.service_manager._terminate_pid"
+        "murmur.service_manager._terminate_pid"
     ) as mock_terminate:
         status = manager.start_background(host="localhost", port=7878, status_indicator=True)
 
@@ -368,22 +368,22 @@ def test_start_background_non_darwin_does_not_restart_for_missing_indicator(
     state_path.write_text(f"{json.dumps(existing_state.to_dict())}\n", encoding="utf-8")
     manager = ServiceManager(state_path=state_path)
     existing_status = Mock(running=True, host="localhost", port=7878, pid=4444, status_indicator_pid=None)
-    monkeypatch.setattr("whisper_local.service_manager.sys.platform", "linux")
+    monkeypatch.setattr("murmur.service_manager.sys.platform", "linux")
 
     with patch(
-        "whisper_local.service_manager._is_pid_alive",
+        "murmur.service_manager._is_pid_alive",
         return_value=True,
     ), patch(
-        "whisper_local.service_manager._is_port_reachable",
+        "murmur.service_manager._is_port_reachable",
         return_value=True,
     ), patch.object(
         manager,
         "status",
         return_value=existing_status,
     ) as mock_status, patch(
-        "whisper_local.service_manager.subprocess.Popen",
+        "murmur.service_manager.subprocess.Popen",
     ) as mock_popen, patch(
-        "whisper_local.service_manager._terminate_pid"
+        "murmur.service_manager._terminate_pid"
     ) as mock_terminate:
         status = manager.start_background(host="localhost", port=7878, status_indicator=True)
 
@@ -404,18 +404,18 @@ def test_start_background_indicator_start_failure_continues_service(
     indicator_provider = Mock()
     indicator_provider.pid = 5678
     indicator_provider.start.side_effect = RuntimeError("indicator start failed")
-    monkeypatch.setattr("whisper_local.service_manager.sys.platform", "darwin")
+    monkeypatch.setattr("murmur.service_manager.sys.platform", "darwin")
 
-    with patch("whisper_local.service_manager.subprocess.Popen", return_value=process), patch(
-        "whisper_local.service_manager._wait_for_port", return_value=True
+    with patch("murmur.service_manager.subprocess.Popen", return_value=process), patch(
+        "murmur.service_manager._wait_for_port", return_value=True
     ), patch(
-        "whisper_local.service_manager._is_pid_alive", return_value=True
+        "murmur.service_manager._is_pid_alive", return_value=True
     ), patch(
-        "whisper_local.service_manager._is_port_reachable", return_value=True
+        "murmur.service_manager._is_port_reachable", return_value=True
     ), patch(
-        "whisper_local.service_manager.create_status_indicator_provider",
+        "murmur.service_manager.create_status_indicator_provider",
         return_value=indicator_provider,
-    ), patch("whisper_local.service_manager._terminate_pid") as mock_terminate:
+    ), patch("murmur.service_manager._terminate_pid") as mock_terminate:
         manager.start_background(host="localhost", port=7878, status_indicator=True)
 
     indicator_provider.stop.assert_called_once()
@@ -439,7 +439,7 @@ def test_stop_terminates_service_and_indicator(tmp_path: Path) -> None:
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(f"{json.dumps(state.to_dict())}\n", encoding="utf-8")
 
-    with patch("whisper_local.service_manager._terminate_pid") as mock_terminate:
+    with patch("murmur.service_manager._terminate_pid") as mock_terminate:
         manager.stop()
 
     assert mock_terminate.call_count == 2
@@ -514,15 +514,15 @@ def test_ensure_running_restarts_when_running_target_differs(tmp_path: Path) -> 
 
 def test_argv_contains_sequence_found():
     assert service_manager._argv_contains_sequence(
-        ("python", "-m", "whisper_local.cli", "bridge"),
-        ("-m", "whisper_local.cli", "bridge"),
+        ("python", "-m", "murmur.cli", "bridge"),
+        ("-m", "murmur.cli", "bridge"),
     ) is True
 
 
 def test_argv_contains_sequence_not_found():
     assert service_manager._argv_contains_sequence(
         ("python", "-m", "other.module"),
-        ("-m", "whisper_local.cli", "bridge"),
+        ("-m", "murmur.cli", "bridge"),
     ) is False
 
 
@@ -559,30 +559,30 @@ def test_argv_contains_option_value_not_found():
 # ---------------------------------------------------------------------------
 
 def test_pid_matches_bridge_process_true():
-    argv = ("python", "-m", "whisper_local.cli", "bridge", "--host", "localhost", "--port", "7878")
-    with patch("whisper_local.service_manager._process_argv", return_value=argv):
+    argv = ("python", "-m", "murmur.cli", "bridge", "--host", "localhost", "--port", "7878")
+    with patch("murmur.service_manager._process_argv", return_value=argv):
         assert service_manager._pid_matches_bridge_process(1234, host="localhost", port=7878) is True
 
 
 def test_pid_matches_bridge_process_wrong_port():
-    argv = ("python", "-m", "whisper_local.cli", "bridge", "--host", "localhost", "--port", "9999")
-    with patch("whisper_local.service_manager._process_argv", return_value=argv):
+    argv = ("python", "-m", "murmur.cli", "bridge", "--host", "localhost", "--port", "9999")
+    with patch("murmur.service_manager._process_argv", return_value=argv):
         assert service_manager._pid_matches_bridge_process(1234, host="localhost", port=7878) is False
 
 
 def test_pid_matches_bridge_process_no_argv():
-    with patch("whisper_local.service_manager._process_argv", return_value=None):
+    with patch("murmur.service_manager._process_argv", return_value=None):
         assert service_manager._pid_matches_bridge_process(1234, host="localhost", port=7878) is True
 
 
 def test_pid_matches_status_indicator_process_true():
-    argv = ("python", "-m", "whisper_local.status_indicator", "--host", "localhost", "--port", "7878")
-    with patch("whisper_local.service_manager._process_argv", return_value=argv):
+    argv = ("python", "-m", "murmur.status_indicator", "--host", "localhost", "--port", "7878")
+    with patch("murmur.service_manager._process_argv", return_value=argv):
         assert service_manager._pid_matches_status_indicator_process(1234, host="localhost", port=7878) is True
 
 
 def test_pid_matches_status_indicator_process_no_argv():
-    with patch("whisper_local.service_manager._process_argv", return_value=None):
+    with patch("murmur.service_manager._process_argv", return_value=None):
         assert service_manager._pid_matches_status_indicator_process(1234, host="localhost", port=7878) is True
 
 
@@ -599,12 +599,12 @@ def test_is_pid_alive_none():
 
 
 def test_is_pid_alive_no_error():
-    with patch("whisper_local.service_manager.os.kill"):
+    with patch("murmur.service_manager.os.kill"):
         assert service_manager._is_pid_alive(1234) is True
 
 
 def test_is_pid_alive_esrch():
-    with patch("whisper_local.service_manager.os.kill", side_effect=OSError(errno.ESRCH, "no process")):
+    with patch("murmur.service_manager.os.kill", side_effect=OSError(errno.ESRCH, "no process")):
         assert service_manager._is_pid_alive(1234) is False
 
 
@@ -616,12 +616,12 @@ def test_is_port_reachable_true():
     mock_conn = Mock()
     mock_conn.__enter__ = Mock(return_value=mock_conn)
     mock_conn.__exit__ = Mock(return_value=False)
-    with patch("whisper_local.service_manager.socket.create_connection", return_value=mock_conn):
+    with patch("murmur.service_manager.socket.create_connection", return_value=mock_conn):
         assert service_manager._is_port_reachable("localhost", 7878) is True
 
 
 def test_is_port_reachable_false():
-    with patch("whisper_local.service_manager.socket.create_connection", side_effect=OSError):
+    with patch("murmur.service_manager.socket.create_connection", side_effect=OSError):
         assert service_manager._is_port_reachable("localhost", 7878) is False
 
 
@@ -630,12 +630,12 @@ def test_is_port_reachable_false():
 # ---------------------------------------------------------------------------
 
 def test_wait_for_port_immediate():
-    with patch("whisper_local.service_manager._is_port_reachable", return_value=True):
+    with patch("murmur.service_manager._is_port_reachable", return_value=True):
         assert service_manager._wait_for_port("localhost", 7878, timeout=0.1) is True
 
 
 def test_wait_for_port_timeout():
-    with patch("whisper_local.service_manager._is_port_reachable", return_value=False):
+    with patch("murmur.service_manager._is_port_reachable", return_value=False):
         assert service_manager._wait_for_port("localhost", 7878, timeout=0.1) is False
 
 
@@ -645,59 +645,59 @@ def test_wait_for_port_timeout():
 
 def test_process_argv_from_proc(tmp_path: Path):
     proc_cmdline = tmp_path / "cmdline"
-    proc_cmdline.write_bytes(b"python\x00-m\x00whisper_local.cli\x00bridge\x00")
-    with patch("whisper_local.service_manager.Path") as MockPath:
+    proc_cmdline.write_bytes(b"python\x00-m\x00murmur.cli\x00bridge\x00")
+    with patch("murmur.service_manager.Path") as MockPath:
         mock_path = Mock()
         mock_path.read_bytes.return_value = proc_cmdline.read_bytes()
         MockPath.return_value = mock_path
         result = service_manager._process_argv(1234)
-    assert result == ("python", "-m", "whisper_local.cli", "bridge")
+    assert result == ("python", "-m", "murmur.cli", "bridge")
 
 
 def test_process_argv_from_ps():
-    with patch("whisper_local.service_manager.Path") as MockPath:
+    with patch("murmur.service_manager.Path") as MockPath:
         mock_path = Mock()
         mock_path.read_bytes.return_value = b""
         MockPath.return_value = mock_path
 
-        mock_result = Mock(returncode=0, stdout="python -m whisper_local.cli bridge\n")
-        with patch("whisper_local.service_manager.subprocess.run", return_value=mock_result):
+        mock_result = Mock(returncode=0, stdout="python -m murmur.cli bridge\n")
+        with patch("murmur.service_manager.subprocess.run", return_value=mock_result):
             result = service_manager._process_argv(1234)
     assert result is not None
     assert "python" in result
 
 
 def test_process_argv_ps_fails():
-    with patch("whisper_local.service_manager.Path") as MockPath:
+    with patch("murmur.service_manager.Path") as MockPath:
         mock_path = Mock()
         mock_path.read_bytes.return_value = b""
         MockPath.return_value = mock_path
 
-        with patch("whisper_local.service_manager.subprocess.run", side_effect=Exception("fail")):
+        with patch("murmur.service_manager.subprocess.run", side_effect=Exception("fail")):
             result = service_manager._process_argv(1234)
     assert result is None
 
 
 def test_process_argv_ps_nonzero():
-    with patch("whisper_local.service_manager.Path") as MockPath:
+    with patch("murmur.service_manager.Path") as MockPath:
         mock_path = Mock()
         mock_path.read_bytes.return_value = b""
         MockPath.return_value = mock_path
 
         mock_result = Mock(returncode=1, stdout="")
-        with patch("whisper_local.service_manager.subprocess.run", return_value=mock_result):
+        with patch("murmur.service_manager.subprocess.run", return_value=mock_result):
             result = service_manager._process_argv(1234)
     assert result is None
 
 
 def test_process_argv_ps_empty_output():
-    with patch("whisper_local.service_manager.Path") as MockPath:
+    with patch("murmur.service_manager.Path") as MockPath:
         mock_path = Mock()
         mock_path.read_bytes.return_value = b""
         MockPath.return_value = mock_path
 
         mock_result = Mock(returncode=0, stdout="")
-        with patch("whisper_local.service_manager.subprocess.run", return_value=mock_result):
+        with patch("murmur.service_manager.subprocess.run", return_value=mock_result):
             result = service_manager._process_argv(1234)
     assert result is None
 
@@ -708,7 +708,7 @@ def test_process_argv_windows_uses_psutil() -> None:
             assert pid == 1234
 
         def cmdline(self) -> list[str]:
-            return ["python", "-m", "whisper_local.cli", "bridge"]
+            return ["python", "-m", "murmur.cli", "bridge"]
 
     class _FakePsutil:
         class AccessDenied(Exception):
@@ -720,14 +720,14 @@ def test_process_argv_windows_uses_psutil() -> None:
         Process = _FakeProcess
 
     with patch.object(service_manager.sys, "platform", "win32"), patch(
-        "whisper_local.service_manager.Path"
+        "murmur.service_manager.Path"
     ) as MockPath, patch.dict(sys.modules, {"psutil": _FakePsutil}):
         mock_path = Mock()
         mock_path.read_bytes.return_value = b""
         MockPath.return_value = mock_path
         result = service_manager._process_argv(1234)
 
-    assert result == ("python", "-m", "whisper_local.cli", "bridge")
+    assert result == ("python", "-m", "murmur.cli", "bridge")
 
 
 # ---------------------------------------------------------------------------
@@ -743,13 +743,13 @@ def test_terminate_pid_zero():
 
 
 def test_terminate_pid_unexpected_pid():
-    with patch("whisper_local.service_manager._is_pid_alive", return_value=True):
+    with patch("murmur.service_manager._is_pid_alive", return_value=True):
         service_manager._terminate_pid(1234, is_expected_pid=lambda pid: False)
         # Should skip without sending signal
 
 
 def test_terminate_pid_dead():
-    with patch("whisper_local.service_manager._is_pid_alive", return_value=False):
+    with patch("murmur.service_manager._is_pid_alive", return_value=False):
         service_manager._terminate_pid(1234)
         # Should return early
 
@@ -759,8 +759,8 @@ def test_terminate_pid_sigterm_oserror():
     def fake_is_alive(pid):
         call_count[0] += 1
         return call_count[0] <= 1  # alive first, then dead
-    with patch("whisper_local.service_manager._is_pid_alive", side_effect=fake_is_alive), \
-         patch("whisper_local.service_manager.os.kill", side_effect=OSError("perm")):
+    with patch("murmur.service_manager._is_pid_alive", side_effect=fake_is_alive), \
+         patch("murmur.service_manager.os.kill", side_effect=OSError("perm")):
         service_manager._terminate_pid(1234)
 
 

@@ -8,7 +8,11 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Callable, Literal
 
-from whisper_local.config import normalize_runtime_name
+from murmur.config import (
+    RUNTIME_FASTER_WHISPER,
+    RUNTIME_WHISPER_CPP,
+    normalize_runtime_name,
+)
 
 RuntimeName = Literal["faster-whisper", "whisper.cpp"]
 
@@ -86,7 +90,7 @@ class ModelRuntimeOperations(ABC):
 
 
 class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
-    runtime: RuntimeName = "faster-whisper"
+    runtime: RuntimeName = RUNTIME_FASTER_WHISPER
 
     def download(
         self,
@@ -105,7 +109,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             Path: Filesystem path to the installed model.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm._download_faster_model(
             model_name,
@@ -120,7 +124,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
         Parameters:
             model_name (str): The model identifier used by the faster-whisper runtime to locate and remove the installed model.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         mm._remove_faster_model(model_name)
 
@@ -131,7 +135,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
         	Path or `None`: Path to the installed model file if the model is installed, `None` otherwise.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm._get_installed_faster_model_path(model_name)
 
@@ -145,7 +149,7 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             int: Total cache size for the specified model in bytes.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm._faster_model_cache_size_bytes(model_name)
 
@@ -156,13 +160,13 @@ class FasterWhisperModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             int | None: The estimated size in bytes for `model_name` if known, `None` otherwise.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm.MODEL_ESTIMATED_SIZE_BYTES.get(model_name)
 
 
 class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
-    runtime: RuntimeName = "whisper.cpp"
+    runtime: RuntimeName = RUNTIME_WHISPER_CPP
 
     def download(
         self,
@@ -185,7 +189,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
             ValueError: If `model_name` is not a recognized whisper.cpp model.
             DownloadCancelledError: If cancellation is requested before start or during the download.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         if model_name not in mm.MODEL_NAMES:
             raise ValueError(f"Unknown model: {model_name}")
@@ -230,6 +234,42 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
             progress_callback(100)
         return downloaded
 
+    @staticmethod
+    def _make_baseline_progress_emitter(
+        cache_path: Path,
+        baseline_size: int,
+        progress_callback: Callable[[int], None] | None,
+        expected_total_bytes: int | None,
+        scan_interval: float = 3.0,
+    ) -> Callable[[], int]:
+        """Create a closure that computes cache-size-based progress relative to a baseline. Returns last_percent."""
+        from murmur import model_manager as mm
+
+        last_percent = -1
+        last_size = 0
+        last_scan_time = 0.0
+
+        def emit_progress() -> int:
+            nonlocal last_percent, last_size, last_scan_time
+            if progress_callback is None:
+                return last_percent
+            current_time = time.monotonic()
+            total = int(expected_total_bytes or 0)
+            if total <= 0:
+                percent = 0
+            else:
+                if current_time - last_scan_time >= scan_interval:
+                    last_size = mm._cache_path_size_bytes(cache_path)
+                    last_scan_time = current_time
+                downloaded_bytes = max(last_size - baseline_size, 0)
+                percent = int(max(0.0, min((downloaded_bytes / float(total)) * 100.0, 99.0)))
+            if percent != last_percent:
+                last_percent = percent
+                progress_callback(percent)
+            return last_percent
+
+        return emit_progress
+
     def _download_file_in_subprocess(
         self,
         repo_id: str,
@@ -252,10 +292,10 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
         	Path: Path to the downloaded file as printed by the subprocess.
 
         Raises:
-        	whisper_local.model_manager.DownloadCancelledError: If cancellation is requested via cancel_check during download.
+        	murmur.model_manager.DownloadCancelledError: If cancellation is requested via cancel_check during download.
         	RuntimeError: If the subprocess fails or does not return a download path.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         env = os.environ.copy()
         env["HF_HUB_DISABLE_XET"] = "1"
@@ -275,36 +315,9 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
 
         cache_path = mm._cache_path_for_repo_id(repo_id)
         baseline_size = mm._cache_path_size_bytes(cache_path)
-        last_percent = -1
-        last_size = 0
-        last_scan_time = 0.0
-        size_scan_interval = 3.0
-
-        def emit_progress() -> None:
-            """
-            Compute current download progress from the local cache size and invoke the provided progress callback.
-
-            If no progress callback is set, this function does nothing. It samples the cache directory size at most once per size_scan_interval, computes downloaded bytes as max(last_size - baseline_size, 0), and maps that to a percentage of expected_total_bytes. When expected_total_bytes is unknown or zero the percentage is treated as 0. The reported percentage is clamped between 0 and 99 and is only sent to progress_callback when it differs from the last reported value; last_percent is updated accordingly.
-            """
-            nonlocal last_percent, last_size, last_scan_time
-            if progress_callback is None:
-                return
-
-            current_time = time.monotonic()
-            total = int(expected_total_bytes or 0)
-            if total <= 0:
-                percent = 0
-            else:
-                if current_time - last_scan_time >= size_scan_interval:
-                    last_size = mm._cache_path_size_bytes(cache_path)
-                    last_scan_time = current_time
-                downloaded_bytes = max(last_size - baseline_size, 0)
-                percent = int(max(0.0, min((downloaded_bytes / float(total)) * 100.0, 99.0)))
-
-            if percent == last_percent:
-                return
-            last_percent = percent
-            progress_callback(percent)
+        emit_progress = self._make_baseline_progress_emitter(
+            cache_path, baseline_size, progress_callback, expected_total_bytes,
+        )
 
         while process.poll() is None:
             if cancel_check is not None and cancel_check():
@@ -323,7 +336,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
                 + (f": {details}" if details else "")
             )
 
-        emit_progress()
+        last_percent = emit_progress()
         output = stdout.strip().splitlines()
         if not output:
             mm._prune_whisper_cpp_cache()
@@ -360,7 +373,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
         Parameters:
             model_name (str): The whisper.cpp model identifier to remove (e.g., a known model name).
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         mm._remove_whisper_cpp_model(model_name)
 
@@ -374,7 +387,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             Path | None: Path to the installed model file if installed, `None` otherwise.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm.get_installed_whisper_cpp_model_path(model_name)
 
@@ -388,7 +401,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             int: Total cache size in bytes for the specified model.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm._whisper_cpp_model_cache_size_bytes(model_name)
 
@@ -399,7 +412,7 @@ class WhisperCppModelRuntimeOperations(ModelRuntimeOperations):
         Returns:
             int | None: Estimated size in bytes for the specified model, or None if no estimate is available.
         """
-        from whisper_local import model_manager as mm
+        from murmur import model_manager as mm
 
         return mm.WHISPER_CPP_ESTIMATED_SIZE_BYTES.get(model_name)
 
@@ -428,8 +441,8 @@ class DefaultModelRuntimeOperationsFactory(ModelRuntimeOperationsFactory):
         "faster-whisper" and "whisper.cpp", accessible via self._operations.
         """
         self._operations: dict[RuntimeName, ModelRuntimeOperations] = {
-            "faster-whisper": FasterWhisperModelRuntimeOperations(),
-            "whisper.cpp": WhisperCppModelRuntimeOperations(),
+            RUNTIME_FASTER_WHISPER: FasterWhisperModelRuntimeOperations(),
+            RUNTIME_WHISPER_CPP: WhisperCppModelRuntimeOperations(),
         }
 
     def for_runtime(self, runtime: str | None) -> ModelRuntimeOperations:
@@ -443,7 +456,7 @@ class DefaultModelRuntimeOperationsFactory(ModelRuntimeOperationsFactory):
             ModelRuntimeOperations: The operation handler for the normalized runtime ("whisper.cpp" or "faster-whisper").
         """
         normalized = normalize_runtime_name(str(runtime or "faster-whisper"))
-        key: RuntimeName = "whisper.cpp" if normalized == "whisper.cpp" else "faster-whisper"
+        key: RuntimeName = RUNTIME_WHISPER_CPP if normalized == RUNTIME_WHISPER_CPP else RUNTIME_FASTER_WHISPER
         return self._operations[key]
 
 

@@ -16,17 +16,18 @@ os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
-from whisper_local import config as config_module
-from whisper_local.model_ops import ModelRuntimeOperations, get_model_runtime_operations_factory
+from murmur import config as config_module
+from murmur.config import RUNTIME_FASTER_WHISPER, RUNTIME_WHISPER_CPP
+from murmur.model_ops import ModelRuntimeOperations, get_model_runtime_operations_factory
 
 
 logger = logging.getLogger(__name__)
 
 RuntimeName = Literal["faster-whisper", "whisper.cpp"]
-RUNTIME_NAMES: tuple[RuntimeName, RuntimeName] = ("faster-whisper", "whisper.cpp")
+RUNTIME_NAMES: tuple[RuntimeName, RuntimeName] = (RUNTIME_FASTER_WHISPER, RUNTIME_WHISPER_CPP)
 RUNTIME_FORMATS: dict[RuntimeName, str] = {
-    "faster-whisper": "ctranslate2",
-    "whisper.cpp": "ggml",
+    RUNTIME_FASTER_WHISPER: "ctranslate2",
+    RUNTIME_WHISPER_CPP: "ggml",
 }
 
 MODEL_NAMES = ["tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo"]
@@ -136,9 +137,9 @@ def normalize_model_runtime(runtime: str | None) -> RuntimeName:
         'whisper.cpp' if the given runtime normalizes to "whisper.cpp", otherwise 'faster-whisper'.
     """
     normalized = config_module.normalize_runtime_name(str(runtime or "faster-whisper"))
-    if normalized == "whisper.cpp":
-        return "whisper.cpp"
-    return "faster-whisper"
+    if normalized == RUNTIME_WHISPER_CPP:
+        return RUNTIME_WHISPER_CPP
+    return RUNTIME_FASTER_WHISPER
 
 
 def _model_operations_for_runtime(runtime: str | None) -> ModelRuntimeOperations:
@@ -209,9 +210,9 @@ def _cache_path_for_repo_id(repo_id: str) -> Path:
     return get_hf_cache_dir() / "hub" / cache_name
 
 
-def whisper_local_model_cache_paths() -> tuple[Path, ...]:
+def murmur_model_cache_paths() -> tuple[Path, ...]:
     """
-    Return all Hugging Face cache directories managed by whisper.local model operations.
+    Return all Hugging Face cache directories managed by murmur model operations.
 
     Includes faster-whisper model repositories (primary + aliases) and the whisper.cpp
     repository cache root. Paths are deduplicated while preserving order.
@@ -511,34 +512,36 @@ def _snapshot_is_complete(snapshot_path: Path) -> bool:
     return True
 
 
-def _prune_cache_path(cache_path: Path) -> None:
-    """
-    Remove incomplete model snapshot data and orphaned partial blobs from a model cache path.
-
-    Prunes any snapshot directories under `cache_path` that are not complete, removes `.incomplete` files under `cache_path/blobs`, and if the cache contains no remaining snapshot directories removes the entire `cache_path`. Failures to remove individual files or directories are logged but do not raise.
-    """
-    removed_any = False
+def _prune_incomplete_snapshots(cache_path: Path) -> bool:
+    """Remove incomplete snapshot directories. Returns True if any were removed."""
+    removed = False
     for snapshot_path in _iter_snapshot_paths(cache_path):
         if _snapshot_is_complete(snapshot_path):
             continue
         try:
             shutil.rmtree(snapshot_path)
-            removed_any = True
+            removed = True
         except Exception:
             logger.warning("Failed to remove incomplete model snapshot: %s", snapshot_path)
+    return removed
 
+
+def _prune_incomplete_blobs(cache_path: Path) -> bool:
+    """Remove .incomplete files under cache_path/blobs. Returns True if any were removed."""
+    removed = False
     blobs_path = cache_path / "blobs"
     if blobs_path.exists():
         for partial_path in blobs_path.glob("*.incomplete"):
             try:
                 partial_path.unlink()
-                removed_any = True
+                removed = True
             except Exception:
                 logger.warning("Failed to remove partial model blob: %s", partial_path)
+    return removed
 
-    if not removed_any:
-        return
 
+def _remove_empty_cache(cache_path: Path) -> None:
+    """Remove cache_path entirely if no snapshot directories remain."""
     snapshots_path = cache_path / "snapshots"
     try:
         has_snapshots = snapshots_path.exists() and any(
@@ -548,11 +551,21 @@ def _prune_cache_path(cache_path: Path) -> None:
         has_snapshots = True
     if has_snapshots:
         return
-
     try:
         shutil.rmtree(cache_path)
     except Exception:
         logger.warning("Failed to remove empty model cache path: %s", cache_path)
+
+
+def _prune_cache_path(cache_path: Path) -> None:
+    """
+    Remove incomplete model snapshot data and orphaned partial blobs from a model cache path.
+
+    Prunes any snapshot directories under `cache_path` that are not complete, removes `.incomplete` files under `cache_path/blobs`, and if the cache contains no remaining snapshot directories removes the entire `cache_path`. Failures to remove individual files or directories are logged but do not raise.
+    """
+    _prune_incomplete_snapshots(cache_path)
+    _prune_incomplete_blobs(cache_path)
+    _remove_empty_cache(cache_path)
 
 
 def _prune_whisper_cpp_cache() -> None:
@@ -738,6 +751,24 @@ def _resolve_repo_file_size_bytes(repo_id: str, filename: str) -> int | None:
     return None
 
 
+def _coerce_tqdm_float(value: object) -> float:
+    try:
+        return float(cast(Any, value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _is_download_bytes_bar(kwargs: dict[str, object]) -> bool:
+    name = str(kwargs.get("name", ""))
+    unit = str(kwargs.get("unit", "")).upper()
+    return name == "huggingface_hub.snapshot_download" or unit == "B"
+
+
+def _check_download_cancelled(cancel_check: Callable[[], bool] | None) -> None:
+    if cancel_check is not None and cancel_check():
+        raise DownloadCancelledError("Download cancelled during shutdown")
+
+
 def _make_progress_tqdm(
     callback: Callable[[int], None],
     expected_total_bytes: int | None = None,
@@ -762,13 +793,10 @@ def _make_progress_tqdm(
         DownloadCancelledError: If `cancel_check` returns `True` during an operation.
     """
 
+    _outer_expected_total_bytes = float(expected_total_bytes or 0)
+
     class _ProgressTqdm:
         _lock: threading.Lock = threading.Lock()
-
-        @staticmethod
-        def _raise_if_cancelled() -> None:
-            if cancel_check is not None and cancel_check():
-                raise DownloadCancelledError("Download cancelled during shutdown")
 
         def __init__(
             self,
@@ -777,53 +805,41 @@ def _make_progress_tqdm(
             **kwargs: object,
         ) -> None:
             del args
-
-            def _coerce_float(value: object) -> float:
-                try:
-                    return float(cast(Any, value))
-                except (TypeError, ValueError):
-                    return 0.0
-
-            _ProgressTqdm._raise_if_cancelled()
-            # Iterable mode (file list wrapper)
+            _check_download_cancelled(cancel_check)
             self._iterable = iterable
-            self.total = _coerce_float(kwargs.get("total", 0) or 0)
-            self.n = _coerce_float(kwargs.get("initial", 0) or 0)
+            self.total = _coerce_tqdm_float(kwargs.get("total", 0) or 0)
+            self.n = _coerce_tqdm_float(kwargs.get("initial", 0) or 0)
             self.disable = bool(kwargs.get("disable", False))
-            self._expected_total_bytes = float(expected_total_bytes or 0)
-            name = str(kwargs.get("name", ""))
-            unit = str(kwargs.get("unit", "")).upper()
-            self._is_download_bytes_bar = (
-                name == "huggingface_hub.snapshot_download" or unit == "B"
-            )
+            self._expected_total_bytes = _outer_expected_total_bytes
+            self._is_download_bytes_bar = _is_download_bytes_bar(kwargs)
             self._last_percent = -1
-            if self._is_download_bytes_bar:
-                self._emit_progress_locked()
+            self._emit_if_bytes_bar()
 
         def _effective_total(self) -> float:
-            if self.total > 0:
-                return self.total
-            if self._expected_total_bytes > 0:
-                return self._expected_total_bytes
-            return 0.0
+            return self.total if self.total > 0 else max(self._expected_total_bytes, 0.0)
+
+        def _compute_percent(self) -> int:
+            total = self._effective_total()
+            return int(max(0.0, min((self.n / total) * 100.0, 100.0))) if total > 0 else 0
 
         def _emit_progress_locked(self) -> None:
-            total = self._effective_total()
-            if total <= 0:
-                percent = 0
-            else:
-                percent = int(max(0.0, min((self.n / total) * 100.0, 100.0)))
-            if percent == self._last_percent:
+            percent = self._compute_percent()
+            if percent != self._last_percent:
+                self._last_percent = percent
+                callback(percent)
+
+        def _emit_if_bytes_bar(self) -> None:
+            """Check cancellation and emit progress if this is a download bytes bar."""
+            _check_download_cancelled(cancel_check)
+            if not self._is_download_bytes_bar:
                 return
-            self._last_percent = percent
-            callback(percent)
+            with _ProgressTqdm._lock:
+                self._emit_progress_locked()
 
         def __iter__(self) -> Iterator[Any]:
-            if self._iterable is not None:
-                for item in self._iterable:
-                    _ProgressTqdm._raise_if_cancelled()
-                    yield item
-            return
+            for item in self._iterable or ():
+                _check_download_cancelled(cancel_check)
+                yield item
 
         def __len__(self) -> int:
             if isinstance(self._iterable, Sized):
@@ -831,15 +847,15 @@ def _make_progress_tqdm(
             return 0
 
         def update(self, n: float = 1.0) -> None:
-            _ProgressTqdm._raise_if_cancelled()
+            _check_download_cancelled(cancel_check)
             if not self._is_download_bytes_bar:
                 return
-
             with _ProgressTqdm._lock:
                 self.n += float(n or 0)
                 self._emit_progress_locked()
 
         def close(self) -> None:
+            # No resources to release; required by tqdm interface contract.
             pass
 
         def __enter__(self) -> _ProgressTqdm:
@@ -851,40 +867,29 @@ def _make_progress_tqdm(
 
         def set_description(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         def set_postfix(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         def set_postfix_str(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         def refresh(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            _ProgressTqdm._raise_if_cancelled()
-            if not self._is_download_bytes_bar:
-                return
-            with _ProgressTqdm._lock:
-                self._emit_progress_locked()
+            self._emit_if_bytes_bar()
 
         def clear(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         def reset(self, total: float | None = None) -> None:
-            _ProgressTqdm._raise_if_cancelled()
-            with _ProgressTqdm._lock:
-                self.n = 0.0
-                if total is not None:
-                    self.total = float(total)
-                if self._is_download_bytes_bar:
-                    self._emit_progress_locked()
+            _check_download_cancelled(cancel_check)
+            self.n = 0.0
+            if total is not None:
+                self.total = float(total)
+            self._emit_if_bytes_bar()
 
         def display(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         @classmethod
         def get_lock(cls) -> threading.Lock:
@@ -896,14 +901,71 @@ def _make_progress_tqdm(
 
         def moveto(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
         def unpause(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
-            pass
 
-    # Reset class-level counters for each download
     return _ProgressTqdm
+
+
+def _resolve_download_size(
+    model_name: str,
+    repo_id: str,
+) -> int | None:
+    """Resolve total expected bytes for a model download, caching the result."""
+    expected = _resolve_repo_total_bytes(repo_id)
+    if expected is not None:
+        with _MODEL_SIZE_CACHE_LOCK:
+            _MODEL_SIZE_CACHE[_size_cache_key(model_name, RUNTIME_FASTER_WHISPER)] = expected
+    if expected is None:
+        expected = MODEL_ESTIMATED_SIZE_BYTES.get(model_name)
+    return expected
+
+
+def _prepare_faster_download_kwargs(
+    model_name: str,
+    repo_id: str,
+    progress_callback: Callable[[int], None] | None,
+    cancel_check: Callable[[], bool] | None,
+) -> tuple[dict[str, Any], int | None]:
+    """Build snapshot_download kwargs and resolve expected size."""
+    kwargs: dict[str, Any] = {"repo_id": repo_id}
+    expected_total_bytes: int | None = None
+    if progress_callback is not None:
+        if cancel_check is not None and cancel_check():
+            raise DownloadCancelledError("Download cancelled before start")
+        expected_total_bytes = _resolve_download_size(model_name, repo_id)
+        kwargs["tqdm_class"] = _make_progress_tqdm(
+            progress_callback,
+            expected_total_bytes=expected_total_bytes,
+            cancel_check=cancel_check,
+        )
+    return kwargs, expected_total_bytes
+
+
+def _retry_download_in_subprocess(
+    model_name: str,
+    repo_id: str,
+    exc: Exception,
+    progress_callback: Callable[[int], None] | None,
+    expected_total_bytes: int | None,
+    cancel_check: Callable[[], bool] | None,
+) -> Path:
+    """Handle fds_to_keep errors by retrying the download in a subprocess."""
+    logger.warning("Retrying model download in clean subprocess due to FD error")
+    if cancel_check is not None and cancel_check():
+        prune_invalid_model_cache(model_name)
+        raise DownloadCancelledError("Download cancelled before retry") from exc
+    try:
+        return _download_model_in_subprocess(
+            repo_id,
+            progress_callback=progress_callback,
+            expected_total_bytes=expected_total_bytes,
+            cancel_check=cancel_check,
+        )
+    except Exception:
+        prune_invalid_model_cache(model_name)
+        raise
 
 
 def _download_faster_model(
@@ -940,24 +1002,9 @@ def _download_faster_model(
     os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
     logger.info("Downloading model %s", repo_id)
 
-    kwargs: dict[str, Any] = {"repo_id": repo_id}
-    expected_total_bytes: int | None = None
-    if progress_callback is not None:
-        if cancel_check is not None and cancel_check():
-            raise DownloadCancelledError("Download cancelled before start")
-        expected_total_bytes = _resolve_repo_total_bytes(repo_id)
-        if expected_total_bytes is not None:
-            with _MODEL_SIZE_CACHE_LOCK:
-                _MODEL_SIZE_CACHE[_size_cache_key(model_name, "faster-whisper")] = (
-                    expected_total_bytes
-                )
-        if expected_total_bytes is None:
-            expected_total_bytes = MODEL_ESTIMATED_SIZE_BYTES.get(model_name)
-        kwargs["tqdm_class"] = _make_progress_tqdm(
-            progress_callback,
-            expected_total_bytes=expected_total_bytes,
-            cancel_check=cancel_check,
-        )
+    kwargs, expected_total_bytes = _prepare_faster_download_kwargs(
+        model_name, repo_id, progress_callback, cancel_check,
+    )
 
     try:
         if cancel_check is not None:
@@ -977,20 +1024,9 @@ def _download_faster_model(
         if "fds_to_keep" not in str(exc):
             prune_invalid_model_cache(model_name)
             raise
-        logger.warning("Retrying model download in clean subprocess due to FD error")
-        if cancel_check is not None and cancel_check():
-            prune_invalid_model_cache(model_name)
-            raise DownloadCancelledError("Download cancelled before retry") from exc
-        try:
-            return _download_model_in_subprocess(
-                repo_id,
-                progress_callback=progress_callback,
-                expected_total_bytes=expected_total_bytes,
-                cancel_check=cancel_check,
-            )
-        except Exception:
-            prune_invalid_model_cache(model_name)
-            raise
+        return _retry_download_in_subprocess(
+            model_name, repo_id, exc, progress_callback, expected_total_bytes, cancel_check,
+        )
 
 
 def _download_whisper_cpp_model(
@@ -1037,7 +1073,7 @@ def _download_whisper_cpp_model(
         raise DownloadCancelledError("Download cancelled after transfer")
     with _MODEL_SIZE_CACHE_LOCK:
         try:
-            _MODEL_SIZE_CACHE[_size_cache_key(model_name, "whisper.cpp")] = downloaded.stat().st_size
+            _MODEL_SIZE_CACHE[_size_cache_key(model_name, RUNTIME_WHISPER_CPP)] = downloaded.stat().st_size
         except OSError:
             pass
     if progress_callback is not None:
@@ -1094,6 +1130,63 @@ def ensure_model_available(
     return download_model(model_name, runtime=normalized)
 
 
+def _terminate_subprocess(process: subprocess.Popen[str]) -> None:
+    """Terminate a subprocess, escalating to kill if it does not exit promptly."""
+    try:
+        process.terminate()
+    except OSError:
+        pass
+    try:
+        process.wait(timeout=2.0)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def _make_subprocess_progress_emitter(
+    cache_path: Path,
+    progress_callback: Callable[[int], None] | None,
+    expected_total_bytes: int | None,
+    scan_interval: float = 5.0,
+) -> Callable[[], int]:
+    """Create a closure that computes and emits cache-size-based progress. Returns current last_percent."""
+    last_percent = -1
+    last_size = 0
+    last_scan_time = 0.0
+    baseline_size: int | None = None
+
+    def emit_progress() -> int:
+        nonlocal last_percent, last_size, last_scan_time, baseline_size
+        if progress_callback is None:
+            return last_percent
+
+        current_time = time.monotonic()
+        total = int(expected_total_bytes or 0)
+        if total <= 0:
+            percent = 0
+        else:
+            if current_time - last_scan_time >= scan_interval:
+                current_size = _cache_path_size_bytes(cache_path)
+                if baseline_size is None:
+                    baseline_size = current_size
+                last_size = max(0, current_size - baseline_size)
+                last_scan_time = current_time
+            percent = int(max(0.0, min((last_size / float(total)) * 100.0, 99.0)))
+
+        if percent != last_percent:
+            last_percent = percent
+            progress_callback(percent)
+        return last_percent
+
+    return emit_progress
+
+
 def _download_model_in_subprocess(
     repo_id: str,
     progress_callback: Callable[[int], None] | None = None,
@@ -1135,49 +1228,13 @@ def _download_model_in_subprocess(
     )
 
     cache_path = _cache_path_for_repo_id(repo_id)
-    last_percent = -1
-    last_size = 0
-    last_scan_time = 0.0
-    SIZE_SCAN_INTERVAL = 5.0
-
-    def emit_progress() -> None:
-        """
-        Compute and emit the download progress percentage to the configured progress callback when the value changes.
-
-        If `expected_total_bytes` is missing or zero, emits `0`. Otherwise computes the integer percentage from the cached download size divided by the expected total, capping the reported value at `99` until completion. Calls `progress_callback(percent)` only when the newly computed percent differs from the last emitted value.
-        """
-        nonlocal last_percent, last_size, last_scan_time
-        if progress_callback is None:
-            return
-
-        current_time = time.monotonic()
-        total = int(expected_total_bytes or 0)
-        if total <= 0:
-            percent = 0
-        else:
-            if current_time - last_scan_time >= SIZE_SCAN_INTERVAL:
-                last_size = _cache_path_size_bytes(cache_path)
-                last_scan_time = current_time
-            downloaded = last_size
-            percent = int(max(0.0, min((downloaded / float(total)) * 100.0, 99.0)))
-
-        if percent == last_percent:
-            return
-
-        last_percent = percent
-        progress_callback(percent)
+    emit_progress = _make_subprocess_progress_emitter(
+        cache_path, progress_callback, expected_total_bytes,
+    )
 
     while process.poll() is None:
         if cancel_check is not None and cancel_check():
-            process.terminate()
-            try:
-                process.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                try:
-                    process.wait(timeout=2.0)
-                except subprocess.TimeoutExpired:
-                    pass
+            _terminate_subprocess(process)
             _prune_cache_path(cache_path)
             raise DownloadCancelledError("Download cancelled during shutdown")
 
@@ -1192,7 +1249,7 @@ def _download_model_in_subprocess(
             f"Model download subprocess failed for {repo_id}" + (f": {details}" if details else "")
         )
 
-    emit_progress()
+    last_percent = emit_progress()
 
     output = stdout.strip().splitlines()
     if not output:

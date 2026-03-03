@@ -29,15 +29,15 @@ try:  # pragma: no cover - optional runtime import
 except Exception:  # pragma: no cover - optional runtime import
     ctranslate2 = None
 
-from whisper_local.config import normalize_runtime_name
-from whisper_local.model_manager import (
+from murmur.config import RUNTIME_FASTER_WHISPER, RUNTIME_WHISPER_CPP, normalize_runtime_name
+from murmur.model_manager import (
     get_installed_model_path,
 )
 
 
 logger = logging.getLogger(__name__)
 WHISPER_CPP_BINARIES = ("whisper-cli", "whisper-cpp", "main")
-APP_HOME = Path(os.environ.get("WHISPER_LOCAL_HOME", "~/.local/share/whisper.local")).expanduser()
+APP_HOME = Path(os.environ.get("MURMUR_HOME", "~/.local/share/murmur")).expanduser()
 
 
 def _secure_temp_root(base_dir: Path | None = None) -> Path:
@@ -95,7 +95,7 @@ class _RuntimeBase(ABC):
 
 
 class FasterWhisperRuntime(_RuntimeBase):
-    runtime_name = "faster-whisper"
+    runtime_name = RUNTIME_FASTER_WHISPER
 
     def __init__(
         self,
@@ -288,7 +288,7 @@ class FasterWhisperRuntime(_RuntimeBase):
 
 
 class WhisperCppRuntime(_RuntimeBase):
-    runtime_name = "whisper.cpp"
+    runtime_name = RUNTIME_WHISPER_CPP
 
     def __init__(
         self,
@@ -392,7 +392,7 @@ class WhisperCppRuntime(_RuntimeBase):
             audio = resample_audio(audio, sample_rate, 16000)
 
         with tempfile.TemporaryDirectory(
-            prefix="whisper-local-whispercpp-",
+            prefix="murmur-whispercpp-",
             dir=str(_secure_temp_root()),
         ) as tmpdir:
             base_dir = Path(tmpdir)
@@ -460,7 +460,7 @@ class Transcriber:
         device: str,
         compute_type: str,
         model_path: str | None = None,
-        runtime: str = "faster-whisper",
+        runtime: str = RUNTIME_FASTER_WHISPER,
     ) -> None:
         """
         Create a Transcriber configured for a specific model and runtime.
@@ -528,6 +528,86 @@ class Transcriber:
         return info
 
 
+def _whisper_cpp_mps_reason(mps_enabled: bool, fallback_reason: str | None) -> str | None:
+    """Return the reason string for whisper.cpp MPS device availability."""
+    if mps_enabled:
+        return None
+    if sys.platform != "darwin":
+        return "Metal acceleration is macOS only"
+    return fallback_reason
+
+
+def _detect_faster_whisper_capabilities() -> tuple[
+    bool, str | None, dict[str, dict[str, Any]], dict[str, list[str]],
+]:
+    """Detect faster-whisper runtime, devices, and compute types."""
+    runtime_enabled = WhisperModel is not None
+    runtime_reason = None if runtime_enabled else "Python package faster-whisper is missing"
+
+    cpu_compute = _supported_compute_types("cpu") or ["int8", "float32"]
+    cuda_compute = _supported_compute_types("cuda")
+
+    cuda_count = 0
+    if ctranslate2 is not None and hasattr(ctranslate2, "get_cuda_device_count"):
+        try:
+            cuda_count = int(ctranslate2.get_cuda_device_count())
+        except Exception:
+            cuda_count = 0
+
+    cuda_enabled = runtime_enabled and cuda_count > 0 and len(cuda_compute) > 0
+    cuda_reason = _resolve_cuda_reason(
+        cuda_enabled, runtime_enabled, runtime_reason, cuda_count,
+    )
+
+    devices: dict[str, dict[str, Any]] = {
+        "cpu": {"enabled": runtime_enabled, "reason": runtime_reason},
+        "cuda": {"enabled": cuda_enabled, "reason": cuda_reason},
+        "mps": {"enabled": False, "reason": "faster-whisper uses CPU fallback for mps"},
+    }
+    compute = {"cpu": cpu_compute, "cuda": cuda_compute, "mps": cpu_compute}
+    return runtime_enabled, runtime_reason, devices, compute
+
+
+def _resolve_cuda_reason(
+    cuda_enabled: bool,
+    runtime_enabled: bool,
+    runtime_reason: str | None,
+    cuda_count: int,
+) -> str | None:
+    """Return the reason string explaining CUDA availability."""
+    if cuda_enabled:
+        return None
+    if not runtime_enabled:
+        return runtime_reason
+    if cuda_count <= 0:
+        return "No CUDA GPU detected"
+    return "CTranslate2 build lacks CUDA support"
+
+
+def _detect_whisper_cpp_capabilities() -> tuple[
+    bool, str | None, dict[str, dict[str, Any]], dict[str, list[str]],
+]:
+    """Detect whisper.cpp runtime, devices, and compute types."""
+    binary = _resolve_whisper_cpp_binary()
+    enabled = binary is not None
+    reason = (
+        None if enabled
+        else "whisper.cpp binary not found (install with brew install whisper-cpp)"
+    )
+    mps_enabled = enabled and sys.platform == "darwin"
+
+    devices: dict[str, dict[str, Any]] = {
+        "cpu": {"enabled": enabled, "reason": reason},
+        "mps": {
+            "enabled": mps_enabled,
+            "reason": _whisper_cpp_mps_reason(mps_enabled, reason),
+        },
+        "cuda": {"enabled": False, "reason": "Use faster-whisper runtime for CUDA"},
+    }
+    compute = {"cpu": ["default"], "mps": ["default"], "cuda": []}
+    return enabled, reason, devices, compute
+
+
 def detect_runtime_capabilities(selected_runtime: str | None = None) -> dict[str, Any]:
     """
     Detects available transcription runtimes, their supported devices, and supported compute types.
@@ -547,100 +627,26 @@ def detect_runtime_capabilities(selected_runtime: str | None = None) -> dict[str
             - devices: the per-device dict for the selected (normalized) runtime.
             - compute_types_by_device: the per-device compute-type lists for the selected runtime.
     """
-    runtime_name = normalize_runtime_name(selected_runtime or "faster-whisper")
+    runtime_name = normalize_runtime_name(selected_runtime or RUNTIME_FASTER_WHISPER)
 
-    faster_runtime_enabled = WhisperModel is not None
-    faster_runtime_reason = (
-        None if faster_runtime_enabled else "Python package faster-whisper is missing"
+    faster_enabled, faster_reason, faster_devices, faster_compute = (
+        _detect_faster_whisper_capabilities()
     )
-
-    cpu_compute = _supported_compute_types("cpu")
-    cuda_compute = _supported_compute_types("cuda")
-    if not cpu_compute:
-        cpu_compute = ["int8", "float32"]
-
-    cuda_count = 0
-    if ctranslate2 is not None and hasattr(ctranslate2, "get_cuda_device_count"):
-        try:
-            cuda_count = int(ctranslate2.get_cuda_device_count())
-        except Exception:
-            cuda_count = 0
-
-    cuda_enabled = faster_runtime_enabled and cuda_count > 0 and len(cuda_compute) > 0
-    if cuda_enabled:
-        cuda_reason = None
-    elif not faster_runtime_enabled:
-        cuda_reason = faster_runtime_reason
-    elif cuda_count <= 0:
-        cuda_reason = "No CUDA GPU detected"
-    else:
-        cuda_reason = "CTranslate2 build lacks CUDA support"
-
-    faster_devices = {
-        "cpu": {"enabled": faster_runtime_enabled, "reason": faster_runtime_reason},
-        "cuda": {"enabled": cuda_enabled, "reason": cuda_reason},
-        "mps": {
-            "enabled": False,
-            "reason": "faster-whisper uses CPU fallback for mps",
-        },
-    }
-    faster_compute = {
-        "cpu": cpu_compute,
-        "cuda": cuda_compute,
-        "mps": cpu_compute,
-    }
-
-    whisper_cpp_binary = _resolve_whisper_cpp_binary()
-    whisper_cpp_enabled = whisper_cpp_binary is not None
-    whisper_cpp_reason = (
-        None
-        if whisper_cpp_enabled
-        else "whisper.cpp binary not found (install with brew install whisper-cpp)"
+    cpp_enabled, cpp_reason, cpp_devices, cpp_compute = (
+        _detect_whisper_cpp_capabilities()
     )
-    whisper_cpp_mps_enabled = whisper_cpp_enabled and sys.platform == "darwin"
-
-    whisper_cpp_devices = {
-        "cpu": {"enabled": whisper_cpp_enabled, "reason": whisper_cpp_reason},
-        "mps": {
-            "enabled": whisper_cpp_mps_enabled,
-            "reason": (
-                None
-                if whisper_cpp_mps_enabled
-                else (
-                    "Metal acceleration is macOS only"
-                    if sys.platform != "darwin"
-                    else whisper_cpp_reason
-                )
-            ),
-        },
-        "cuda": {
-            "enabled": False,
-            "reason": "Use faster-whisper runtime for CUDA",
-        },
-    }
-    whisper_cpp_compute = {
-        "cpu": ["default"],
-        "mps": ["default"],
-        "cuda": [],
-    }
 
     runtimes = {
-        "faster-whisper": {
-            "enabled": faster_runtime_enabled,
-            "reason": faster_runtime_reason,
-        },
-        "whisper.cpp": {
-            "enabled": whisper_cpp_enabled,
-            "reason": whisper_cpp_reason,
-        },
+        RUNTIME_FASTER_WHISPER: {"enabled": faster_enabled, "reason": faster_reason},
+        RUNTIME_WHISPER_CPP: {"enabled": cpp_enabled, "reason": cpp_reason},
     }
     devices_by_runtime = {
-        "faster-whisper": faster_devices,
-        "whisper.cpp": whisper_cpp_devices,
+        RUNTIME_FASTER_WHISPER: faster_devices,
+        RUNTIME_WHISPER_CPP: cpp_devices,
     }
     compute_by_runtime_device = {
-        "faster-whisper": faster_compute,
-        "whisper.cpp": whisper_cpp_compute,
+        RUNTIME_FASTER_WHISPER: faster_compute,
+        RUNTIME_WHISPER_CPP: cpp_compute,
     }
 
     selected_devices = devices_by_runtime.get(runtime_name) or faster_devices
@@ -693,7 +699,7 @@ def _create_runtime(
     Returns:
         _RuntimeBase: A concrete runtime instance (WhisperCppRuntime or FasterWhisperRuntime) configured with the provided arguments.
     """
-    if runtime == "whisper.cpp":
+    if runtime == RUNTIME_WHISPER_CPP:
         return WhisperCppRuntime(model_name, device, compute_type, model_path)
     return FasterWhisperRuntime(model_name, device, compute_type, model_path)
 

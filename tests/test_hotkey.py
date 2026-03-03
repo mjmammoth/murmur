@@ -54,7 +54,7 @@ def _mock_hotkey_platform_modules() -> Any:
 
     _saved_appkit = sys.modules.get("AppKit")
     _saved_quartz = sys.modules.get("Quartz")
-    _hotkey_key = "whisper_local.hotkey"
+    _hotkey_key = "murmur.hotkey"
     _saved_hotkey = sys.modules.pop(_hotkey_key, None)
     sys.modules["AppKit"] = _fake_appkit
     sys.modules["Quartz"] = _fake_quartz

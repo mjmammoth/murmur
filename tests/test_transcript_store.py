@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from whisper_local.transcript_store import TranscriptStore
+from murmur.transcript_store import TranscriptStore
 
 
 def test_append_and_history_round_trip(tmp_path: Path) -> None:

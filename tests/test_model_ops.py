@@ -6,8 +6,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-import whisper_local
-from whisper_local.model_ops import (
+import murmur
+from murmur.model_ops import (
     DefaultModelRuntimeOperationsFactory,
     FasterWhisperModelRuntimeOperations,
     WhisperCppModelRuntimeOperations,
@@ -16,8 +16,8 @@ from whisper_local.model_ops import (
 
 
 def _patch_mm(mock_mm):
-    """Patch model_manager on the whisper_local package so lazy imports resolve to mock_mm."""
-    return patch.object(whisper_local, "model_manager", mock_mm)
+    """Patch model_manager on the murmur package so lazy imports resolve to mock_mm."""
+    return patch.object(murmur, "model_manager", mock_mm)
 
 
 def test_faster_whisper_runtime_operations_download():
@@ -280,7 +280,7 @@ def test_default_factory_unknown_runtime():
     """Test DefaultModelRuntimeOperationsFactory falls back to faster-whisper for unknown."""
     factory = DefaultModelRuntimeOperationsFactory()
 
-    with patch("whisper_local.config.logger"):
+    with patch("murmur.config.logger"):
         ops = factory.for_runtime("unknown-runtime")
         assert isinstance(ops, FasterWhisperModelRuntimeOperations)
 

@@ -57,4 +57,4 @@ repos:
         entry: scripts/precommit_brew_formula.sh
         language: system
         pass_filenames: false
-        files: ^scripts/(templates/whisper-local\.rb\.tpl|update_tap_formula\.py)$
+        files: ^scripts/(templates/murmur(-preview)?\.rb\.tpl|update_tap_formula\.py)$

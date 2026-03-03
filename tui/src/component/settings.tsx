@@ -75,7 +75,7 @@ function isPrintableKey(key: KeyEvent): boolean {
  * @param danger - When true use the error color for the key box instead of the accent color.
  * @returns A JSX element containing a colored key box with `keys` and a muted `label`.
  */
-function LegendHint(props: { keys: string; label: string; danger?: boolean }): JSX.Element {
+function LegendHint(props: { readonly keys: string; readonly label: string; readonly danger?: boolean }): JSX.Element {
   const { colors } = useTheme();
 
   return (
@@ -123,7 +123,7 @@ export function Settings(): JSX.Element {
   );
 
   const configPath = createMemo(
-    () => backend.configFilePath() || "~/.config/whisper.local/config.toml",
+    () => backend.configFilePath() || "~/.config/murmur/config.toml",
   );
 
   const modalHeight = createMemo(() => {
@@ -483,7 +483,7 @@ export function Settings(): JSX.Element {
         id: "system.version",
         section: "Advanced",
         title: "Version",
-        description: "whisper.local version",
+        description: "murmur version",
         keywords: ["version", "about"],
         controlKind: "read-only",
         affordance: "read-only",
@@ -722,7 +722,7 @@ export function Settings(): JSX.Element {
   }
 
   function activateItem(item: SettingItem | null) {
-    if (!item || !item.interactive) return;
+    if (!item?.interactive) return;
 
     if (item.controlKind === "toggle") {
       item.toggle?.();

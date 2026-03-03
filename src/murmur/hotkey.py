@@ -29,7 +29,7 @@ from Quartz import (
     kCGSessionEventTap,
     kCFRunLoopCommonModes,
 )
-from whisper_local.platform.providers import PressReleaseCallback
+from murmur.platform.providers import PressReleaseCallback
 
 # macOS NX_SYSDEFINED event type for media/special keys.
 # When "Use F1, F2, etc. keys as standard function keys" is OFF (the default),
@@ -250,7 +250,8 @@ class HotkeyListener:
             data1 = ns_event.data1()
             media_key = (data1 >> 16) & 0xFF
             key_state = (data1 >> 8) & 0xFF
-            is_down = (key_state & 0x1) == 0  # even = down, odd = up
+            # Bit 0 clear means key-down; bit 0 set means key-up.
+            is_down = (key_state & 0x1) == 0
 
             keycode = MEDIA_KEY_TO_FKEY_KEYCODE.get(media_key)
             if keycode is None or keycode != self.hotkey.keycode:
