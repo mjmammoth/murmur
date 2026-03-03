@@ -751,6 +751,24 @@ def _resolve_repo_file_size_bytes(repo_id: str, filename: str) -> int | None:
     return None
 
 
+def _coerce_tqdm_float(value: object) -> float:
+    try:
+        return float(cast(Any, value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _is_download_bytes_bar(kwargs: dict[str, object]) -> bool:
+    name = str(kwargs.get("name", ""))
+    unit = str(kwargs.get("unit", "")).upper()
+    return name == "huggingface_hub.snapshot_download" or unit == "B"
+
+
+def _check_download_cancelled(cancel_check: Callable[[], bool] | None) -> None:
+    if cancel_check is not None and cancel_check():
+        raise DownloadCancelledError("Download cancelled during shutdown")
+
+
 def _make_progress_tqdm(
     callback: Callable[[int], None],
     expected_total_bytes: int | None = None,
@@ -780,24 +798,6 @@ def _make_progress_tqdm(
     class _ProgressTqdm:
         _lock: threading.Lock = threading.Lock()
 
-        @staticmethod
-        def _raise_if_cancelled() -> None:
-            if cancel_check is not None and cancel_check():
-                raise DownloadCancelledError("Download cancelled during shutdown")
-
-        @staticmethod
-        def _coerce_float(value: object) -> float:
-            try:
-                return float(cast(Any, value))
-            except (TypeError, ValueError):
-                return 0.0
-
-        @staticmethod
-        def _detect_download_bytes_bar(kwargs: dict[str, object]) -> bool:
-            name = str(kwargs.get("name", ""))
-            unit = str(kwargs.get("unit", "")).upper()
-            return name == "huggingface_hub.snapshot_download" or unit == "B"
-
         def __init__(
             self,
             iterable: Iterable[Any] | None = None,
@@ -805,28 +805,22 @@ def _make_progress_tqdm(
             **kwargs: object,
         ) -> None:
             del args
-            _ProgressTqdm._raise_if_cancelled()
+            _check_download_cancelled(cancel_check)
             self._iterable = iterable
-            self.total = self._coerce_float(kwargs.get("total", 0) or 0)
-            self.n = self._coerce_float(kwargs.get("initial", 0) or 0)
+            self.total = _coerce_tqdm_float(kwargs.get("total", 0) or 0)
+            self.n = _coerce_tqdm_float(kwargs.get("initial", 0) or 0)
             self.disable = bool(kwargs.get("disable", False))
             self._expected_total_bytes = _outer_expected_total_bytes
-            self._is_download_bytes_bar = self._detect_download_bytes_bar(kwargs)
+            self._is_download_bytes_bar = _is_download_bytes_bar(kwargs)
             self._last_percent = -1
             self._emit_if_bytes_bar()
 
         def _effective_total(self) -> float:
-            if self.total > 0:
-                return self.total
-            if self._expected_total_bytes > 0:
-                return self._expected_total_bytes
-            return 0.0
+            return self.total if self.total > 0 else max(self._expected_total_bytes, 0.0)
 
         def _compute_percent(self) -> int:
             total = self._effective_total()
-            if total <= 0:
-                return 0
-            return int(max(0.0, min((self.n / total) * 100.0, 100.0)))
+            return int(max(0.0, min((self.n / total) * 100.0, 100.0))) if total > 0 else 0
 
         def _emit_progress_locked(self) -> None:
             percent = self._compute_percent()
@@ -836,7 +830,7 @@ def _make_progress_tqdm(
 
         def _emit_if_bytes_bar(self) -> None:
             """Check cancellation and emit progress if this is a download bytes bar."""
-            _ProgressTqdm._raise_if_cancelled()
+            _check_download_cancelled(cancel_check)
             if not self._is_download_bytes_bar:
                 return
             with _ProgressTqdm._lock:
@@ -844,7 +838,7 @@ def _make_progress_tqdm(
 
         def __iter__(self) -> Iterator[Any]:
             for item in self._iterable or ():
-                _ProgressTqdm._raise_if_cancelled()
+                _check_download_cancelled(cancel_check)
                 yield item
 
         def __len__(self) -> int:
@@ -853,7 +847,7 @@ def _make_progress_tqdm(
             return 0
 
         def update(self, n: float = 1.0) -> None:
-            _ProgressTqdm._raise_if_cancelled()
+            _check_download_cancelled(cancel_check)
             if not self._is_download_bytes_bar:
                 return
             with _ProgressTqdm._lock:
@@ -888,7 +882,7 @@ def _make_progress_tqdm(
             del args, kwargs
 
         def reset(self, total: float | None = None) -> None:
-            _ProgressTqdm._raise_if_cancelled()
+            _check_download_cancelled(cancel_check)
             self.n = 0.0
             if total is not None:
                 self.total = float(total)
