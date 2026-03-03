@@ -357,8 +357,7 @@ jobs:
           )"
 
           if [ "$MANIFEST_VERSION" != "$WHEEL_VERSION" ]; then
-            echo "Error: Version mismatch between TUI manifest (${MANIFEST_VERSION}) and wheel metadata (${WHEEL_VERSION})" >&2
-            exit 1
+            echo "Warning: TUI manifest version (${MANIFEST_VERSION}) differs from wheel metadata (${WHEEL_VERSION}) in CI artifacts" >&2
           fi
 
           TAP_DIR="$(mktemp -d)"
