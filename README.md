@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/assets/banner.webp" alt="Catch banner" />
+  <img src="docs/assets/banner.webp" alt="Murmur banner" />
   <h3>Press a key. Speak. Text appears.</h3>
   <p>Private by default. Fully local. Works anywhere you can type.</p>
 </div>

@@ -563,11 +563,9 @@ def _prune_cache_path(cache_path: Path) -> None:
 
     Prunes any snapshot directories under `cache_path` that are not complete, removes `.incomplete` files under `cache_path/blobs`, and if the cache contains no remaining snapshot directories removes the entire `cache_path`. Failures to remove individual files or directories are logged but do not raise.
     """
-    removed_snapshots = _prune_incomplete_snapshots(cache_path)
-    removed_blobs = _prune_incomplete_blobs(cache_path)
-
-    if removed_snapshots or removed_blobs:
-        _remove_empty_cache(cache_path)
+    _prune_incomplete_snapshots(cache_path)
+    _prune_incomplete_blobs(cache_path)
+    _remove_empty_cache(cache_path)
 
 
 def _prune_whisper_cpp_cache() -> None:

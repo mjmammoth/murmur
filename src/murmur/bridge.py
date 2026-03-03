@@ -1222,24 +1222,27 @@ class BridgeServer:
             final_status = "error"
             final_message = f"Transcription failed: {exc}"
         finally:
-            self._log_transcription_metrics(TranscriptionMetrics(
-                pipeline_started=pipeline_started,
-                input_samples=input_samples,
-                post_noise_samples=post_noise_samples,
-                post_vad_samples=post_vad_samples,
-                transcribe_ms=transcribe_ms,
-                job_sample_rate=job_sample_rate,
-                job_transcriber=job_transcriber,
-                job_language=job_language,
-                output_language=output_language,
-                noise_enabled=noise_enabled,
-                noise_available=noise_available,
-                noise_applied=noise_applied,
-                noise_backend=noise_backend,
-                vad_enabled=vad_enabled,
-                vad_available=vad_available,
-                vad_applied=vad_applied,
-            ))
+            try:
+                self._log_transcription_metrics(TranscriptionMetrics(
+                    pipeline_started=pipeline_started,
+                    input_samples=input_samples,
+                    post_noise_samples=post_noise_samples,
+                    post_vad_samples=post_vad_samples,
+                    transcribe_ms=transcribe_ms,
+                    job_sample_rate=job_sample_rate,
+                    job_transcriber=job_transcriber,
+                    job_language=job_language,
+                    output_language=output_language,
+                    noise_enabled=noise_enabled,
+                    noise_available=noise_available,
+                    noise_applied=noise_applied,
+                    noise_backend=noise_backend,
+                    vad_enabled=vad_enabled,
+                    vad_available=vad_available,
+                    vad_applied=vad_applied,
+                ))
+            except Exception:
+                logger.exception("Failed to log transcription metrics")
             await self._finalize_transcription_job(final_status, final_message)
 
         return final_status, final_message

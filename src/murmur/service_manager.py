@@ -279,15 +279,15 @@ class ServiceManager:
                     port=state.port,
                 ),
             )
-            _terminate_pid(
-                state.status_indicator_pid,
-                timeout=1.5,
-                is_expected_pid=functools.partial(
-                    _pid_matches_status_indicator_process,
-                    host=state.host,
-                    port=state.port,
-                ),
-            )
+        _terminate_pid(
+            state.status_indicator_pid,
+            timeout=1.5,
+            is_expected_pid=functools.partial(
+                _pid_matches_status_indicator_process,
+                host=state.host,
+                port=state.port,
+            ),
+        )
         self.clear_state()
 
     def _service_status_from_state(
@@ -358,7 +358,10 @@ class ServiceManager:
     ) -> ServiceStatus | None:
         """Stop existing service if needed, or return current status if reuse is possible."""
         current_state = self.load_state()
-        if not current_state or not _is_pid_alive(current_state.pid):
+        if not current_state:
+            return None
+        if not _is_pid_alive(current_state.pid):
+            self._cleanup_stale_state(current_state)
             return None
 
         requested_target_matches = current_state.host == host and current_state.port == port

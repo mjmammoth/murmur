@@ -710,7 +710,7 @@ def _handle_upgrade_failure(
             f"{base_msg}; additionally failed to restart service: {restart_exc}"
         ) from exc
     if isinstance(exc, UpgradeError):
-        raise
+        raise exc
     raise UpgradeError(f"Upgrade failed: {exc}") from exc
 
 

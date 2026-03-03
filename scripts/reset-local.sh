@@ -6,8 +6,26 @@ log() {
   return 0
 }
 
+assert_safe_path() {
+  local path="$1"
+  local resolved
+  resolved="$(cd "$(dirname "$path")" 2>/dev/null && pwd)/$(basename "$path")" 2>/dev/null || resolved="$path"
+  if [[ -z "$resolved" || "$resolved" == "/" || "$resolved" == "$HOME" ]]; then
+    log "FATAL: refusing to delete unsafe path: $path"
+    exit 1
+  fi
+  local depth
+  depth="$(echo "$resolved" | tr '/' '\n' | grep -c .)"
+  if [[ "$depth" -lt 4 ]]; then
+    log "FATAL: refusing to delete shallow path (depth $depth): $resolved"
+    exit 1
+  fi
+  return 0
+}
+
 remove_path() {
   local path="$1"
+  assert_safe_path "$path"
   if [[ -e "$path" || -L "$path" ]]; then
     rm -rf -- "$path"
     log "removed: $path"

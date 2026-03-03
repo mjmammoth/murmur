@@ -55,12 +55,13 @@ Rejected examples:
 - Preview formula conflicts with stable formula because both install the same executables.
 - No legacy aliases are maintained.
 
-Install commands:
+Install one or the other (they conflict):
 
 ```bash
 brew tap mjmammoth/tap
-brew install murmur
-brew install murmur-preview
+brew install murmur          # stable
+# OR
+brew install murmur-preview  # pre-release
 ```
 
 ## Installer and Upgrade Defaults

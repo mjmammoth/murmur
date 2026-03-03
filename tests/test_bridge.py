@@ -217,7 +217,7 @@ def test_bridge_log_filter_allows_websocket_non_handshake_errors():
         exc_info=None
     )
 
-    # Should be allowed since it's WARNING level for non-murmur
+    # Should be allowed since it's a non-murmur logger
     assert log_filter.filter(record)
 
 

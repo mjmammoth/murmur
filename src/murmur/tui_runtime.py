@@ -91,7 +91,7 @@ def resolve_tui_runtime(
         )
 
     raise FileNotFoundError(
-        "Unable to locate packaged TUI runtime executable 'murmur-tui'. "
+        f"Unable to locate packaged TUI runtime executable '{TUI_EXECUTABLE}'. "
         f"Set {ENV_TUI_BIN} to an executable path. "
         f"For local contributors, set {ENV_DEV_USE_BUN}=1 to run from ./tui with bun."
     )

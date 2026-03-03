@@ -471,9 +471,6 @@ async def _maybe_kickoff_onboarding(
         status, message, config = await _collect_runtime_snapshot(
             websocket,
             timeout_seconds=remaining_timeout,
-            initial_status=status,
-            initial_message=message,
-            initial_config=config,
         )
     return status, message, config, True
 
@@ -592,10 +589,10 @@ async def _trigger_async(host: str, port: int, action: str, timeout_seconds: flo
             effective = "stop" if current_status == "recording" else "start"
 
         if effective == "start":
-            expected_statuses = {"recording", "connecting", "error"}
+            expected_statuses = {"recording", "connecting"}
             should_return_without_send = current_status == "recording"
         else:
-            expected_statuses = {"transcribing", "ready", "error"}
+            expected_statuses = {"transcribing", "ready"}
             should_return_without_send = current_status in {"transcribing", "ready"}
 
         if should_return_without_send:

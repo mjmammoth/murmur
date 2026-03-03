@@ -59,7 +59,10 @@ for (let i = 0; i < args.length; i++) {
     host = args[i + 1];
     i++;
   } else if (args[i] === "--port" && args[i + 1]) {
-    port = Number.parseInt(args[i + 1], 10);
+    const parsedPort = Number.parseInt(args[i + 1], 10);
+    if (Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535) {
+      port = parsedPort;
+    }
     i++;
   }
 }

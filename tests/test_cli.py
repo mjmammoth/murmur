@@ -1237,7 +1237,6 @@ def test_trigger_async_sends_start_command_and_returns_ack(monkeypatch: pytest.M
     assert wait_for_status.await_args_list[1].kwargs["expected_statuses"] == {
         "recording",
         "connecting",
-        "error",
     }
 
 
@@ -1254,7 +1253,6 @@ def test_trigger_async_toggle_recording_sends_stop_command(monkeypatch: pytest.M
     assert wait_for_status.await_args_list[1].kwargs["expected_statuses"] == {
         "transcribing",
         "ready",
-        "error",
     }
 
 

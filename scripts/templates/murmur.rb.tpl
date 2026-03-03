@@ -137,6 +137,6 @@ class Murmur < Formula
 
   test do
     assert_match "usage", shell_output("#{bin}/murmur --help")
-    assert_match "Service", shell_output("#{bin}/murmur status")
+    assert_match(/running|stale|stopped/, shell_output("#{bin}/murmur status"))
   end
 end

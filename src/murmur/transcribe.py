@@ -95,7 +95,7 @@ class _RuntimeBase(ABC):
 
 
 class FasterWhisperRuntime(_RuntimeBase):
-    runtime_name = "faster-whisper"
+    runtime_name = RUNTIME_FASTER_WHISPER
 
     def __init__(
         self,
@@ -460,7 +460,7 @@ class Transcriber:
         device: str,
         compute_type: str,
         model_path: str | None = None,
-        runtime: str = "faster-whisper",
+        runtime: str = RUNTIME_FASTER_WHISPER,
     ) -> None:
         """
         Create a Transcriber configured for a specific model and runtime.
@@ -627,7 +627,7 @@ def detect_runtime_capabilities(selected_runtime: str | None = None) -> dict[str
             - devices: the per-device dict for the selected (normalized) runtime.
             - compute_types_by_device: the per-device compute-type lists for the selected runtime.
     """
-    runtime_name = normalize_runtime_name(selected_runtime or "faster-whisper")
+    runtime_name = normalize_runtime_name(selected_runtime or RUNTIME_FASTER_WHISPER)
 
     faster_enabled, faster_reason, faster_devices, faster_compute = (
         _detect_faster_whisper_capabilities()
