@@ -106,9 +106,9 @@ jobs:
           python -m murmur.cli models --help
 
       - name: Build Python distributions
-        run: python -m build
-        env:
-          SETUPTOOLS_SCM_PRETEND_VERSION: "0.0.0"
+        run: |
+          TUI_VERSION="$(python3 -c "import json,pathlib; print(json.loads(pathlib.Path('tui/package.json').read_text())['version'])")"
+          SETUPTOOLS_SCM_PRETEND_VERSION="${TUI_VERSION}" python -m build
 
       - name: Upload Python dist artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -308,37 +308,7 @@ jobs:
           TUI_DARWIN_X64_SHA="$(shasum -a 256 "$TUI_DARWIN_X64" | awk '{print $1}')"
           TUI_LINUX_X64_SHA="$(shasum -a 256 "$TUI_LINUX_X64" | awk '{print $1}')"
           TUI_LINUX_ARM64_SHA="$(shasum -a 256 "$TUI_LINUX_ARM64" | awk '{print $1}')"
-          WHEEL_VERSION="$(python - "$WHEEL_PATH" <<'PY'
-          import sys
-          import zipfile
-
-          wheel_path = sys.argv[1]
-          with zipfile.ZipFile(wheel_path) as wheel:
-              metadata_path = next(
-                  (
-                      member
-                      for member in wheel.namelist()
-                      if member.endswith(".dist-info/METADATA")
-                  ),
-                  None,
-              )
-              if metadata_path is None:
-                  raise SystemExit("Missing wheel METADATA file")
-
-              version_line = next(
-                  (
-                      line
-                      for line in wheel.read(metadata_path).decode("utf-8").splitlines()
-                      if line.startswith("Version: ")
-                  ),
-                  None,
-              )
-              if version_line is None:
-                  raise SystemExit("Missing Version field in wheel METADATA")
-
-              print(version_line.split(": ", 1)[1].strip())
-          PY
-          )"
+          WHEEL_VERSION="$(python3 .github/scripts/get_wheel_version.py "$WHEEL_PATH")"
 
           if [ "$MANIFEST_VERSION" != "$WHEEL_VERSION" ]; then
             echo "Error: TUI manifest version (${MANIFEST_VERSION}) differs from wheel metadata (${WHEEL_VERSION}) in CI artifacts" >&2

@@ -313,6 +313,12 @@ jobs:
             exit 1
           fi
 
+          WHEEL_VERSION="$(python3 .github/scripts/get_wheel_version.py "${WHEEL_PATH}")"
+          if [ "${VERSION}" != "${WHEEL_VERSION}" ]; then
+            echo "Version mismatch: release version ${VERSION} != wheel metadata version ${WHEEL_VERSION}" >&2
+            exit 1
+          fi
+
           TUI_DARWIN_ARM64="murmur-tui-${VERSION}-darwin-arm64.tar.gz"
           TUI_DARWIN_X64="murmur-tui-${VERSION}-darwin-x64.tar.gz"
           TUI_LINUX_X64="murmur-tui-${VERSION}-linux-x64.tar.gz"
