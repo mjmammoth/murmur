@@ -304,11 +304,25 @@ jobs:
           FORMULA_PATH: ${{ steps.tap_target.outputs.formula_path }}
           TEMPLATE_PATH: ${{ steps.tap_target.outputs.template_path }}
         run: |
-          WHEEL_FILE="$(basename "$(ls release-assets/python-dist/*.whl | head -n 1)")"
-          TUI_DARWIN_ARM64="murmur-tui-darwin-arm64.tar.gz"
-          TUI_DARWIN_X64="murmur-tui-darwin-x64.tar.gz"
-          TUI_LINUX_X64="murmur-tui-linux-x64.tar.gz"
-          TUI_LINUX_ARM64="murmur-tui-linux-arm64.tar.gz"
+          WHEEL_PATH="$(find release-assets/python-dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          WHEEL_FILE="$(basename "${WHEEL_PATH}")"
+          MANIFEST_VERSION="$(python3 .github/scripts/get_manifest_version.py release-assets/tui-dist/manifest.json)"
+
+          if [ "${VERSION}" != "${MANIFEST_VERSION}" ]; then
+            echo "Version mismatch: release version ${VERSION} != TUI manifest version ${MANIFEST_VERSION}" >&2
+            exit 1
+          fi
+
+          WHEEL_VERSION="$(python3 .github/scripts/get_wheel_version.py "${WHEEL_PATH}")"
+          if [ "${VERSION}" != "${WHEEL_VERSION}" ]; then
+            echo "Version mismatch: release version ${VERSION} != wheel metadata version ${WHEEL_VERSION}" >&2
+            exit 1
+          fi
+
+          TUI_DARWIN_ARM64="murmur-tui-${VERSION}-darwin-arm64.tar.gz"
+          TUI_DARWIN_X64="murmur-tui-${VERSION}-darwin-x64.tar.gz"
+          TUI_LINUX_X64="murmur-tui-${VERSION}-linux-x64.tar.gz"
+          TUI_LINUX_ARM64="murmur-tui-${VERSION}-linux-arm64.tar.gz"
 
           if [ -z "${WHEEL_FILE}" ] || [ ! -f "release-assets/python-dist/${WHEEL_FILE}" ]; then
             echo "Missing wheel artifact"

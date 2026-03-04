@@ -69,7 +69,7 @@ function parseRequestedTargets(): readonly string[] {
   return parsed;
 }
 
-function resolveTargets(requested: readonly string[]): BuildTarget[] {
+function resolveTargets(requested: readonly string[], version: string): BuildTarget[] {
   const supported = new Set(DEFAULT_TARGET_IDS);
   const targets: BuildTarget[] = [];
   for (const id of Array.from(new Set(requested))) {
@@ -82,7 +82,7 @@ function resolveTargets(requested: readonly string[]): BuildTarget[] {
       id,
       bunTarget: `bun-${id}`,
       binaryName,
-      archiveName: `murmur-tui-${id}.tar.gz`,
+      archiveName: `murmur-tui-${version}-${id}.tar.gz`,
     });
   }
   return targets;
@@ -237,7 +237,7 @@ async function main(): Promise<void> {
     throw new Error(`package.json at ${packageJsonPath} is missing a valid "version" field`);
   }
 
-  const targets = resolveTargets(parseRequestedTargets());
+  const targets = resolveTargets(parseRequestedTargets(), packageJson.version);
   const distRoot = resolve(repoRoot, "dist", "tui");
   mkdirSync(distRoot, { recursive: true });
   const coreVersionRange =

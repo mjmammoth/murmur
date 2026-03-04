@@ -161,6 +161,23 @@ def test_detect_install_channel_pip_fallback(tmp_path: Path) -> None:
     assert channel == "pip"
 
 
+def test_detect_install_channel_checks_unresolved_executable_first(tmp_path: Path) -> None:
+    unresolved_executable = tmp_path / "opt" / "murmur" / "bin" / "python"
+    unresolved_executable.parent.mkdir(parents=True)
+    unresolved_executable.write_text("#!/usr/bin/env python", encoding="utf-8")
+
+    def _looks_like_homebrew(executable: Path) -> bool:
+        return executable == unresolved_executable
+
+    with patch("murmur.upgrade._looks_like_homebrew_install", side_effect=_looks_like_homebrew):
+        channel = upgrade.detect_install_channel(
+            executable=str(unresolved_executable),
+            installer_home=tmp_path / "nonexistent",
+        )
+
+    assert channel == "homebrew"
+
+
 def test_looks_like_homebrew_install_requires_executable_under_prefix() -> None:
     result = SimpleNamespace(returncode=0, stdout="/opt/homebrew/opt/murmur\n", stderr="")
     with patch("murmur.upgrade.shutil.which", return_value="/opt/homebrew/bin/brew"), patch(
@@ -196,7 +213,7 @@ def test_resolve_release_assets_uses_target_bundle() -> None:
                 "browser_download_url": "https://example.invalid/whl",
             },
             {
-                "name": "murmur-tui-linux-x64.tar.gz",
+                "name": "murmur-tui-0.2.0-linux-x64.tar.gz",
                 "browser_download_url": "https://example.invalid/tui",
             },
             {
@@ -259,7 +276,7 @@ def test_resolve_release_assets_multiple_wheels_raises() -> None:
                 "browser_download_url": "https://example.invalid/whl2",
             },
             {
-                "name": "murmur-tui-linux-x64.tar.gz",
+                "name": "murmur-tui-0.2.0-linux-x64.tar.gz",
                 "browser_download_url": "https://example.invalid/tui",
             },
             {
@@ -287,7 +304,7 @@ def test_resolve_release_assets_missing_checksums_raises() -> None:
                 "browser_download_url": "https://example.invalid/whl",
             },
             {
-                "name": "murmur-tui-linux-x64.tar.gz",
+                "name": "murmur-tui-0.2.0-linux-x64.tar.gz",
                 "browser_download_url": "https://example.invalid/tui",
             },
         ],
@@ -307,7 +324,7 @@ def test_resolve_release_assets_missing_signature_raises() -> None:
                 "browser_download_url": "https://example.invalid/whl",
             },
             {
-                "name": "murmur-tui-linux-x64.tar.gz",
+                "name": "murmur-tui-0.2.0-linux-x64.tar.gz",
                 "browser_download_url": "https://example.invalid/tui",
             },
             {
@@ -345,7 +362,7 @@ def test_parse_checksums_manifest_parses_sha256_and_optional_star(tmp_path: Path
                 "# comment",
                 "invalid line",
                 "A" * 64 + "  murmur-0.2.0-py3-none-any.whl",
-                "b" * 64 + "\t*murmur-tui-linux-x64.tar.gz",
+                "b" * 64 + "\t*murmur-tui-0.2.0-linux-x64.tar.gz",
             ]
         )
         + "\n",
@@ -356,7 +373,7 @@ def test_parse_checksums_manifest_parses_sha256_and_optional_star(tmp_path: Path
 
     assert parsed == {
         "murmur-0.2.0-py3-none-any.whl": "a" * 64,
-        "murmur-tui-linux-x64.tar.gz": "b" * 64,
+        "murmur-tui-0.2.0-linux-x64.tar.gz": "b" * 64,
     }
 
 
@@ -393,7 +410,7 @@ def test_run_upgrade_installer_running_service_restarts(tmp_path: Path, monkeypa
         tag="v0.2.0",
         wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="murmur-tui-linux-x64.tar.gz",
+        tui_name="murmur-tui-0.2.0-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -451,7 +468,7 @@ def test_run_upgrade_installer_when_service_stopped(tmp_path: Path, monkeypatch:
         tag="v0.2.0",
         wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="murmur-tui-linux-x64.tar.gz",
+        tui_name="murmur-tui-0.2.0-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -500,7 +517,7 @@ def test_run_upgrade_installer_maps_windows_binary_name(tmp_path: Path, monkeypa
         tag="v0.2.0",
         wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="murmur-tui-windows-x64.tar.gz",
+        tui_name="murmur-tui-0.2.0-windows-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -546,7 +563,7 @@ def test_run_upgrade_wraps_archive_extraction_error(
         tag="v0.2.0",
         wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="murmur-tui-linux-x64.tar.gz",
+        tui_name="murmur-tui-0.2.0-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -600,7 +617,7 @@ def test_run_upgrade_failure_attempts_service_recovery(
         tag="v0.2.0",
         wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="murmur-tui-linux-x64.tar.gz",
+        tui_name="murmur-tui-0.2.0-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -646,7 +663,7 @@ def test_run_upgrade_failure_surfaces_restart_failure(
         tag="v0.2.0",
         wheel_name="murmur-0.2.0-py3-none-any.whl",
         wheel_url="https://example.invalid/whl",
-        tui_name="murmur-tui-linux-x64.tar.gz",
+        tui_name="murmur-tui-0.2.0-linux-x64.tar.gz",
         tui_url="https://example.invalid/tui",
         checksums_name="checksums.txt",
         checksums_url="https://example.invalid/checksums",
@@ -1016,6 +1033,23 @@ def test_looks_like_homebrew_relative_to_prefix(tmp_path: Path):
         assert upgrade._looks_like_homebrew_install(exe) is True
 
 
+def test_looks_like_homebrew_unresolved_path_under_prefix_when_symlink_target_outside_prefix(
+    tmp_path: Path,
+):
+    prefix = tmp_path / "homebrew" / "opt" / "murmur"
+    exe = prefix / "bin" / "python"
+    target = tmp_path / "homebrew" / "opt" / "python@3.12" / "bin" / "python3.12"
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/usr/bin/env python", encoding="utf-8")
+    exe.parent.mkdir(parents=True)
+    exe.symlink_to(target)
+
+    mock_result = Mock(returncode=0, stdout=str(prefix), stderr="")
+    with patch("murmur.upgrade.shutil.which", return_value="/usr/local/bin/brew"), \
+         patch("murmur.upgrade.subprocess.run", return_value=mock_result):
+        assert upgrade._looks_like_homebrew_install(exe) is True
+
+
 # ---------------------------------------------------------------------------
 # _github_get_json
 # ---------------------------------------------------------------------------
@@ -1057,7 +1091,7 @@ def test_resolve_release_assets_success():
         "tag_name": "v1.0.0",
         "assets": [
             _make_asset("murmur-1.0.0.whl", "https://example.com/whl"),
-            _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
+            _make_asset("murmur-tui-1.0.0-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("checksums.txt.asc", "https://example.com/sig"),
         ],
@@ -1068,11 +1102,28 @@ def test_resolve_release_assets_success():
     assert bundle.wheel_url == "https://example.com/whl"
 
 
+def test_resolve_release_assets_legacy_unversioned_tui_name():
+    payload = {
+        "tag_name": "v1.0.0",
+        "assets": [
+            _make_asset("murmur-1.0.0.whl", "https://example.com/whl"),
+            _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
+            _make_asset("checksums.txt", "https://example.com/checksums"),
+            _make_asset("checksums.txt.asc", "https://example.com/sig"),
+        ],
+    }
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
+        bundle = upgrade.resolve_release_assets(target="darwin-arm64")
+    assert bundle.tag == "v1.0.0"
+    assert bundle.tui_name == "murmur-tui-darwin-arm64.tar.gz"
+    assert bundle.tui_url == "https://example.com/tui"
+
+
 def test_resolve_release_assets_missing_wheel():
     payload = {
         "tag_name": "v1.0.0",
         "assets": [
-            _make_asset("murmur-tui-darwin-arm64.tar.gz"),
+            _make_asset("murmur-tui-1.0.0-darwin-arm64.tar.gz"),
             _make_asset("checksums.txt"),
             _make_asset("checksums.txt.asc"),
         ],
@@ -1101,7 +1152,7 @@ def test_resolve_release_assets_missing_checksums():
         "tag_name": "v1.0.0",
         "assets": [
             _make_asset("murmur-1.0.0.whl"),
-            _make_asset("murmur-tui-darwin-arm64.tar.gz"),
+            _make_asset("murmur-tui-1.0.0-darwin-arm64.tar.gz"),
         ],
     }
     with patch("murmur.upgrade._github_get_json", return_value=payload):
@@ -1114,7 +1165,7 @@ def test_resolve_release_assets_missing_signature():
         "tag_name": "v1.0.0",
         "assets": [
             _make_asset("murmur-1.0.0.whl"),
-            _make_asset("murmur-tui-darwin-arm64.tar.gz"),
+            _make_asset("murmur-tui-1.0.0-darwin-arm64.tar.gz"),
             _make_asset("checksums.txt"),
         ],
     }
@@ -1128,7 +1179,7 @@ def test_resolve_release_assets_with_version_tag():
         "tag_name": "v2.0.0",
         "assets": [
             _make_asset("murmur-2.0.0.whl", "https://example.com/whl"),
-            _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
+            _make_asset("murmur-tui-2.0.0-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("checksums.txt.asc", "https://example.com/sig"),
         ],
@@ -1138,6 +1189,24 @@ def test_resolve_release_assets_with_version_tag():
             target="darwin-arm64", requested_version="2.0.0"
         )
     assert bundle.tag == "v2.0.0"
+
+
+def test_resolve_release_assets_only_strips_single_leading_v():
+    payload = {
+        "tag_name": "vv2.0.0",
+        "assets": [
+            _make_asset("murmur-2.0.0.whl", "https://example.com/whl"),
+            _make_asset("murmur-tui-v2.0.0-darwin-arm64.tar.gz", "https://example.com/tui"),
+            _make_asset("checksums.txt", "https://example.com/checksums"),
+            _make_asset("checksums.txt.asc", "https://example.com/sig"),
+        ],
+    }
+    with patch("murmur.upgrade._github_get_json", return_value=payload):
+        bundle = upgrade.resolve_release_assets(
+            target="darwin-arm64", requested_version="v2.0.0"
+        )
+    assert bundle.tag == "vv2.0.0"
+    assert bundle.tui_name == "murmur-tui-v2.0.0-darwin-arm64.tar.gz"
 
 
 def test_resolve_release_assets_no_tag():
@@ -1153,7 +1222,7 @@ def test_resolve_release_assets_multiple_wheels():
         "assets": [
             _make_asset("a.whl"),
             _make_asset("b.whl"),
-            _make_asset("murmur-tui-darwin-arm64.tar.gz"),
+            _make_asset("murmur-tui-1.0.0-darwin-arm64.tar.gz"),
             _make_asset("checksums.txt"),
             _make_asset("checksums.txt.asc"),
         ],
@@ -1350,7 +1419,7 @@ def test_resolve_release_assets_release_asc_signature():
         "tag_name": "v1.0.0",
         "assets": [
             _make_asset("murmur-1.0.0.whl", "https://example.com/whl"),
-            _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
+            _make_asset("murmur-tui-1.0.0-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("release.asc", "https://example.com/sig"),
         ],
@@ -1365,7 +1434,7 @@ def test_resolve_release_assets_checksum_asc_fallback():
         "tag_name": "v1.0.0",
         "assets": [
             _make_asset("murmur-1.0.0.whl", "https://example.com/whl"),
-            _make_asset("murmur-tui-darwin-arm64.tar.gz", "https://example.com/tui"),
+            _make_asset("murmur-tui-1.0.0-darwin-arm64.tar.gz", "https://example.com/tui"),
             _make_asset("checksums.txt", "https://example.com/checksums"),
             _make_asset("checksum-release.asc", "https://example.com/sig"),
         ],
@@ -1393,7 +1462,7 @@ def test_resolve_release_assets_missing_download_urls():
         "tag_name": "v1.0.0",
         "assets": [
             {"name": "test.whl", "browser_download_url": ""},
-            {"name": "murmur-tui-darwin-arm64.tar.gz", "browser_download_url": "https://x.com/tui"},
+            {"name": "murmur-tui-1.0.0-darwin-arm64.tar.gz", "browser_download_url": "https://x.com/tui"},
             {"name": "checksums.txt", "browser_download_url": "https://x.com/cs"},
             {"name": "checksums.txt.asc", "browser_download_url": "https://x.com/sig"},
         ],

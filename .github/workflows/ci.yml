@@ -106,9 +106,9 @@ jobs:
           python -m murmur.cli models --help
 
       - name: Build Python distributions
-        run: python -m build
-        env:
-          SETUPTOOLS_SCM_PRETEND_VERSION: "0.0.0"
+        run: |
+          TUI_VERSION="$(python3 -c "import json,pathlib; print(json.loads(pathlib.Path('tui/package.json').read_text())['version'])")"
+          SETUPTOOLS_SCM_PRETEND_VERSION="${TUI_VERSION}" python -m build
 
       - name: Upload Python dist artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -286,10 +286,11 @@ jobs:
       - name: Render formula and register local tap
         run: |
           WHEEL_PATH="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
-          TUI_DARWIN_ARM64="dist/tui/murmur-tui-darwin-arm64.tar.gz"
-          TUI_DARWIN_X64="dist/tui/murmur-tui-darwin-x64.tar.gz"
-          TUI_LINUX_X64="dist/tui/murmur-tui-linux-x64.tar.gz"
-          TUI_LINUX_ARM64="dist/tui/murmur-tui-linux-arm64.tar.gz"
+          MANIFEST_VERSION="$(python3 .github/scripts/get_manifest_version.py dist/tui/manifest.json)"
+          TUI_DARWIN_ARM64="dist/tui/murmur-tui-${MANIFEST_VERSION}-darwin-arm64.tar.gz"
+          TUI_DARWIN_X64="dist/tui/murmur-tui-${MANIFEST_VERSION}-darwin-x64.tar.gz"
+          TUI_LINUX_X64="dist/tui/murmur-tui-${MANIFEST_VERSION}-linux-x64.tar.gz"
+          TUI_LINUX_ARM64="dist/tui/murmur-tui-${MANIFEST_VERSION}-linux-arm64.tar.gz"
 
           if [ -z "$WHEEL_PATH" ] || [ ! -f "$WHEEL_PATH" ]; then
             echo "Error: No wheel artifact found in dist/" >&2
@@ -307,43 +308,18 @@ jobs:
           TUI_DARWIN_X64_SHA="$(shasum -a 256 "$TUI_DARWIN_X64" | awk '{print $1}')"
           TUI_LINUX_X64_SHA="$(shasum -a 256 "$TUI_LINUX_X64" | awk '{print $1}')"
           TUI_LINUX_ARM64_SHA="$(shasum -a 256 "$TUI_LINUX_ARM64" | awk '{print $1}')"
-          VERSION="$(python - "$WHEEL_PATH" <<'PY'
-          import sys
-          import zipfile
+          WHEEL_VERSION="$(python3 .github/scripts/get_wheel_version.py "$WHEEL_PATH")"
 
-          wheel_path = sys.argv[1]
-          with zipfile.ZipFile(wheel_path) as wheel:
-              metadata_path = next(
-                  (
-                      member
-                      for member in wheel.namelist()
-                      if member.endswith(".dist-info/METADATA")
-                  ),
-                  None,
-              )
-              if metadata_path is None:
-                  raise SystemExit("Missing wheel METADATA file")
-
-              version_line = next(
-                  (
-                      line
-                      for line in wheel.read(metadata_path).decode("utf-8").splitlines()
-                      if line.startswith("Version: ")
-                  ),
-                  None,
-              )
-              if version_line is None:
-                  raise SystemExit("Missing Version field in wheel METADATA")
-
-              print(version_line.split(": ", 1)[1].strip())
-          PY
-          )"
+          if [ "$MANIFEST_VERSION" != "$WHEEL_VERSION" ]; then
+            echo "Error: TUI manifest version (${MANIFEST_VERSION}) differs from wheel metadata (${WHEEL_VERSION}) in CI artifacts" >&2
+            exit 1
+          fi
 
           TAP_DIR="$(mktemp -d)"
           mkdir -p "$TAP_DIR/Formula"
 
           python scripts/update_tap_formula.py \
-            --version "$VERSION" \
+            --version "$WHEEL_VERSION" \
             --wheel-url "file://$PWD/$WHEEL_PATH" \
             --wheel-sha256 "$WHEEL_SHA" \
             --tui-url-darwin-arm64 "file://$PWD/$TUI_DARWIN_ARM64" \
@@ -406,16 +382,17 @@ jobs:
 
       - name: Assert TUI artifacts exist for all targets
         run: |
+          MANIFEST_VERSION="$(python3 .github/scripts/get_manifest_version.py dist/tui/manifest.json)"
           test -f dist/tui/darwin-arm64/murmur-tui
           test -f dist/tui/darwin-x64/murmur-tui
           test -f dist/tui/linux-x64/murmur-tui
           test -f dist/tui/linux-arm64/murmur-tui
           test -f dist/tui/windows-x64/murmur-tui.exe
-          test -f dist/tui/murmur-tui-darwin-arm64.tar.gz
-          test -f dist/tui/murmur-tui-darwin-x64.tar.gz
-          test -f dist/tui/murmur-tui-linux-x64.tar.gz
-          test -f dist/tui/murmur-tui-linux-arm64.tar.gz
-          test -f dist/tui/murmur-tui-windows-x64.tar.gz
+          test -f "dist/tui/murmur-tui-${MANIFEST_VERSION}-darwin-arm64.tar.gz"
+          test -f "dist/tui/murmur-tui-${MANIFEST_VERSION}-darwin-x64.tar.gz"
+          test -f "dist/tui/murmur-tui-${MANIFEST_VERSION}-linux-x64.tar.gz"
+          test -f "dist/tui/murmur-tui-${MANIFEST_VERSION}-linux-arm64.tar.gz"
+          test -f "dist/tui/murmur-tui-${MANIFEST_VERSION}-windows-x64.tar.gz"
           test -f dist/tui/manifest.json
 
       - name: Upload TUI artifacts

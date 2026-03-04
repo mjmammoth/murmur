@@ -107,7 +107,8 @@ def detect_install_channel(
     executable: str | None = None,
     installer_home: Path = INSTALLER_HOME,
 ) -> str:
-    current_executable = Path(executable or sys.executable).expanduser().resolve()
+    raw_executable = Path(executable or sys.executable).expanduser()
+    current_executable = raw_executable.resolve(strict=False)
     venv_root = installer_home / "venv"
 
     if venv_root.exists():
@@ -117,7 +118,10 @@ def detect_install_channel(
         except Exception:
             pass
 
-    if _looks_like_homebrew_install(current_executable):
+    if _looks_like_homebrew_install(raw_executable):
+        return "homebrew"
+
+    if current_executable != raw_executable and _looks_like_homebrew_install(current_executable):
         return "homebrew"
 
     return "pip"
@@ -163,21 +167,28 @@ def _looks_like_homebrew_install(executable: Path) -> bool:
     if not prefix:
         return False
 
+    unresolved_executable = executable.expanduser()
+    unresolved_prefix = Path(prefix).expanduser()
+    if _path_is_relative_to(unresolved_executable, unresolved_prefix):
+        return True
+
     try:
-        resolved_executable = executable.expanduser().resolve()
-        resolved_prefix = Path(prefix).expanduser().resolve()
+        resolved_executable = unresolved_executable.resolve()
+        resolved_prefix = unresolved_prefix.resolve()
     except Exception:
         return False
 
+    return _path_is_relative_to(resolved_executable, resolved_prefix)
+
+
+def _path_is_relative_to(path: Path, root: Path) -> bool:
     try:
-        return resolved_executable.is_relative_to(resolved_prefix)
+        return path.is_relative_to(root)
     except Exception:
-        resolved_executable_text = str(resolved_executable)
-        resolved_prefix_text = str(resolved_prefix)
-        prefix_with_sep = f"{resolved_prefix_text}{os.sep}"
-        return resolved_executable_text == resolved_prefix_text or resolved_executable_text.startswith(
-            prefix_with_sep
-        )
+        path_text = str(path)
+        root_text = str(root)
+        root_with_sep = f"{root_text}{os.sep}"
+        return path_text == root_text or path_text.startswith(root_with_sep)
 
 
 def normalize_version_tag(requested_version: str | None) -> str | None:
@@ -259,19 +270,28 @@ def _iter_named_assets(assets: list[object]) -> list[tuple[str, dict[str, object
 def _classify_assets(
     named_assets: list[tuple[str, dict[str, object]]],
     target_name: str,
+    tag: str,
 ) -> tuple[list[dict[str, object]], dict[str, object] | None, dict[str, object] | None]:
     wheel_assets: list[dict[str, object]] = []
     tui_asset: dict[str, object] | None = None
     checksums_asset: dict[str, object] | None = None
-    expected_tui = f"murmur-tui-{target_name}.tar.gz"
+    version = tag[1:] if tag.startswith("v") else tag
+    versioned_tui = f"murmur-tui-{version}-{target_name}.tar.gz"
+    legacy_tui = f"murmur-tui-{target_name}.tar.gz"
 
     for name, asset in named_assets:
         if name.endswith(".whl"):
             wheel_assets.append(asset)
-        if name == expected_tui:
+        if name == versioned_tui:
             tui_asset = asset
         if name in CHECKSUM_MANIFEST_NAMES:
             checksums_asset = asset
+
+    if tui_asset is None:
+        for name, asset in named_assets:
+            if name == legacy_tui:
+                tui_asset = asset
+                break
 
     return wheel_assets, tui_asset, checksums_asset
 
@@ -362,7 +382,7 @@ def resolve_release_assets(
     tag, raw_assets = _fetch_release_payload(repository, normalized_tag)
     named_assets = _iter_named_assets(raw_assets)
 
-    wheel_assets, tui_asset, checksums_asset = _classify_assets(named_assets, target_name)
+    wheel_assets, tui_asset, checksums_asset = _classify_assets(named_assets, target_name, tag)
     _validate_classified_assets(wheel_assets, tui_asset, checksums_asset, target_name)
 
     checksums_name = _asset_name(checksums_asset)
