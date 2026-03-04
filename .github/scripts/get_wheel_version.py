@@ -38,6 +38,9 @@ def main() -> int:
     except (OSError, zipfile.BadZipFile) as exc:
         print(f"Error: unable to read wheel {wheel_path}: {exc}", file=sys.stderr)
         return 1
+    except Exception as exc2:
+        print(f"Error: failed to parse wheel {wheel_path}: {exc2}", file=sys.stderr)
+        return 1
 
     return 0
 
