@@ -35,7 +35,7 @@ def main() -> int:
                 return 1
 
             print(version_line.split(": ", 1)[1].strip())
-    except (FileNotFoundError, zipfile.BadZipFile) as exc:
+    except (OSError, zipfile.BadZipFile) as exc:
         print(f"Error: unable to read wheel {wheel_path}: {exc}", file=sys.stderr)
         return 1
 
