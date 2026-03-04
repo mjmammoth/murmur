@@ -286,23 +286,7 @@ jobs:
       - name: Render formula and register local tap
         run: |
           WHEEL_PATH="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
-          MANIFEST_VERSION="$(python3 - <<'PY'
-          import json
-          import sys
-
-          manifest_path = "dist/tui/manifest.json"
-          try:
-              with open(manifest_path, "r", encoding="utf-8") as handle:
-                  payload = json.load(handle)
-              print(payload["version"])
-          except (FileNotFoundError, json.JSONDecodeError, KeyError) as exc:
-              print(f"Error: unable to read version from {manifest_path}: {exc}", file=sys.stderr)
-              raise SystemExit(1) from exc
-          except Exception as exc:
-              print(f"Error: failed to parse {manifest_path}: {exc}", file=sys.stderr)
-              raise SystemExit(1) from exc
-          PY
-          )"
+          MANIFEST_VERSION="$(python3 .github/scripts/get_manifest_version.py dist/tui/manifest.json)"
           TUI_DARWIN_ARM64="dist/tui/murmur-tui-${MANIFEST_VERSION}-darwin-arm64.tar.gz"
           TUI_DARWIN_X64="dist/tui/murmur-tui-${MANIFEST_VERSION}-darwin-x64.tar.gz"
           TUI_LINUX_X64="dist/tui/murmur-tui-${MANIFEST_VERSION}-linux-x64.tar.gz"
@@ -357,7 +341,8 @@ jobs:
           )"
 
           if [ "$MANIFEST_VERSION" != "$WHEEL_VERSION" ]; then
-            echo "Warning: TUI manifest version (${MANIFEST_VERSION}) differs from wheel metadata (${WHEEL_VERSION}) in CI artifacts" >&2
+            echo "Error: TUI manifest version (${MANIFEST_VERSION}) differs from wheel metadata (${WHEEL_VERSION}) in CI artifacts" >&2
+            exit 1
           fi
 
           TAP_DIR="$(mktemp -d)"
@@ -427,23 +412,7 @@ jobs:
 
       - name: Assert TUI artifacts exist for all targets
         run: |
-          MANIFEST_VERSION="$(python3 - <<'PY'
-          import json
-          import sys
-
-          manifest_path = "dist/tui/manifest.json"
-          try:
-              with open(manifest_path, "r", encoding="utf-8") as handle:
-                  payload = json.load(handle)
-              print(payload["version"])
-          except (FileNotFoundError, json.JSONDecodeError, KeyError) as exc:
-              print(f"Error: unable to read version from {manifest_path}: {exc}", file=sys.stderr)
-              raise SystemExit(1) from exc
-          except Exception as exc:
-              print(f"Error: failed to parse {manifest_path}: {exc}", file=sys.stderr)
-              raise SystemExit(1) from exc
-          PY
-          )"
+          MANIFEST_VERSION="$(python3 .github/scripts/get_manifest_version.py dist/tui/manifest.json)"
           test -f dist/tui/darwin-arm64/murmur-tui
           test -f dist/tui/darwin-x64/murmur-tui
           test -f dist/tui/linux-x64/murmur-tui

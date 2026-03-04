@@ -306,23 +306,7 @@ jobs:
         run: |
           WHEEL_PATH="$(find release-assets/python-dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
           WHEEL_FILE="$(basename "${WHEEL_PATH}")"
-          MANIFEST_VERSION="$(python3 - <<'PY'
-          import json
-          import sys
-
-          manifest_path = "release-assets/tui-dist/manifest.json"
-          try:
-              with open(manifest_path, "r", encoding="utf-8") as handle:
-                  payload = json.load(handle)
-              print(payload["version"])
-          except (FileNotFoundError, json.JSONDecodeError, KeyError) as exc:
-              print(f"Error: unable to read version from {manifest_path}: {exc}", file=sys.stderr)
-              raise SystemExit(1) from exc
-          except Exception as exc:
-              print(f"Error: failed to parse {manifest_path}: {exc}", file=sys.stderr)
-              raise SystemExit(1) from exc
-          PY
-          )"
+          MANIFEST_VERSION="$(python3 .github/scripts/get_manifest_version.py release-assets/tui-dist/manifest.json)"
 
           if [ "${VERSION}" != "${MANIFEST_VERSION}" ]; then
             echo "Version mismatch: release version ${VERSION} != TUI manifest version ${MANIFEST_VERSION}" >&2
