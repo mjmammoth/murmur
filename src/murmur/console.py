@@ -25,6 +25,10 @@ MURMUR_THEME = Theme(
     }
 )
 
+_INSTALLED_LABEL = "● installed"
+_AVAILABLE_LABEL = "○ available"
+_WHISPER_CPP_KEY = "whisper.cpp"
+
 
 class MurmurConsole:
     """Wraps Rich Console with brand-themed output methods and plain-text fallback."""
@@ -77,7 +81,7 @@ class MurmurConsole:
         if not self.is_rich:
             self._print_service_status_plain(
                 running=running, pid=pid, host=host, port=port,
-                indicator_pid=indicator_pid, snapshot=snapshot,
+                indicator_pid=indicator_pid,
             )
             return
 
@@ -119,7 +123,6 @@ class MurmurConsole:
     def _append_rich_snapshot(self, content: Text, snapshot: dict[str, Any]) -> None:
         status = snapshot.get("status")
         config = snapshot.get("config")
-        kickoff_sent = bool(snapshot.get("kickoff_sent"))
 
         status_text = status if isinstance(status, str) and status else "unknown"
 
@@ -145,31 +148,7 @@ class MurmurConsole:
             content.append("✓ ready\n", style="success")
             return
 
-        # Runtime tree
-        content.append("  Runtime\n", style="muted")
-
-        phase_icon = "✓" if phase in {"complete", "ready"} else "…"
-        phase_style = "success" if phase in {"complete", "ready"} else "accent"
-        content.append("  ├─ Phase    ", style="muted")
-        content.append(f"{phase_icon} {phase}\n", style=phase_style)
-
-        audio = str(startup_dict.get("audio_scan", "unknown"))
-        audio_icon = "✓" if audio in {"done", "ready", "complete"} else "…"
-        audio_style = "success" if audio in {"done", "ready", "complete"} else "accent"
-        content.append("  ├─ Audio    ", style="muted")
-        content.append(f"{audio_icon} {audio}\n", style=audio_style)
-
-        model = str(startup_dict.get("model", "unknown"))
-        model_icon = "✓" if model in {"done", "ready", "loaded", "complete"} else "…"
-        model_style = "success" if model in {"done", "ready", "loaded", "complete"} else "accent"
-        content.append("  ├─ Model    ", style="muted")
-        content.append(f"{model_icon} {model}\n", style=model_style)
-
-        components = str(startup_dict.get("components", "unknown"))
-        comp_icon = "✓" if components in {"done", "ready", "complete"} else "…"
-        comp_style = "success" if components in {"done", "ready", "complete"} else "accent"
-        content.append("  └─ App      ", style="muted")
-        content.append(f"{comp_icon} {components}\n", style=comp_style)
+        self._append_runtime_tree(content, startup_dict, phase)
 
         if blocker_list:
             content.append("\n")
@@ -178,9 +157,34 @@ class MurmurConsole:
 
         if first_run:
             content.append("\n")
-            self._append_first_run_guidance(content, kickoff_sent)
+            self._append_first_run_guidance(content)
 
-    def _append_first_run_guidance(self, content: Text, kickoff_sent: bool) -> None:
+    def _append_runtime_tree(
+        self, content: Text, startup_dict: dict[str, Any], phase: str
+    ) -> None:
+        """Append the runtime component tree lines to content."""
+        content.append("  Runtime\n", style="muted")
+
+        phase_icon, phase_style = _component_state(phase, {"complete", "ready"})
+        content.append("  ├─ Phase    ", style="muted")
+        content.append(f"{phase_icon} {phase}\n", style=phase_style)
+
+        audio = str(startup_dict.get("audio_scan", "unknown"))
+        audio_icon, audio_style = _component_state(audio, {"done", "ready", "complete"})
+        content.append("  ├─ Audio    ", style="muted")
+        content.append(f"{audio_icon} {audio}\n", style=audio_style)
+
+        model = str(startup_dict.get("model", "unknown"))
+        model_icon, model_style = _component_state(model, {"done", "ready", "loaded", "complete"})
+        content.append("  ├─ Model    ", style="muted")
+        content.append(f"{model_icon} {model}\n", style=model_style)
+
+        components = str(startup_dict.get("components", "unknown"))
+        comp_icon, comp_style = _component_state(components, {"done", "ready", "complete"})
+        content.append("  └─ App      ", style="muted")
+        content.append(f"{comp_icon} {components}\n", style=comp_style)
+
+    def _append_first_run_guidance(self, content: Text) -> None:
         from murmur.cli import SETUP_GUIDANCE_MODEL
         content.append("  Next steps:\n", style="accent")
         content.append(f"    murmur models pull {SETUP_GUIDANCE_MODEL}\n", style="secondary")
@@ -195,7 +199,6 @@ class MurmurConsole:
         host: str | None,
         port: int | None,
         indicator_pid: int | None,
-        snapshot: dict[str, Any] | None,
     ) -> None:
         if running:
             indicator = (
@@ -295,41 +298,11 @@ class MurmurConsole:
         )
         table.add_column("Name", style="bold")
         table.add_column("faster-whisper", justify="center")
-        table.add_column("whisper.cpp", justify="center")
+        table.add_column(_WHISPER_CPP_KEY, justify="center")
         table.add_column("Size", justify="right", style="muted")
 
         for model in models:
-            name = model.name
-            is_selected = name == selected
-            name_display = f"★ {name}" if is_selected else f"  {name}"
-
-            variants = getattr(model, "variants", None)
-            if isinstance(variants, dict):
-                fw = variants.get("faster-whisper")
-                cpp = variants.get("whisper.cpp")
-                fw_text = Text("● installed", style="success") if fw and fw.installed else Text("○ available", style="muted")
-                cpp_text = Text("● installed", style="success") if cpp and cpp.installed else Text("○ available", style="muted")
-
-                # Size from first available variant
-                size = None
-                for v in [fw, cpp]:
-                    if v and v.size_bytes:
-                        size = v.size_bytes
-                        break
-                size_text = _format_size(size) if size else ""
-            else:
-                installed = bool(getattr(model, "installed", False))
-                fw_text = Text("● installed", style="success") if installed else Text("○ available", style="muted")
-                cpp_text = Text("-", style="muted")
-                size_text = ""
-
-            name_style = "accent" if is_selected else ""
-            table.add_row(
-                Text(name_display, style=name_style),
-                fw_text,
-                cpp_text,
-                size_text,
-            )
+            self._add_model_table_row(table, model, selected)
 
         self._console.print()
         self._console.print(table)
@@ -337,15 +310,43 @@ class MurmurConsole:
             self._console.print("  [accent]★[/accent] [muted]selected model[/muted]")
         self._console.print()
 
+    def _add_model_table_row(self, table: Table, model: Any, selected: str | None) -> None:
+        """Add a single model row to the rich models table."""
+        name = model.name
+        is_selected = name == selected
+        name_display = f"★ {name}" if is_selected else f"  {name}"
+
+        variants = getattr(model, "variants", None)
+        if isinstance(variants, dict):
+            fw = variants.get("faster-whisper")
+            cpp = variants.get(_WHISPER_CPP_KEY)
+            fw_text = _variant_text(fw)
+            cpp_text = _variant_text(cpp)
+            size = next((v.size_bytes for v in [fw, cpp] if v and v.size_bytes), None)
+            size_text = _format_size(size) if size else ""
+        else:
+            installed = bool(getattr(model, "installed", False))
+            fw_text = _installed_text(installed)
+            cpp_text = Text("-", style="muted")
+            size_text = ""
+
+        name_style = "accent" if is_selected else ""
+        table.add_row(
+            Text(name_display, style=name_style),
+            fw_text,
+            cpp_text,
+            size_text,
+        )
+
     def _print_model_list_plain(self, models: list[Any]) -> None:
         for model in models:
             variants = getattr(model, "variants", None)
             if isinstance(variants, dict):
                 fw_variant = variants.get("faster-whisper")
-                cpp_variant = variants.get("whisper.cpp")
+                cpp_variant = variants.get(_WHISPER_CPP_KEY)
                 fw_state = "installed" if fw_variant and fw_variant.installed else "available"
                 wcpp_state = "installed" if cpp_variant and cpp_variant.installed else "available"
-                print(f"{model.name}: faster-whisper={fw_state}, whisper.cpp={wcpp_state}")
+                print(f"{model.name}: faster-whisper={fw_state}, {_WHISPER_CPP_KEY}={wcpp_state}")
             else:
                 state = "installed" if bool(getattr(model, "installed", False)) else "available"
                 print(f"{model.name}: {state}")
@@ -467,20 +468,22 @@ class MurmurConsole:
 
     def prompt_uninstall_scope(self) -> tuple[bool, bool, bool]:
         if not self.is_rich:
-            print("Select uninstall scope:")
-            print("  1) App/runtime only")
-            print("  2) App/runtime + local state/config")
-            print("  3) App/runtime + local state/config + model cache")
-            while True:
-                choice = input("Choice [1-3] (default: 1): ").strip() or "1"
-                if choice == "1":
-                    return False, False, False
-                if choice == "2":
-                    return True, True, False
-                if choice == "3":
-                    return True, True, True
-                print("Invalid choice. Enter 1, 2, or 3.")
+            return self._prompt_uninstall_scope_plain()
+        return self._prompt_uninstall_scope_rich()
 
+    def _prompt_uninstall_scope_plain(self) -> tuple[bool, bool, bool]:
+        print("Select uninstall scope:")
+        print("  1) App/runtime only")
+        print("  2) App/runtime + local state/config")
+        print("  3) App/runtime + local state/config + model cache")
+        while True:
+            choice = input("Choice [1-3] (default: 1): ").strip() or "1"
+            result = _scope_from_choice(choice)
+            if result is not None:
+                return result
+            print("Invalid choice. Enter 1, 2, or 3.")
+
+    def _prompt_uninstall_scope_rich(self) -> tuple[bool, bool, bool]:
         from rich.prompt import Prompt
 
         self._console.print()
@@ -490,12 +493,9 @@ class MurmurConsole:
         self._console.print("    [muted]3)[/muted] App/runtime + local state/config + model cache")
         while True:
             choice = Prompt.ask("  Choice", choices=["1", "2", "3"], default="1", console=self._console)
-            if choice == "1":
-                return False, False, False
-            if choice == "2":
-                return True, True, False
-            if choice == "3":
-                return True, True, True
+            result = _scope_from_choice(choice)
+            if result is not None:
+                return result
 
     def confirm_uninstall(self) -> bool:
         if not self.is_rich:
@@ -518,6 +518,36 @@ class MurmurConsole:
             RichHelpFormatter.styles["argparse.groups"] = "bold #fab283"
             return RichHelpFormatter  # type: ignore[no-any-return]
         return None
+
+
+def _scope_from_choice(choice: str) -> tuple[bool, bool, bool] | None:
+    """Map a numeric scope choice string to (remove_state, remove_config, remove_model_cache)."""
+    if choice == "1":
+        return False, False, False
+    if choice == "2":
+        return True, True, False
+    if choice == "3":
+        return True, True, True
+    return None
+
+
+def _component_state(value: str, done_states: set[str]) -> tuple[str, str]:
+    """Return (icon, style) for a startup component based on its state value."""
+    if value in done_states:
+        return "✓", "success"
+    return "…", "accent"
+
+
+def _installed_text(installed: bool) -> Text:
+    """Return a Rich Text for installed/available state."""
+    if installed:
+        return Text(_INSTALLED_LABEL, style="success")
+    return Text(_AVAILABLE_LABEL, style="muted")
+
+
+def _variant_text(variant: Any) -> Text:
+    """Return a Rich Text for a model variant's installed/available state."""
+    return _installed_text(bool(variant and variant.installed))
 
 
 def _format_size(size_bytes: int) -> str:
