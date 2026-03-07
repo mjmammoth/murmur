@@ -85,6 +85,8 @@ class MurmurConsole:
             )
             return
 
+        _STATUS_PANEL_WIDTH = 48
+
         if running:
             content = Text()
             content.append("  Status   ", style="muted")
@@ -93,10 +95,10 @@ class MurmurConsole:
             content.append(f"{pid}\n")
             addr = f"{host or 'localhost'}:{port or 7878}"
             content.append("  Address  ", style="muted")
-            content.append(f"{addr}\n")
+            content.append(addr)
 
             if snapshot:
-                content.append("\n")
+                content.append("\n\n")
                 self._append_rich_snapshot(content, snapshot)
 
             panel = Panel(
@@ -104,18 +106,20 @@ class MurmurConsole:
                 title="[primary]murmur[/primary]",
                 title_align="left",
                 border_style="primary",
+                width=_STATUS_PANEL_WIDTH,
                 padding=(1, 2),
             )
             self._console.print(panel)
         else:
             content = Text()
             content.append("  Status   ", style="muted")
-            content.append("○ Stopped\n", style="muted")
+            content.append("○ Stopped", style="muted")
             panel = Panel(
                 content,
                 title="[primary]murmur[/primary]",
                 title_align="left",
                 border_style="primary",
+                width=_STATUS_PANEL_WIDTH,
                 padding=(1, 2),
             )
             self._console.print(panel)
@@ -128,7 +132,7 @@ class MurmurConsole:
 
         if not isinstance(config, dict):
             content.append("  Runtime  ", style="muted")
-            content.append("unavailable\n", style="warning")
+            content.append("unavailable", style="warning")
             return
 
         startup = config.get("startup")
@@ -145,15 +149,14 @@ class MurmurConsole:
         # If fully ready, compact output
         if not first_run and status_text == "ready" and close_ready and not blocker_list:
             content.append("  Runtime  ", style="muted")
-            content.append("✓ ready\n", style="success")
+            content.append("✓ ready", style="success")
             return
 
         self._append_runtime_tree(content, startup_dict, phase)
 
         if blocker_list:
-            content.append("\n")
             for blocker in blocker_list:
-                content.append(f"  ⚠ {blocker}\n", style="warning")
+                content.append(f"\n  ⚠ {blocker}", style="warning")
 
         if first_run:
             content.append("\n")
@@ -182,14 +185,14 @@ class MurmurConsole:
         components = str(startup_dict.get("components", "unknown"))
         comp_icon, comp_style = _component_state(components, {"done", "ready", "complete"})
         content.append("  └─ App      ", style="muted")
-        content.append(f"{comp_icon} {components}\n", style=comp_style)
+        content.append(f"{comp_icon} {components}", style=comp_style)
 
     def _append_first_run_guidance(self, content: Text) -> None:
         from murmur.cli import SETUP_GUIDANCE_MODEL
         content.append("  Next steps:\n", style="accent")
         content.append(f"    murmur models pull {SETUP_GUIDANCE_MODEL}\n", style="secondary")
         content.append(f"    murmur models select {SETUP_GUIDANCE_MODEL}\n", style="secondary")
-        content.append("    murmur status\n", style="secondary")
+        content.append("    murmur status", style="secondary")
 
     def _print_service_status_plain(
         self,
