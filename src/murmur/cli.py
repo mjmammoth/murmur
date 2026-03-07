@@ -12,6 +12,7 @@ from typing import Any, TYPE_CHECKING, Union
 
 from murmur import __version__
 from murmur.config import SUPPORTED_RUNTIMES, load_config
+from murmur.console import get_console, init_console
 from murmur.platform import create_status_indicator_provider
 from murmur.service_manager import ServiceManager
 from murmur.tui_runtime import resolve_tui_runtime
@@ -42,12 +43,20 @@ RUNNING_LOOP_STATUS_MESSAGE = (
 )
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=(Path(sys.argv[0]).name or "murmur"))
+def build_parser(*, formatter_class: type | None = None) -> argparse.ArgumentParser:
+    kwargs: dict[str, Any] = {"prog": Path(sys.argv[0]).name or "murmur"}
+    if formatter_class is not None:
+        kwargs["formatter_class"] = formatter_class
+    parser = argparse.ArgumentParser(**kwargs)
     parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
+    )
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="Force plain text output (no colors or formatting)",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -226,10 +235,11 @@ def _ensure_service_running(host: str, port: int, *, status_indicator: bool) -> 
 
 
 def _run_tui_attach(host: str, port: int, *, status_indicator: bool) -> None:
+    console = get_console()
     try:
         service_status = _ensure_service_running(host, port, status_indicator=status_indicator)
     except Exception as exc:
-        print(f"Error: failed to start service: {exc}")
+        console.print_error(f"failed to start service: {exc}")
         raise SystemExit(1)
 
     resolved_host = service_status.host or host
@@ -241,7 +251,7 @@ def _run_tui_attach(host: str, port: int, *, status_indicator: bool) -> None:
     except KeyboardInterrupt:
         pass
     except FileNotFoundError as exc:
-        print(f"Error: {exc}")
+        console.print_error(str(exc))
         raise SystemExit(1)
     finally:
         _restore_terminal_state()
@@ -270,36 +280,45 @@ def _service_run(host: str, port: int, *, foreground: bool, status_indicator: bo
 
     manager = ServiceManager()
     status = manager.start_background(host=host, port=port, status_indicator=status_indicator)
+    console = get_console()
     if status.running:
-        print(f"Service running pid={status.pid} host={status.host} port={status.port}")
+        console.print_success(f"Service running pid={status.pid} host={status.host} port={status.port}")
     elif status.stale:
-        print("Service state was stale and has been cleaned up")
+        console.print_warning("Service state was stale and has been cleaned up")
     else:
-        print("Service start requested")
+        console.print("Service start requested")
 
 
 def _service_stop() -> None:
     manager = ServiceManager()
     before = manager.load_state()
     manager.stop()
+    console = get_console()
     if before is None:
-        print("Service is not running")
+        console.print_warning("Service is not running")
     else:
-        print("Service stopped")
+        console.print_success("Service stopped")
 
 
 def _service_status() -> None:
     manager = ServiceManager()
     status = manager.status()
+    console = get_console()
+
     if status.running:
-        indicator = (
-            f" indicator_pid={status.status_indicator_pid}"
-            if status.status_indicator_pid is not None
-            else ""
-        )
-        print(f"running pid={status.pid} host={status.host} port={status.port}{indicator}")
         host = status.host or "localhost"
         port = status.port if status.port is not None else 7878
+
+        # In plain mode, print the running line first (tests expect this before snapshot)
+        if not console.is_rich:
+            indicator = (
+                f" indicator_pid={status.status_indicator_pid}"
+                if status.status_indicator_pid is not None
+                else ""
+            )
+            print(f"running pid={status.pid} host={status.host} port={status.port}{indicator}")
+
+        snapshot = None
         try:
             loop_running = False
             try:
@@ -317,15 +336,32 @@ def _service_status() -> None:
                     timeout_seconds=STATUS_SNAPSHOT_TIMEOUT_SECONDS,
                 )
             )
-            _print_runtime_status_snapshot(snapshot)
         except Exception as exc:
-            error_message = f"Unable to query runtime state: {exc}"
-            print(f"app_status=unknown message={json.dumps(error_message, ensure_ascii=True)}")
+            if console.is_rich:
+                console.print_service_status(
+                    running=True, pid=status.pid, host=status.host,
+                    port=status.port, indicator_pid=status.status_indicator_pid,
+                )
+                console.print_error(f"Unable to query runtime state: {exc}")
+            else:
+                console.print_runtime_error_plain(exc)
+            return
+
+        if console.is_rich:
+            console.print_service_status(
+                running=True, pid=status.pid, host=status.host,
+                port=status.port, indicator_pid=status.status_indicator_pid,
+                snapshot=snapshot,
+            )
+        else:
+            _print_runtime_status_snapshot(snapshot)
         return
+
     if status.stale:
-        print(f"stale (cleaned) previous_pid={status.pid} host={status.host} port={status.port}")
+        console.print_stale_status(pid=status.pid, host=status.host, port=status.port)
         return
-    print("stopped")
+
+    console.print_service_status(running=False)
 
 
 async def _wait_for_status(
@@ -625,10 +661,11 @@ def _trigger(
     status_indicator: bool,
     timeout_seconds: float,
 ) -> None:
+    console = get_console()
     try:
         service_status = _ensure_service_running(host, port, status_indicator=status_indicator)
     except Exception as exc:
-        print(f"Error: failed to start service: {exc}")
+        console.print_error(f"failed to start service: {exc}")
         raise SystemExit(1)
 
     resolved_host = service_status.host or host
@@ -636,33 +673,34 @@ def _trigger(
 
     try:
         ack_status = asyncio.run(_trigger_async(resolved_host, resolved_port, action, timeout_seconds))
-        print(f"Trigger acknowledged: status={ack_status}")
+        console.print_success(f"Trigger acknowledged: status={ack_status}")
     except TimeoutError as exc:
-        print(f"Error: trigger command timed out: {exc}")
+        console.print_error(f"trigger command timed out: {exc}")
         raise SystemExit(2)
     except Exception as exc:
-        print(f"Error: trigger command failed: {exc}")
+        console.print_error(f"trigger command failed: {exc}")
         raise SystemExit(1)
 
 
 def _upgrade(*, requested_version: str | None) -> None:
     from murmur.upgrade import UpgradeActionRequired, UpgradeError, run_upgrade
 
+    console = get_console()
     try:
         result = run_upgrade(requested_version=requested_version)
     except UpgradeActionRequired as exc:
-        print(str(exc))
+        console.print(str(exc))
         raise SystemExit(2)
     except UpgradeError as exc:
-        print(f"Error: {exc}")
+        console.print_error(str(exc))
         raise SystemExit(1)
 
-    print(
+    console.print_success(
         f"Upgraded murmur {result.previous_version} -> {result.new_version} "
         f"({result.tag})"
     )
     if result.restarted_service:
-        print("Service was running and has been restarted.")
+        console.print("Service was running and has been restarted.")
 
 
 def _resolve_uninstall_scope(args: argparse.Namespace) -> tuple[bool, bool, bool, bool]:
@@ -678,35 +716,17 @@ def _resolve_uninstall_scope(args: argparse.Namespace) -> tuple[bool, bool, bool
 
 
 def _prompt_uninstall_scope() -> tuple[bool, bool, bool]:
-    print("Select uninstall scope:")
-    print("  1) App/runtime only")
-    print("  2) App/runtime + local state/config")
-    print("  3) App/runtime + local state/config + model cache")
-    while True:
-        choice = input("Choice [1-3] (default: 1): ").strip() or "1"
-        if choice == "1":
-            return False, False, False
-        if choice == "2":
-            return True, True, False
-        if choice == "3":
-            return True, True, True
-        print("Invalid choice. Enter 1, 2, or 3.")
+    return get_console().prompt_uninstall_scope()
 
 
 def _print_uninstall_plan(*, remove_state: bool, remove_config: bool, remove_model_cache: bool) -> None:
-    print("Uninstall plan:")
-    print("  - Remove installer launchers and runtime under ~/.local/share/murmur")
-    if remove_state:
-        print("  - Remove ~/.local/state/murmur")
-    if remove_config:
-        print("  - Remove ~/.config/murmur")
-    if remove_model_cache:
-        print("  - Remove murmur model caches under ~/.cache/huggingface/hub")
+    get_console().print_uninstall_plan(
+        remove_state=remove_state, remove_config=remove_config, remove_model_cache=remove_model_cache,
+    )
 
 
 def _confirm_uninstall() -> bool:
-    response = input("Proceed with uninstall? [y/N]: ").strip().lower()
-    return response in {"y", "yes"}
+    return get_console().confirm_uninstall()
 
 
 def _resolve_interactive_scope(
@@ -735,7 +755,7 @@ def _resolve_interactive_scope(
             remove_model_cache=remove_model_cache,
         )
         if not _confirm_uninstall():
-            print("Uninstall cancelled.")
+            get_console().print_warning("Uninstall cancelled.")
             raise SystemExit(1)
 
     return remove_state, remove_config, remove_model_cache
@@ -743,25 +763,26 @@ def _resolve_interactive_scope(
 
 def _print_uninstall_result(result: Any) -> None:
     """Print uninstall result details, raising SystemExit(1) on failures."""
+    console = get_console()
     if result.removed_paths:
-        print("Removed paths:")
+        console.print("Removed paths:")
         for path in result.removed_paths:
-            print(f"  - {path}")
+            console.print(f"  - {path}")
     else:
-        print("No files were removed.")
+        console.print("No files were removed.")
 
     if result.warnings:
-        print("Warnings:")
+        console.print("Warnings:")
         for warning in result.warnings:
-            print(f"  - {warning}")
+            console.print(f"  - {warning}")
 
     if result.failed_paths:
-        print("Failed to remove:")
+        console.print("Failed to remove:")
         for failure in result.failed_paths:
-            print(f"  - {failure.path}: {failure.reason}")
+            console.print(f"  - {failure.path}: {failure.reason}")
         raise SystemExit(1)
 
-    print("Uninstall complete.")
+    console.print_success("Uninstall complete.")
 
 
 def _uninstall(args: argparse.Namespace) -> None:
@@ -787,63 +808,60 @@ def _uninstall(args: argparse.Namespace) -> None:
         remove_model_cache=remove_model_cache,
     )
 
+    console = get_console()
     try:
         result = run_uninstall(options=options)
     except UninstallActionRequired as exc:
-        print(str(exc))
+        console.print(str(exc))
         raise SystemExit(2)
     except UninstallError as exc:
-        print(f"Error: {exc}")
+        console.print_error(str(exc))
         raise SystemExit(1)
 
     _print_uninstall_result(result)
 
 
 def _print_version() -> None:
-    print(__version__)
-
-
-def _print_model_info(model: Any) -> None:
-    """Print a single model's variant information."""
-    variants = getattr(model, "variants", None)
-    if isinstance(variants, dict):
-        fw_variant = variants.get("faster-whisper")
-        cpp_variant = variants.get("whisper.cpp")
-        fw_state = "installed" if fw_variant and fw_variant.installed else "available"
-        wcpp_state = "installed" if cpp_variant and cpp_variant.installed else "available"
-        print(f"{model.name}: faster-whisper={fw_state}, whisper.cpp={wcpp_state}")
-    else:
-        state = "installed" if bool(getattr(model, "installed", False)) else "available"
-        print(f"{model.name}: {state}")
+    get_console().print_version(__version__)
 
 
 def _handle_models_list() -> None:
     from murmur.model_manager import list_installed_models
 
-    for model in list_installed_models():
-        _print_model_info(model)
+    console = get_console()
+    models = list_installed_models()
+    # Determine selected model from config
+    selected: str | None = None
+    try:
+        config = load_config()
+        selected = config.model.name
+    except Exception:
+        pass
+    console.print_model_list(models, selected=selected)
 
 
 def _handle_models_pull(name: str, runtime: str) -> None:
     from murmur.model_manager import download_model
 
+    console = get_console()
     if runtime == "faster-whisper":
         download_model(name)
-        print(f"Downloaded {name}")
+        console.print_success(f"Downloaded {name}")
     else:
         download_model(name, runtime=runtime)
-        print(f"Downloaded {name} ({runtime})")
+        console.print_success(f"Downloaded {name} ({runtime})")
 
 
 def _handle_models_remove(name: str, runtime: str) -> None:
     from murmur.model_manager import remove_model
 
+    console = get_console()
     if runtime == "faster-whisper":
         remove_model(name)
-        print(f"Removed {name}")
+        console.print_success(f"Removed {name}")
     else:
         remove_model(name, runtime=runtime)
-        print(f"Removed {name} ({runtime})")
+        console.print_success(f"Removed {name} ({runtime})")
 
 
 def _handle_models_command(args: argparse.Namespace) -> None:
@@ -870,29 +888,23 @@ def _handle_models_command(args: argparse.Namespace) -> None:
 
     if args.models_command in ("select", "set-default"):
         set_selected_model(args.name)
-        print(f"Selected model set to {args.name}")
+        get_console().print_success(f"Selected model set to {args.name}")
 
 
 def _handle_config_command(args: argparse.Namespace) -> None:
     config = load_config(args.path)
-    for section, values in config.to_dict().items():
-        if not isinstance(values, dict):
-            print(f"{section} = {values}")
-            continue
-        print(f"[{section}]")
-        for key, value in values.items():
-            if isinstance(value, dict):
-                for sub_key, sub_value in value.items():
-                    print(f"{key}.{sub_key} = {sub_value}")
-            else:
-                print(f"{key} = {value}")
+    get_console().print_config(config.to_dict())
 
 
 def main() -> None:
-    parser = build_parser()
+    console = init_console(force_plain=("--plain" in sys.argv))
+    formatter_class = console.get_help_formatter_class() if console.is_rich else None
+    parser = build_parser(formatter_class=formatter_class)
     args = parser.parse_args()
 
     if args.command is None:
+        if console.is_rich:
+            console.print_logo()
         _service_status()
         print()
         parser.print_help()
@@ -962,6 +974,8 @@ def main() -> None:
         _print_version()
         return
 
+    if console.is_rich:
+        console.print_logo()
     parser.print_help()
 
 
