@@ -178,6 +178,7 @@ def print_rich_logo(console: Console) -> None:
         "  ╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝",
     ]
 
+    console.print()
     for line in lines:
         text = Text(line)
         text.stylize("bold #9d7cd8")

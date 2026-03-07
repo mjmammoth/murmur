@@ -58,7 +58,7 @@ def build_parser(*, formatter_class: type | None = None) -> argparse.ArgumentPar
         action="store_true",
         help="Force plain text output (no colors or formatting)",
     )
-    subparsers = parser.add_subparsers(dest="command")
+    subparsers = parser.add_subparsers(dest="command", title="commands", metavar="<command>")
 
     # Deprecated alias: preserve for compatibility, but behavior now matches `tui`.
     run_parser = subparsers.add_parser("run", help="[Deprecated] Attach TUI to service")
