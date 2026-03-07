@@ -14,11 +14,6 @@ def plain_console() -> MurmurConsole:
     return MurmurConsole(force_plain=True)
 
 
-@pytest.fixture
-def rich_console() -> MurmurConsole:
-    """Console that thinks it's a TTY (force_plain=False, but is_terminal depends on stdout)."""
-    return MurmurConsole(force_plain=False)
-
 
 class TestIsRich:
     def test_force_plain_returns_false(self, plain_console: MurmurConsole) -> None:
@@ -188,3 +183,19 @@ class TestSingleton:
 class TestGetHelpFormatterClass:
     def test_plain_returns_none(self, plain_console: MurmurConsole) -> None:
         assert plain_console.get_help_formatter_class() is None
+
+
+class TestPrintImageLogo:
+    def test_returns_false_when_not_tty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from murmur.logo import print_image_logo
+        monkeypatch.setattr("sys.stdout", Mock(isatty=lambda: False))
+        assert print_image_logo() is False
+
+    def test_falls_back_on_render_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """print_image_logo returns False instead of raising when rendering fails."""
+        from murmur import logo as logo_mod
+        from murmur.logo import print_image_logo
+        monkeypatch.setattr("sys.stdout", Mock(isatty=lambda: True))
+        monkeypatch.setattr(logo_mod, "_supports_iterm_images", lambda: True)
+        monkeypatch.setattr(logo_mod, "_render_iterm_image", lambda: (_ for _ in ()).throw(Exception("bad data")))
+        assert print_image_logo() is False

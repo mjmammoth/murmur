@@ -148,15 +148,18 @@ def print_image_logo() -> bool:
     if not sys.stdout.isatty():
         return False
 
-    if _supports_iterm_images():
-        sys.stdout.write(_render_iterm_image())
-        sys.stdout.flush()
-        return True
+    try:
+        if _supports_iterm_images():
+            sys.stdout.write(_render_iterm_image())
+            sys.stdout.flush()
+            return True
 
-    if _supports_kitty_images():
-        sys.stdout.write(_render_kitty_image())
-        sys.stdout.flush()
-        return True
+        if _supports_kitty_images():
+            sys.stdout.write(_render_kitty_image())
+            sys.stdout.flush()
+            return True
+    except Exception:
+        pass
 
     return False
 
