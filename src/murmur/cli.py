@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, TYPE_CHECKING, Union
+from typing import Any, Iterator, TYPE_CHECKING, Union, cast
 
 from murmur import __version__
 from murmur.config import SUPPORTED_RUNTIMES, load_config
@@ -43,40 +43,81 @@ RUNNING_LOOP_STATUS_MESSAGE = (
 )
 
 
+def _parser_formatter_class(
+    base_formatter_class: type[argparse.HelpFormatter] | None,
+) -> type[argparse.HelpFormatter]:
+    """Return a formatter class that suppresses the subparser metavar row."""
+    base_class = base_formatter_class or argparse.HelpFormatter
+
+    class _ParserHelpFormatter(base_class):  # type: ignore[misc, valid-type]
+        def _format_action(self, action: argparse.Action) -> str:
+            if isinstance(action, argparse._SubParsersAction):
+                return "".join(
+                    self._format_action(subaction)
+                    for subaction in self._iter_indented_subactions(action)
+                )
+            return cast(str, super()._format_action(action))
+
+        def _rich_format_action(self, action: argparse.Action) -> Iterator[Any]:
+            if isinstance(action, argparse._SubParsersAction):
+                for subaction in self._iter_indented_subactions(action):
+                    yield from self._rich_format_action(subaction)
+                return
+            yield from super()._rich_format_action(action)
+
+    return _ParserHelpFormatter
+
+
 def build_parser(*, formatter_class: type | None = None) -> argparse.ArgumentParser:
-    kwargs: dict[str, Any] = {"prog": Path(sys.argv[0]).name or "murmur"}
-    if formatter_class is not None:
-        kwargs["formatter_class"] = formatter_class
-    parser = argparse.ArgumentParser(**kwargs)
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
+    parser_formatter_class = _parser_formatter_class(formatter_class)
+    class _SubparserArgumentParser(argparse.ArgumentParser):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            kwargs.setdefault("formatter_class", parser_formatter_class)
+            super().__init__(*args, **kwargs)
+
+    common = _SubparserArgumentParser(add_help=False)
+    common.add_argument(
+        "--plain",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Force plain text output (no colors or formatting)",
     )
+
+    kwargs: dict[str, Any] = {
+        "prog": Path(sys.argv[0]).name or "murmur",
+        "formatter_class": parser_formatter_class,
+    }
+    parser = argparse.ArgumentParser(**kwargs)
     parser.add_argument(
         "--plain",
         action="store_true",
         help="Force plain text output (no colors or formatting)",
     )
-    subparsers = parser.add_subparsers(dest="command", title="commands", metavar="<command>")
-
-    # Deprecated alias: preserve for compatibility, but behavior now matches `tui`.
-    run_parser = subparsers.add_parser("run", help="[Deprecated] Attach TUI to service")
-    run_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
-    run_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
-    run_parser.add_argument(
-        "--no-status-indicator",
-        action="store_true",
-        help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
 
-    bridge_parser = subparsers.add_parser("bridge", help="Start only the WebSocket bridge server")
+    subparsers = parser.add_subparsers(
+        dest="command",
+        title="commands",
+        metavar="<command>",
+        parser_class=_SubparserArgumentParser,
+    )
+
+    bridge_parser = subparsers.add_parser(
+        "bridge",
+        parents=[common],
+        help="Start only the WebSocket bridge server",
+    )
     bridge_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
     bridge_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     bridge_parser.add_argument("--capture-logs", action="store_true", help=argparse.SUPPRESS)
 
     tui_parser = subparsers.add_parser(
         "tui",
+        parents=[common],
         help="Attach the TypeScript TUI to the service (auto-starts service if needed)",
     )
     tui_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
@@ -87,7 +128,7 @@ def build_parser(*, formatter_class: type | None = None) -> argparse.ArgumentPar
         help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
     )
 
-    start_parser = subparsers.add_parser("start", help="Start service")
+    start_parser = subparsers.add_parser("start", parents=[common], help="Start service")
     start_parser.add_argument("--host", default="localhost", help=_BRIDGE_HOST_HELP)
     start_parser.add_argument("--port", type=int, default=7878, help=_BRIDGE_PORT_HELP)
     start_parser.add_argument(
@@ -101,11 +142,12 @@ def build_parser(*, formatter_class: type | None = None) -> argparse.ArgumentPar
         help="Disable macOS menu bar status indicator",
     )
 
-    subparsers.add_parser("stop", help="Stop service")
-    subparsers.add_parser("status", help="Show service status")
+    subparsers.add_parser("stop", parents=[common], help="Stop service")
+    subparsers.add_parser("status", parents=[common], help="Show service status")
 
     trigger_parser = subparsers.add_parser(
         "trigger",
+        parents=[common],
         help="Control recording without opening TUI",
     )
     trigger_parser.add_argument("action", choices=("start", "stop", "toggle"))
@@ -123,11 +165,14 @@ def build_parser(*, formatter_class: type | None = None) -> argparse.ArgumentPar
         help=NO_STATUS_INDICATOR_AUTOSTART_HELP,
     )
 
-    models_parser = subparsers.add_parser("models", help="Manage models")
-    models_sub = models_parser.add_subparsers(dest="models_command")
-    models_sub.add_parser("list", help="List available models")
+    models_parser = subparsers.add_parser("models", parents=[common], help="Manage models")
+    models_sub = models_parser.add_subparsers(
+        dest="models_command",
+        parser_class=_SubparserArgumentParser,
+    )
+    models_sub.add_parser("list", parents=[common], help="List available models")
 
-    pull_parser = models_sub.add_parser("pull", help="Download a model")
+    pull_parser = models_sub.add_parser("pull", parents=[common], help="Download a model")
     pull_parser.add_argument("name")
     pull_parser.add_argument(
         "--runtime",
@@ -136,7 +181,7 @@ def build_parser(*, formatter_class: type | None = None) -> argparse.ArgumentPar
         help="Model runtime variant to download",
     )
 
-    remove_parser = models_sub.add_parser("remove", help="Remove a model")
+    remove_parser = models_sub.add_parser("remove", parents=[common], help="Remove a model")
     remove_parser.add_argument("name")
     remove_parser.add_argument(
         "--runtime",
@@ -147,16 +192,18 @@ def build_parser(*, formatter_class: type | None = None) -> argparse.ArgumentPar
 
     select_parser = models_sub.add_parser(
         "select",
+        parents=[common],
         aliases=["set-default"],
         help="Select model",
     )
     select_parser.add_argument("name")
 
-    config_parser = subparsers.add_parser("config", help="Show config")
+    config_parser = subparsers.add_parser("config", parents=[common], help="Show config")
     config_parser.add_argument("--path", type=Path)
 
     upgrade_parser = subparsers.add_parser(
         "upgrade",
+        parents=[common],
         help="Upgrade murmur (auto-upgrade only for installer-managed installs)",
     )
     upgrade_parser.add_argument(
@@ -166,6 +213,7 @@ def build_parser(*, formatter_class: type | None = None) -> argparse.ArgumentPar
 
     uninstall_parser = subparsers.add_parser(
         "uninstall",
+        parents=[common],
         help="Uninstall murmur (auto-uninstall only for installer-managed installs)",
     )
     uninstall_parser.add_argument(
@@ -194,7 +242,7 @@ def build_parser(*, formatter_class: type | None = None) -> argparse.ArgumentPar
         help="Equivalent to --remove-state --remove-config --remove-model-cache",
     )
 
-    subparsers.add_parser("version", help="Print installed murmur version")
+    subparsers.add_parser("version", parents=[common], help="Print installed murmur version")
 
     return parser
 
@@ -908,15 +956,6 @@ def main() -> None:
         _service_status()
         print()
         parser.print_help()
-        return
-
-    if args.command == "run":
-        print("Warning: 'run' is deprecated; use 'tui' instead.", file=sys.stderr)
-        _run_tui_attach(
-            args.host,
-            args.port,
-            status_indicator=not args.no_status_indicator,
-        )
         return
 
     if args.command == "start":

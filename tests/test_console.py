@@ -106,13 +106,13 @@ class TestFeedbackMessages:
 
     def test_print_error_plain(self, plain_console: MurmurConsole, capsys) -> None:
         plain_console.print_error("Something broke")
-        assert "Error: Something broke" in capsys.readouterr().out
+        assert "Error: Something broke" in capsys.readouterr().err
 
     def test_print_error_with_hint_plain(self, plain_console: MurmurConsole, capsys) -> None:
         plain_console.print_error("Failed", hint="Try again")
         captured = capsys.readouterr()
-        assert "Error: Failed" in captured.out
-        assert "Hint: Try again" in captured.out
+        assert "Error: Failed" in captured.err
+        assert "Hint: Try again" in captured.err
 
 
 class TestUninstallFlow:
@@ -169,15 +169,24 @@ class TestFormatSize:
 
 class TestSingleton:
     def test_init_console_returns_instance(self) -> None:
+        import murmur.console as console_mod
+        original_console = console_mod._console
         console = init_console(force_plain=True)
-        assert isinstance(console, MurmurConsole)
-        assert console.is_rich is False
+        try:
+            assert isinstance(console, MurmurConsole)
+            assert console.is_rich is False
+        finally:
+            console_mod._console = original_console
 
     def test_get_console_returns_default_if_not_initialized(self) -> None:
         import murmur.console as console_mod
+        original_console = console_mod._console
         console_mod._console = None
-        console = get_console()
-        assert isinstance(console, MurmurConsole)
+        try:
+            console = get_console()
+            assert isinstance(console, MurmurConsole)
+        finally:
+            console_mod._console = original_console
 
 
 class TestGetHelpFormatterClass:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from contextlib import contextmanager
 from typing import Any, Iterator
 
@@ -434,9 +435,9 @@ class MurmurConsole:
             if hint:
                 self._console.print(f"    [muted]Hint: {hint}[/muted]")
         else:
-            print(f"Error: {message}")
+            print(f"Error: {message}", file=sys.stderr)
             if hint:
-                print(f"Hint: {hint}")
+                print(f"Hint: {hint}", file=sys.stderr)
 
     def print(self, message: str = "") -> None:
         """Print a plain message."""
